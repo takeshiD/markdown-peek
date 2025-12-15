@@ -1,50 +1,49 @@
-use axum::{Router, response::Html, routing::get};
-use std::{fs, net::SocketAddr};
-use tokio::net::TcpListener;
-use pulldown_cmark::{Parser, Options};
+mod cli;
+mod server;
+mod watcher;
 
-#[tokio::main]
-async fn main() {
-    let static_files = tower_http::services::ServeDir::new("./static");
-    let app = Router::new()
-        .route("/", get(hello_handler))
-        .nest_service("/static", static_files);
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-    let listener = TcpListener::bind(addr).await.unwrap();
-    println!("Listening on http://{}", addr);
-    axum::serve(listener, app).await.unwrap();
+use crate::cli::{Cli, Mode};
+use anyhow::Result;
+use std::path::PathBuf;
+use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
+
+fn main() -> Result<()> {
+    let cmd = Cli::parse_with_color()?;
+    let mode = cmd.resolve_mode()?;
+    match mode {
+        Mode::Serve { file, watch } => handle_serve(file),
+        Mode::Term { file, watch } => unimplemented!(),
+    }
+    Ok(())
 }
 
-async fn hello_handler() -> Html<String> {
-    let markdown_input = r#"
-# HelloWorld
-hello_handler
-- [ ] task1
-- [ ] task2
-    - [ ] task3
-    - [ ] task4
+fn handle_serve(root: PathBuf) {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(true)
+        .init();
+    if root.exists() {
+        if root.is_file() {
+            info!("watching file '{}'", root.display());
+        } else if root.is_dir() {
+            info!("watching dir '{}'", root.display());
+        } else {
+            error!("'{}' is not file and directory.", root.display());
+        }
+    } else {
+        error!("'{}' is not found.", root.display());
+    }
+}
 
-> Quote  
-> Hello Quote
-
-## Header Level2
-Hello Header
-
-# Table
-| name | age |
-|------|-----|
-| takeshid | 99 |
-    "#;
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_GFM);
-    options.insert(Options::ENABLE_TASKLISTS);
-    options.insert(Options::ENABLE_TABLES);
-    let parser = Parser::new_ext(markdown_input, options);
-    let mut html_body = String::new();
-    pulldown_cmark::html::push_html(&mut html_body, parser);
-    let template = fs::read_to_string("templates/preview.html").unwrap();
-    let page = template
-        .replace("{{ content }}", &html_body)
-        .replace("{{theme}}", "github");
-    Html(page)
+fn handle_term(root: PathBuf) {
+    if root.exists() {
+        if root.is_file() {
+            info!("watching file '{}'", root.display());
+        } else {
+            error!("'{}' is not file and directory.", root.display());
+        }
+    } else {
+        error!("'{}' is not found.", root.display());
+    }
 }
