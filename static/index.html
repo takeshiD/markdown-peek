@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no">
+    <title>Markdown Peek</title>
+    <link rel="stylesheet" href="/static/css/github.css">
+    <link rel="shortcut icon" href="/static/icons/favicon.svg">
+    <script>
+        var eventSource = new EventSource('sse');
+        eventSource.onmessage = function (event) {
+            console.log('Message from server ', event.data);
+            window.location.reload();
+        }
+    </script>
+</head>
+
+<body>
+    <article id="markdown-body" class="markdown-body">
+        {{ content }}
+    </article>
+</body>
+
+</html>
