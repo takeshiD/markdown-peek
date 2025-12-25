@@ -1,26 +1,33 @@
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify_debouncer_mini::notify::RecursiveMode;
 use std::path::Path;
-use tokio::sync::broadcast;
+use std::sync::mpsc::channel;
+use std::time::Duration;
 use tracing::{error, info};
 
-pub async fn spawn_watcher(
-    path: impl AsRef<Path>,
-    tx: broadcast::Sender<()>,
-) -> notify::Result<RecommendedWatcher> {
+pub async fn rebuild_on_change(path: impl AsRef<Path>) {
     let path = path.as_ref().to_path_buf();
-    let mut watcher = RecommendedWatcher::new(
-        move |res: Result<Event, notify::Error>| match res {
-            Ok(event) => {
-                if event.kind.is_modify() || event.kind.is_create() {
-                    info!("File changed: {:?}", event.paths);
-                    let _ = tx.send(());
+    let (tx, rx) = channel();
+    let mut debouncer = match notify_debouncer_mini::new_debouncer(Duration::from_secs(1), tx) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("Error while trying to watch the files:\n\n\t{:?}", e);
+            std::process::exit(1)
+        }
+    };
+    let watcher = debouncer.watcher();
+    let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
+    info!("Watching: {:?}", path);
+    loop {
+        let received = rx.recv().unwrap();
+        match received {
+            Ok(events) => {
+                for event in events {
+                    info!("{:#?}", event);
                 }
             }
-            Err(e) => error!("Watch error: {:?}", e),
-        },
-        Config::default(),
-    )?;
-    watcher.watch(&path, RecursiveMode::Recursive)?;
-    info!("Watching: {:?}", path);
-    Ok(watcher)
+            Err(e) => {
+                error!("{e}");
+            }
+        }
+    }
 }
