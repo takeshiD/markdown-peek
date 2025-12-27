@@ -617,6 +617,7 @@ dependencies = [
  "notify",
  "notify-debouncer-mini",
  "pulldown-cmark",
+ "pulldown-cmark-escape",
  "thiserror",
  "tokio",
  "tokio-stream",

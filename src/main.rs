@@ -1,7 +1,7 @@
 mod cli;
 mod server;
 mod watcher;
-mod renderer;
+mod emitter;
 
 use crate::cli::{Cli, Mode};
 use crate::server::serve;

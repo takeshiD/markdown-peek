@@ -10,7 +10,7 @@ use axum::{
 };
 use core::fmt;
 use futures::{SinkExt, StreamExt};
-use pulldown_cmark::{Options, Parser, Event, Tag};
+use pulldown_cmark::{Options, Parser, html};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -19,8 +19,9 @@ use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
 use tracing::{error, info};
 
-use crate::watcher::rebuild_on_change;
-use crate::renderer::html;
+// use crate::renderer::html;
+use crate::{emitter::{self, Emitter}, watcher::rebuild_on_change};
+use crate::emitter::HtmlEmitter;
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -101,9 +102,9 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_TABLES);
     let parser = Parser::new_ext(&markdown_content, options);
-    let events: Vec<Event> = parser.map(|e| e).collect();
-    println!("{:#?}", events);
-    let mut html_body = String::new();
+    // let mut html_body = String::new();
+    let mut emitter = HtmlEmitter::new();
+    let mut html_body = emitter.emit(parser.into_iter());
     // pulldown_cmark::html::push_html(&mut html_body, parser);
     let template = include_str!("../static/index.html");
     let theme = state.theme.read().unwrap().to_string();
