@@ -1,17 +1,48 @@
-use super::Emitter;
-use pulldown_cmark::{Event, Tag, TagEnd};
+use pulldown_cmark::{Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, Tag, TagEnd};
+use std::collections::HashMap;
 
-pub struct HtmlEmitter {}
+enum TableState {
+    Head,
+    Body,
+}
 
-impl HtmlEmitter {
-    pub fn run<'a>(events: impl Iterator<Item = Event<'a>>) -> String {
+pub struct HtmlEmitter<I> {
+    iter: I,
+    end_newline: bool,
+    in_non_writing_block: bool,
+    table_state: TableState,
+    table_alignments: Vec<Alignment>,
+    table_cell_index: usize,
+    numbers: HashMap<String, usize>,
+}
+
+impl<'a, I> HtmlEmitter<I>
+where
+    I: Iterator<Item = Event<'a>>,
+{
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter,
+            end_newline: false,
+            in_non_writing_block: false,
+            table_state: TableState::Head,
+            table_alignments: Vec::new(),
+            table_cell_index: 0,
+            numbers: HashMap::new(),
+        }
+    }
+    pub fn run(&mut self) -> String {
         let mut html_body = String::new();
-        let mut end_newline = false;
-        for event in events {
+        while let Some(event) = self.iter.next() {
             match event {
-                Event::Start(tag) => Self::start_tag(&mut html_body, &mut end_newline, tag),
-                Event::End(tag) => Self::end_tag(&mut html_body, &mut end_newline, tag),
-                Event::Text(text) => escape_html_body(&mut html_body, &text),
+                Event::Start(tag) => self.start_tag(&mut html_body, tag),
+                Event::End(tag) => self.end_tag(&mut html_body, tag),
+                Event::Text(text) => {
+                    if !self.in_non_writing_block {
+                        escape_html_body(&mut html_body, &text);
+                        self.end_newline = text.ends_with('\n');
+                    }
+                }
                 Event::Code(text) => {
                     html_body.push_str("<code>");
                     escape_html_body(&mut html_body, &text);
@@ -31,35 +62,43 @@ impl HtmlEmitter {
                     html_body.push_str(&html);
                 }
                 Event::SoftBreak => {
-                    end_newline = true;
+                    self.end_newline = true;
                     html_body.push('\n');
                 }
                 Event::HardBreak => {
                     html_body.push_str("<br />\n");
                 }
                 Event::Rule => {
-                    if end_newline {
+                    if self.end_newline {
                         html_body.push_str("<hr />\n");
                     } else {
                         html_body.push_str("\n<hr />\n");
                     }
                 }
-                Event::FootnoteReference(name) => {}
+                Event::FootnoteReference(name) => {
+                    let len = self.numbers.len() + 1;
+                    html_body.push_str("<sup class=\"footnote-reference\"><a href=\"#");
+                    escape_html(&mut html_body, &name);
+                    html_body.push_str("\">");
+                    let number = *self.numbers.entry(name.to_string()).or_insert(len);
+                    html_body.push_str(&format!("{number}"));
+                    html_body.push_str("</a></sup>");
+                }
                 Event::TaskListMarker(true) => {
-                    html_body.push_str(r#"<input disabled="" type="checkbox" checked="">\n"#);
+                    html_body.push_str(r#"<input disabled="" type="checkbox" checked="">"#);
                 }
                 Event::TaskListMarker(false) => {
-                    html_body.push_str(r#"<input disabled="" type="checkbox">\n"#);
+                    html_body.push_str(r#"<input disabled="" type="checkbox">"#);
                 }
             }
         }
         html_body
     }
-    fn start_tag(buf: &mut String, end_newline: &mut bool, tag: Tag) {
+    fn start_tag(&mut self, buf: &mut String, tag: Tag) {
         match tag {
             Tag::HtmlBlock => (),
             Tag::Paragraph => {
-                if *end_newline {
+                if self.end_newline {
                     buf.push_str("<p>")
                 } else {
                     buf.push_str("\n<p>")
@@ -71,40 +110,39 @@ impl HtmlEmitter {
                 classes,
                 attrs,
             } => {
-                if *end_newline {
-                    buf.push_str("<");
+                if self.end_newline {
+                    buf.push('<');
                 } else {
                     buf.push_str("\n<");
                 }
-                // write!(&buf, "{}", level);
                 buf.push_str(&format!("{level}"));
                 if let Some(id) = id {
                     buf.push_str(" id=\"");
-                    escape_html(&mut buf, &id);
-                    buf.push_str("\"");
+                    escape_html(buf, &id);
+                    buf.push('\"');
                 }
                 let mut classes = classes.iter();
                 if let Some(class) = classes.next() {
                     buf.push_str(" class=\"");
-                    escape_html(&mut buf, class);
+                    escape_html(buf, class);
                     for class in classes {
-                        buf.push_str(" ");
-                        escape_html(&mut buf, class);
+                        buf.push(' ');
+                        escape_html(buf, class);
                     }
-                    buf.push_str("\"");
+                    buf.push('\"');
                 }
                 for (attr, value) in attrs {
-                    buf.push_str(" ");
-                    escape_html(&mut buf, &attr);
+                    buf.push(' ');
+                    escape_html(buf, &attr);
                     if let Some(val) = value {
                         buf.push_str("=\"");
-                        escape_html(&mut buf, &val);
-                        buf.push_str("\"");
+                        escape_html(buf, &val);
+                        buf.push('\"');
                     } else {
                         buf.push_str("=\"\"");
                     }
                 }
-                buf.push_str(">")
+                buf.push('>')
             }
             Tag::Table(alignments) => {
                 self.table_alignments = alignments;
@@ -132,7 +170,7 @@ impl HtmlEmitter {
                     Some(&Alignment::Left) => buf.push_str(" style=\"text-align: left\">"),
                     Some(&Alignment::Center) => buf.push_str(" style=\"text-align: center\">"),
                     Some(&Alignment::Right) => buf.push_str(" style=\"text-align: right\">"),
-                    _ => buf.push_str(">"),
+                    _ => buf.push('>'),
                 }
             }
             Tag::BlockQuote(kind) => {
@@ -146,15 +184,16 @@ impl HtmlEmitter {
                         BlockQuoteKind::Caution => " class=\"markdown-alert-caution\"",
                     },
                 };
-                if end_newline {
+                if self.end_newline {
                     buf.push_str(&format!("<blockquote{}>\n", class_str))
                 } else {
                     buf.push_str(&format!("\n<blockquote{}>\n", class_str))
                 }
             }
             Tag::CodeBlock(info) => {
-                if !end_newline {
-                    buf.push_str_newline();
+                if !self.end_newline {
+                    self.end_newline = true;
+                    buf.push('\n');
                 }
                 match info {
                     CodeBlockKind::Fenced(info) => {
@@ -163,79 +202,60 @@ impl HtmlEmitter {
                             buf.push_str("<pre><code>")
                         } else {
                             buf.push_str("<pre><code class=\"language-");
-                            escape_html(&mut buf.push_strr, lang);
+                            escape_html(buf, lang);
                             buf.push_str("\">")
                         }
                     }
                     CodeBlockKind::Indented => buf.push_str("<pre><code>"),
                 }
             }
-            Tag::ContainerBlock(Default, kind) => {
-                if !end_newline {
-                    buf.push_str_newline();
-                }
-                buf.push_str("<div class=\"");
-                escape_html(&mut buf.push_strr, &kind);
-                buf.push_str("\">")
-            }
-            Tag::ContainerBlock(Spoiler, summary) => {
-                if !end_newline {
-                    buf.push_str_newline();
-                }
-                if summary.is_empty() {
-                    buf.push_str("<details>")
-                } else {
-                    buf.push_str("<details><summary>");
-                    escape_html(&mut buf.push_strr, summary.as_ref());
-                    buf.push_str("</summary>")
-                }
-            }
             Tag::List(Some(1)) => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<ol>\n")
                 } else {
                     buf.push_str("\n<ol>\n")
                 }
             }
             Tag::List(Some(start)) => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<ol start=\"");
                 } else {
                     buf.push_str("\n<ol start=\"");
                 }
-                write!(&mut buf.push_strr, "{}", start);
+                // write!(&mut buf, "{}", start);
+                buf.push_str(&start.to_string());
                 buf.push_str("\">\n")
             }
             Tag::List(None) => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<ul>\n")
                 } else {
                     buf.push_str("\n<ul>\n")
                 }
             }
             Tag::Item => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<li>")
                 } else {
                     buf.push_str("\n<li>")
                 }
             }
             Tag::DefinitionList => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<dl>\n")
                 } else {
                     buf.push_str("\n<dl>\n")
                 }
             }
             Tag::DefinitionListTitle => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<dt>")
                 } else {
                     buf.push_str("\n<dt>")
                 }
             }
             Tag::DefinitionListDefinition => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<dd>")
                 } else {
                     buf.push_str("\n<dd>")
@@ -253,10 +273,10 @@ impl HtmlEmitter {
                 id: _,
             } => {
                 buf.push_str("<a href=\"mailto:");
-                escape_href(&mut buf.push_strr, &dest_url);
+                escape_href(buf, &dest_url);
                 if !title.is_empty() {
                     buf.push_str("\" title=\"");
-                    escape_html(&mut buf.push_strr, &title);
+                    escape_html(buf, &title);
                 }
                 buf.push_str("\">")
             }
@@ -267,10 +287,10 @@ impl HtmlEmitter {
                 id: _,
             } => {
                 buf.push_str("<a href=\"");
-                escape_href(&mut buf.push_strr, &dest_url);
+                escape_href(buf, &dest_url);
                 if !title.is_empty() {
                     buf.push_str("\" title=\"");
-                    escape_html(&mut buf.push_strr, &title);
+                    escape_html(buf, &title);
                 }
                 buf.push_str("\">")
             }
@@ -281,39 +301,156 @@ impl HtmlEmitter {
                 id: _,
             } => {
                 buf.push_str("<img src=\"");
-                escape_href(&mut buf.push_strr, &dest_url);
+                escape_href(buf, &dest_url);
                 buf.push_str("\" alt=\"");
-                self.raw_text();
+                self.raw_text(buf);
                 if !title.is_empty() {
                     buf.push_str("\" title=\"");
-                    escape_html(&mut buf.push_strr, &title);
+                    escape_html(buf, &title);
                 }
                 buf.push_str("\" />")
             }
             Tag::FootnoteDefinition(name) => {
-                if end_newline {
+                if self.end_newline {
                     buf.push_str("<div class=\"footnote-definition\" id=\"");
                 } else {
                     buf.push_str("\n<div class=\"footnote-definition\" id=\"");
                 }
-                escape_html(&mut buf.push_strr, &name);
+                escape_html(buf, &name);
                 buf.push_str("\"><sup class=\"footnote-definition-label\">");
                 let len = self.numbers.len() + 1;
-                let number = *self.numbers.entry(name).or_insert(len);
-                write!(&mut buf.push_strr, "{}", number);
+                let number = *self.numbers.entry(name.to_string()).or_insert(len);
+                buf.push_str(&number.to_string());
                 buf.push_str("</sup>")
             }
             Tag::MetadataBlock(_) => {
                 self.in_non_writing_block = true;
-                Ok(())
             }
         }
     }
-    fn end_tag(buf: &mut String, end_newline: &mut bool, tag: pulldown_cmark::TagEnd) {}
-}
-impl Emitter for HtmlEmitter {
-    fn emit<'a>(&mut self, events: impl Iterator<Item = pulldown_cmark::Event<'a>>) -> String {
-        unimplemented!()
+    fn end_tag(&mut self, buf: &mut String, tag: pulldown_cmark::TagEnd) {
+        match tag {
+            TagEnd::HtmlBlock => {}
+            TagEnd::Paragraph => {
+                buf.push_str("</p>\n");
+            }
+            TagEnd::Heading(level) => {
+                buf.push_str("</");
+                buf.push_str(&format!("{level}"));
+                buf.push_str(">\n");
+            }
+            TagEnd::Table => {
+                buf.push_str("</tbody></table>\n");
+            }
+            TagEnd::TableHead => {
+                buf.push_str("</tr></thead><tbody>\n");
+                self.table_state = TableState::Body;
+            }
+            TagEnd::TableRow => {
+                buf.push_str("</tr>\n");
+            }
+            TagEnd::TableCell => {
+                match self.table_state {
+                    TableState::Head => {
+                        buf.push_str("</th>");
+                    }
+                    TableState::Body => {
+                        buf.push_str("</td>");
+                    }
+                }
+                self.table_cell_index += 1;
+            }
+            TagEnd::BlockQuote(_) => {
+                buf.push_str("</blockquote>\n");
+            }
+            TagEnd::CodeBlock => {
+                buf.push_str("</code></pre>\n");
+            }
+            TagEnd::List(true) => {
+                buf.push_str("</ol>\n");
+            }
+            TagEnd::List(false) => {
+                buf.push_str("</ul>\n");
+            }
+            TagEnd::Item => {
+                buf.push_str("</li>\n");
+            }
+            TagEnd::DefinitionList => {
+                buf.push_str("</dl>\n");
+            }
+            TagEnd::DefinitionListTitle => {
+                buf.push_str("</dt>\n");
+            }
+            TagEnd::DefinitionListDefinition => {
+                buf.push_str("</dd>\n");
+            }
+            TagEnd::Emphasis => {
+                buf.push_str("</em>");
+            }
+            TagEnd::Superscript => {
+                buf.push_str("</sup>");
+            }
+            TagEnd::Subscript => {
+                buf.push_str("</sub>");
+            }
+            TagEnd::Strong => {
+                buf.push_str("</strong>");
+            }
+            TagEnd::Strikethrough => {
+                buf.push_str("</del>");
+            }
+            TagEnd::Link => {
+                buf.push_str("</a>");
+            }
+            TagEnd::Image => (), // shouldn't happen, handled in start
+            TagEnd::FootnoteDefinition => {
+                buf.push_str("</div>\n");
+            }
+            TagEnd::MetadataBlock(_) => {
+                self.in_non_writing_block = false;
+            }
+        }
+    }
+    fn raw_text(&mut self, buf: &mut String) {
+        let mut nest = 0;
+        while let Some(event) = self.iter.next() {
+            match event {
+                Event::Start(_) => nest += 1,
+                Event::End(_) => {
+                    if nest == 0 {
+                        break;
+                    }
+                    nest -= 1;
+                }
+                Event::Html(_) => {}
+                Event::InlineHtml(text) | Event::Code(text) | Event::Text(text) => {
+                    // Don't use escape_html_body_text here.
+                    // The output of this function is used in the `alt` attribute.
+                    escape_html(buf, &text);
+                    self.end_newline = text.ends_with('\n');
+                }
+                Event::InlineMath(text) => {
+                    buf.push('$');
+                    escape_html(buf, &text);
+                    buf.push('$');
+                }
+                Event::DisplayMath(text) => {
+                    buf.push_str("$$");
+                    escape_html(buf, &text);
+                    buf.push_str("$$");
+                }
+                Event::SoftBreak | Event::HardBreak | Event::Rule => {
+                    buf.push(' ');
+                }
+                Event::FootnoteReference(name) => {
+                    let len = self.numbers.len() + 1;
+                    let number = *self.numbers.entry(name.to_string()).or_insert(len);
+                    buf.push_str(&format!("[{number}]"));
+                }
+                Event::TaskListMarker(true) => buf.push_str("[x]"),
+                Event::TaskListMarker(false) => buf.push_str("[ ]"),
+            }
+        }
     }
 }
 
@@ -332,6 +469,20 @@ const fn create_html_escape_table(body: bool) -> [u8; 256] {
 static HTML_ESCAPE_TABLE: [u8; 256] = create_html_escape_table(false);
 static HTML_ESCAPE_TABLE_BODY: [u8; 256] = create_html_escape_table(true);
 static HTML_ESCAPES: [&str; 6] = ["", "&amp;", "&lt;", "&gt;", "&quot;", "&#39;"];
+#[rustfmt::skip]
+static HREF_SAFE: [u8; 128] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1,
+    0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0,
+];
+static HEX_CHARS: &[u8] = b"0123456789ABCDEF";
+static AMP_ESCAPE: &str = "&amp;";
+static SINGLE_QUOTE_ESCAPE: &str = "&#x27;";
 
 fn escape_html_body(buf: &mut String, text: &str) {
     let bytes = text.as_bytes();
@@ -381,4 +532,35 @@ fn escape_html(buf: &mut String, text: &str) {
         mark = i;
     }
     buf.push_str(&text[mark..]);
+}
+
+fn escape_href(buf: &mut String, text: &str) {
+    let bytes = text.as_bytes();
+    let mut mark = 0;
+    for i in 0..bytes.len() {
+        let c = bytes[i];
+        if c >= 0x80 || HREF_SAFE[c as usize] == 0 {
+            if mark < i {
+                buf.push_str(&text[mark..i]);
+            }
+            match c {
+                b'&' => {
+                    buf.push_str(AMP_ESCAPE);
+                }
+                b'\'' => {
+                    buf.push_str(SINGLE_QUOTE_ESCAPE);
+                }
+                _ => {
+                    let mut b = [0u8; 3];
+                    b[0] = b'%';
+                    b[1] = HEX_CHARS[((c as usize) >> 4) & 0xF];
+                    b[2] = HEX_CHARS[(c as usize) & 0xF];
+                    let escaped = str::from_utf8(&b).unwrap();
+                    buf.push_str(escaped);
+                }
+            }
+            mark = i + 1; // all escaped characters are ASCII
+        }
+    }
+    buf.push_str(&text[mark..])
 }
