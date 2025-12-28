@@ -95,7 +95,7 @@ Link to the second non-unique section: [Link Text](#this-heading-is-not-unique-i
 > Advises about risks or negative outcomes of certain actions.
 
 # Color model
-`#0969DA`
+#0969DA
 
 `rgb(9, 105, 218)`
 
