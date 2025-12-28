@@ -26,6 +26,7 @@ fn handle_serve(root: PathBuf) {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .with_ansi(true)
+        .without_time()
         .init();
     if root.exists() {
         serve(root);

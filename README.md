@@ -1,17 +1,53 @@
 # Markdown Peek
-Markdown Peek(`mdpeek`) is a markdown previewer and terminal renderer tool.
-
-Supported Github Flavored Markdown(GFM), GitLab Flavored Markdown.
+Markdown Peek (`mdpeek`) is a lightweight CLI tool that watches a markdown file and renders it either in your browser (live preview) or directly in the terminal.
 
 # Features
-- Fast
-- Live Reaload
-- Easy Configure
-- Supported GFM, GLFM and Terminal Preview
-- Supperted Mermaid, PlantUML
-- Supported KaTex
+- ⚡ Fast
+- 🔄 Live Reload
+- ⚙️ Easy Configure
+- 🌐🖥️ Preview in Browser or in Terminal
+- 📝 Supported Github Flavored Markdown(GFM), GitLab Flavored Markdown(GLFM)
 
-# Status
+# Quick start
+
+## Preview on your browser
+`mdpeek` detects `README.md` on default and previews markdown on browser.
+```sh
+mdpeek
+ INFO mdpeek::watcher: Watching: "README.md"
+ INFO mdpeek::server: Listening on http://127.0.0.1:3000NFO mdpeek::watcher Watching: "README.md"
+```
+
+## Preview on your terminal
+`mdpeek` detects `README.md` on default.
+If you want preview on termianl, using `term` subcommand.
+```sh
+mdpeek term
+```
+
+# Installation
+## `cargo`
+```
+cargo install markdown-peek
+```
+
+## `nix`(Planed)
+```
+nix-shell -p markdown-peek --command mdpeek
+```
+
+## `npm`(Planed)
+```
+npm install -g markdown-peek
+```
+
+## download prebuild-binary
+```
+curl -SL https://github.com/takeshid/markdown-peek
+```
+
+
+# Flavor Status
 ## GFM
 - [x] [Table](https://github.github.com/gfm/#tables-extension-)
 - [x] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
@@ -26,6 +62,7 @@ Supported Github Flavored Markdown(GFM), GitLab Flavored Markdown.
 - [ ] InPage Link
 - [ ] Footnote
 - [ ] Table of Contents
+- [ ] Theme Switch(Light/Dark)
 
 ## GLFM(Planed)
 - [ ] Table
@@ -36,7 +73,7 @@ Supported Github Flavored Markdown(GFM), GitLab Flavored Markdown.
 - [ ] Auto Link
 - [ ] Emoji
 - [ ] [Alert](https://docs.gitlab.com/user/markdown/#alerts)
-- [ ] KaTex
+- [ ] Math equation
 
 ## Terminal
 - [ ] [Table](https://github.github.com/gfm/#tables-extension-)
@@ -53,3 +90,6 @@ Supported Github Flavored Markdown(GFM), GitLab Flavored Markdown.
 - [ ] Footnote
 - [ ] Table of Contents
 
+# License
+MIT License.  
+See [LICENSE](LICENSE).
