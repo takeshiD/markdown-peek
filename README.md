@@ -1,6 +1,12 @@
 # Markdown Peek
 Markdown Peek (`mdpeek`) is a lightweight CLI tool that watches a markdown file and renders it either in your browser (live preview) or directly in the terminal.
 
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Status](#status)
+- [License](#license)
+
 # Features
 - ⚡ Fast
 - 🔄 Live Reload
@@ -47,7 +53,7 @@ curl -SL https://github.com/takeshid/markdown-peek
 ```
 
 
-# Flavor Status
+# Status
 ## GFM
 - [x] [Table](https://github.github.com/gfm/#tables-extension-)
 - [x] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
