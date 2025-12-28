@@ -2,6 +2,12 @@
 name = "markdown-peek"
 version = "0.1.0"
 edition = "2024"
+authors = ["tkcd <goriponikeike55@gmail.com>"]
+repository = "https://github.com/takeshid/markdown-peek"
+keywords = ["markdown", "cli"]
+license-file = "LICENSE"
+readme = "README.md"
+description = "Markdown preview in browser and terminal"
 
 [dependencies]
 anyhow = "1.0.100"
