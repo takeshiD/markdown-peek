@@ -97,5 +97,5 @@ curl -SL https://github.com/takeshid/markdown-peek
 - [ ] Table of Contents
 
 # License
-MIT License.  
+MIT License.
 See [LICENSE](LICENSE).
