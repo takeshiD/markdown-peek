@@ -3,28 +3,28 @@ use axum::{
     Router,
     extract::{
         State,
-        ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
+        ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::{Html, IntoResponse},
     routing::get,
 };
 use core::fmt;
 use futures::{SinkExt, StreamExt};
-use pulldown_cmark::{Options, Parser, html, Event};
+use pulldown_cmark::{Options, Parser};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::emitter::HtmlEmitter;
 use crate::watcher::rebuild_on_change;
 
 #[derive(Debug, Clone)]
 struct AppState {
-    tx: broadcast::Sender<()>,
+    tx: broadcast::Sender<Message>,
     file_path: Arc<RwLock<PathBuf>>,
     theme: Arc<RwLock<Theme>>,
 }
@@ -44,22 +44,25 @@ impl fmt::Display for Theme {
     }
 }
 
-pub async fn serve(watch_path: PathBuf) {
-    let (tx, _) = broadcast::channel(16);
+pub fn serve(watch_path: PathBuf) {
+    let (tx, _) = broadcast::channel::<Message>(16);
     let tx_reload = tx.clone();
-    let server = tokio::spawn(run_server(watch_path.clone(), tx_reload));
-    let watcher = tokio::spawn(rebuild_on_change(watch_path));
-    tokio::select! {
-        r = server => {
-            eprintln!("server finished: {:?}", r);
-        }
-        r = watcher => {
-            eprintln!("watcher finished: {:?}", r);
-        }
-    }
+    let watch_path_clone = watch_path.clone();
+    let server = std::thread::spawn(move || run_server(watch_path, tx_reload));
+    let _: () = rebuild_on_change(watch_path_clone, move || {
+        debug!("Callback Start");
+        let result = tx.send(Message::text("reload"));
+        debug!("Callback End!: {:#?}", result);
+    });
+    let _ = server.join();
+    // let _ = tokio::join!(server, watcher);
 }
 
-async fn run_server(file_path: impl AsRef<Path>, tx_reload: broadcast::Sender<()>) -> Result<()> {
+#[tokio::main()]
+async fn run_server(
+    file_path: impl AsRef<Path>,
+    tx_reload: broadcast::Sender<Message>,
+) -> Result<()> {
     let state = AppState {
         tx: tx_reload,
         file_path: Arc::new(RwLock::new(file_path.as_ref().to_path_buf())),
@@ -105,8 +108,6 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     // info!("{:#?}", events);
     let mut emitter = HtmlEmitter::new(parser);
     let html_body = emitter.run();
-    // let mut html_body = String::new();
-    // html::push_html(&mut html_body, parser);
     let template = include_str!("../static/index.html");
     let theme = state.theme.read().unwrap().to_string();
     let page = template
@@ -123,14 +124,24 @@ async fn websocket_handler(
     ws_upgrade.on_upgrade(move |socket| websocket_connection(socket, tx))
 }
 
-async fn websocket_connection(ws: WebSocket, tx_reload: broadcast::Sender<()>) {
+async fn websocket_connection(ws: WebSocket, tx_reload: broadcast::Sender<Message>) {
     let (mut tx_ws, _) = ws.split();
     let mut rx_reload = tx_reload.subscribe();
-    info!("websocket got connection");
-    if let Ok(_m) = rx_reload.recv().await {
-        info!("notify of reload");
-        let _ = tx_ws
-            .send(Message::Text(Utf8Bytes::from_static("reload")))
-            .await;
+    debug!("Websocket got connection");
+    match rx_reload.recv().await {
+        Ok(m) => {
+            debug!("Client sent reload call: {}", m.to_text().unwrap());
+            match tx_ws.send(m).await {
+                Ok(_) => {
+                    debug!("Success reload");
+                }
+                Err(e) => {
+                    error!("Error reload: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("FileWatcher receive error: {}", e);
+        }
     }
 }

@@ -13,21 +13,31 @@
             min-width: 200px;
             max-width: 920px;
             margin: 0 auto;
-            padding: 45px;
+            padding: 45px:
         }
     </style>
-    <script>
-        const socket = new WebSocket('ws://localhost:3000/ws');
+    <script type="text/javascript">
+        const socket = new WebSocket("http://127.0.0.1:3000/ws");
+        console.log("Create webscoket");
+        socket.onopen = function (event) {
+            console.log(`Open: ${event}`);
+        };
         socket.onmessage = function (event) {
-            console.log(event);
+            console.log(`Received: ${event}`);
             if (event.data === "reload") {
                 socket.close();
                 window.location.reload();
             }
         };
-        window.onbeforeunload = function () {
-            socket.close();
-        }
+        socket.onerror = function (event) {
+            console.log(`Error: ${event}`);
+        };
+        socket.onclose = function (event) {
+            console.log(`Close: ${event}`);
+        };
+        // window.onbeforeunload = function () {
+        //     socket.close();
+        // }
     </script>
 </head>
 

@@ -85,10 +85,10 @@ where
                     html_body.push_str("</a></sup>");
                 }
                 Event::TaskListMarker(true) => {
-                    html_body.push_str(r#"<input disabled="" type="checkbox" checked="">"#);
+                    html_body.push_str("<input disabled=\"\" type=\"checkbox\" checked=\"\">\n");
                 }
                 Event::TaskListMarker(false) => {
-                    html_body.push_str(r#"<input disabled="" type="checkbox">"#);
+                    html_body.push_str("<input disabled=\"\" type=\"checkbox\">\n");
                 }
             }
         }
