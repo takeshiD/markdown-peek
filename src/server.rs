@@ -20,7 +20,7 @@ use tower_http::services::ServeDir;
 use tracing::{debug, error, info};
 
 use crate::emitter::HtmlEmitter;
-use crate::watcher::rebuild_on_change;
+use crate::watcher::notify_on_change;
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -29,6 +29,7 @@ struct AppState {
     theme: Arc<RwLock<Theme>>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum Theme {
     GitHubLight,
@@ -49,7 +50,7 @@ pub fn serve(watch_path: PathBuf) {
     let tx_reload = tx.clone();
     let watch_path_clone = watch_path.clone();
     let server = std::thread::spawn(move || run_server(watch_path, tx_reload));
-    let _: () = rebuild_on_change(watch_path_clone, move || {
+    let _: () = notify_on_change(watch_path_clone, move || {
         debug!("Callback Start");
         let result = tx.send(Message::text("reload"));
         debug!("Callback End!: {:#?}", result);

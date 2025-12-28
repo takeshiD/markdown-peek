@@ -5,7 +5,7 @@ use std::sync::mpsc::channel;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
-pub fn rebuild_on_change(path: impl AsRef<Path>, callback: impl Fn()) {
+pub fn notify_on_change(path: impl AsRef<Path>, callback: impl Fn()) {
     let path = path.as_ref().to_path_buf();
     let (tx, rx) = channel();
     let backend_config = notify::Config::default().with_poll_interval(Duration::from_secs(1));

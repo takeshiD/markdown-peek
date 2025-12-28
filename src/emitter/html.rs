@@ -411,6 +411,7 @@ where
             }
         }
     }
+    #[allow(clippy::while_let_on_iterator)]
     fn raw_text(&mut self, buf: &mut String) {
         let mut nest = 0;
         while let Some(event) = self.iter.next() {
