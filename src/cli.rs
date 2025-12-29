@@ -6,7 +6,7 @@ use clap::{
 use std::{io::IsTerminal, path::PathBuf};
 
 #[derive(Debug, Parser)]
-#[command(author, name = "mdpeek", about = "markdown viewer in browser and terminal", long_about = None)]
+#[command(author, name = "mdpeek", about = "markdown viewer in browser and terminal", long_about = None, version)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -48,7 +48,10 @@ pub enum ThemeChoice {
 }
 
 pub enum Mode {
-    Serve { file: PathBuf, watch: bool },
+    Serve {
+        file: PathBuf,
+        watch: bool,
+    },
     Term {
         file: PathBuf,
         watch: bool,
