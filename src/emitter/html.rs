@@ -1,5 +1,6 @@
 use pulldown_cmark::{Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, Tag, TagEnd};
 use std::collections::HashMap;
+use tracing::debug;
 
 enum TableState {
     Head,
@@ -198,6 +199,7 @@ where
                 match info {
                     CodeBlockKind::Fenced(info) => {
                         let lang = info.split(' ').next().unwrap();
+                        debug!("CodeBlock: {lang}");
                         if lang.is_empty() {
                             buf.push_str("<pre><code>")
                         } else {
@@ -411,6 +413,7 @@ where
             }
         }
     }
+    #[allow(clippy::while_let_on_iterator)]
     fn raw_text(&mut self, buf: &mut String) {
         let mut nest = 0;
         while let Some(event) = self.iter.next() {

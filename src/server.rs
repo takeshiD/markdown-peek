@@ -20,7 +20,7 @@ use tower_http::services::ServeDir;
 use tracing::{debug, error, info};
 
 use crate::emitter::HtmlEmitter;
-use crate::watcher::rebuild_on_change;
+use crate::watcher::notify_on_change;
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -29,6 +29,7 @@ struct AppState {
     theme: Arc<RwLock<Theme>>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum Theme {
     GitHubLight,
@@ -49,13 +50,12 @@ pub fn serve(watch_path: PathBuf) {
     let tx_reload = tx.clone();
     let watch_path_clone = watch_path.clone();
     let server = std::thread::spawn(move || run_server(watch_path, tx_reload));
-    let _: () = rebuild_on_change(watch_path_clone, move || {
+    let _: () = notify_on_change(watch_path_clone, move || {
         debug!("Callback Start");
         let result = tx.send(Message::text("reload"));
         debug!("Callback End!: {:#?}", result);
     });
     let _ = server.join();
-    // let _ = tokio::join!(server, watcher);
 }
 
 #[tokio::main()]
@@ -75,7 +75,6 @@ async fn run_server(
         .route("/ws", get(websocket_handler))
         .nest_service("/static", static_files_service)
         .with_state(state);
-    // let addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await.unwrap();
     info!("Listening on http://{}", listener.local_addr().unwrap());
@@ -104,8 +103,6 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_TABLES);
     let parser = Parser::new_ext(&markdown_content, options);
-    // let events: Vec<Event> = parser.collect();
-    // info!("{:#?}", events);
     let mut emitter = HtmlEmitter::new(parser);
     let html_body = emitter.run();
     let template = include_str!("../static/index.html");
