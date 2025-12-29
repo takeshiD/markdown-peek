@@ -16,25 +16,19 @@
             padding: 45px:
         }
     </style>
-    <script type="text/javascript">
-        const socket = new WebSocket("http://127.0.0.1:3000/ws");
-        console.log("Create webscoket");
-        socket.onopen = function (event) {
-            console.log(`Open: ${event}`);
-        };
-        socket.onmessage = function (event) {
-            console.log(`Received: ${event}`);
-            if (event.data === "reload") {
-                socket.close();
-                window.location.reload();
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [
+                    ['$', '$'],
+                    ['\\(', '\\)'],
+                ],
+                displayMath: [
+                    ['$$', '$$'],
+                    ['\\[', '\\]'],
+                ],
             }
-        };
-        socket.onerror = function (event) {
-            console.log(`Error: ${event}`);
-        };
-        socket.onclose = function (event) {
-            console.log(`Close: ${event}`);
-        };
+        }
     </script>
 </head>
 
@@ -42,7 +36,10 @@
     <article class="markdown-body">
         {{ content }}
     </article>
-</body>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@4.0.0/tex-mml-chtml.js"></script>
+    <!-- TODO: currently mathjax is used from cdn but I wanna emebeded mathjax.js into index.html. -->
     <script type="text/javascript" src="/static/js/mermaid/mermaid.min.js"></script>
     <script type="text/javascript" src="/static/js/main.js"></script>
+</body>
+
 </html>
