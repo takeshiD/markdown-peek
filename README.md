@@ -62,7 +62,7 @@ curl -SL https://github.com/takeshid/markdown-peek
 - [ ] Syntax Hightlight
 - [ ] [Emoji](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis)
 - [ ] [Alert](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts)
-- [ ] MathJax
+- [x] MathJax
 - [ ] [Color Model](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#supported-color-models)
 - [ ] Auto Link
 - [ ] InPage Link
@@ -82,19 +82,18 @@ curl -SL https://github.com/takeshid/markdown-peek
 - [ ] Math equation
 
 ## Terminal
-- [ ] [Table](https://github.github.com/gfm/#tables-extension-)
-- [ ] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
+- [x] [Table](https://github.github.com/gfm/#tables-extension-)
+- [x] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
 - [ ] [Strike throough](https://github.github.com/gfm/#strikethrough-extension-)
-- [ ] [Fenced Code](https://github.github.com/gfm/#fenced-code-blocks)
+- [x] [Fenced Code](https://github.github.com/gfm/#fenced-code-blocks)
 - [ ] Syntax Hightlight
 - [ ] [Emoji](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis)
 - [ ] [Alert](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts)
-- [ ] MathJax
+- [ ] Math Equation
 - [ ] [Color Model](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#supported-color-models)
 - [ ] Auto Link
 - [ ] InPage Link
 - [ ] Footnote
-- [ ] Table of Contents
 
 # License
 MIT License.
