@@ -1,10 +1,64 @@
-use owo_colors::{OwoColorize, Style};
+use anyhow::Context;
+use owo_colors::{DynColors, OwoColorize, Style, colors::xterm::PharlapPink};
 use pulldown_cmark::{BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, Tag, TagEnd};
 use std::collections::HashMap;
 
 enum ListState {
     Ordered { index: usize },
     Unordered,
+}
+
+#[rustfmt::skip]
+#[derive(Clone, Debug)]
+pub struct Palette {
+    black:   DynColors,
+    red:     DynColors,
+    green:   DynColors,
+    yellow:  DynColors,
+    magenta: DynColors,
+    cyan:    DynColors,
+    white:   DynColors,
+    orange:  DynColors,
+    pink:    DynColors,
+    bg:      DynColors,
+    fg:      DynColors,
+    // bg0:     DynColors,
+    // bg1:     DynColors,
+    // bg2:     DynColors,
+    // bg3:     DynColors,
+    // bg4:     DynColors,
+    // fg0:     DynColors,
+    // fg1:     DynColors,
+    // fg2:     DynColors,
+    // fg3:     DynColors,
+}
+
+pub trait BuiltinTheme {
+    fn name(&self) -> &'static str;
+    fn pallete(&self) -> Palette;
+}
+
+pub struct Ayu;
+impl BuiltinTheme for Ayu {
+    fn name(&self) -> &'static str {
+        "ayu"
+    }
+    #[rustfmt::skip]
+    fn pallete(&self) -> Palette {
+        Palette {
+            black:   "#0F141A".parse().unwrap(),
+            red:     "#FF3333".parse().unwrap(),
+            green:   "#BAE67E".parse().unwrap(),
+            yellow:  "#FFD580".parse().unwrap(),
+            magenta: "#D4BFFF".parse().unwrap(),
+            cyan:    "#95E6CB".parse().unwrap(),
+            white:   "#CBCCC6".parse().unwrap(),
+            orange:  "#FFAD66".parse().unwrap(),
+            pink:    "#F07178".parse().unwrap(),
+            bg:      "#0F141A".parse().unwrap(),
+            fg:      "#CBCCC6".parse().unwrap(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -23,12 +77,12 @@ pub struct Theme {
 impl Theme {
     pub fn glow() -> Self {
         Self {
-            heading: Style::new().bright_cyan().bold(),
-            block_quote: Style::new().bright_magenta(),
-            quote_bar: Style::new().bright_black(),
+            heading: Style::new().fg_rgb::<0xf0, 0x71, 0x78>().bold(),
+            block_quote: Style::new().fg_rgb::<0xd4, 0xbf, 0xff>(),
+            quote_bar: Style::new().fg_rgb::<0xcb, 0xcc, 0xc6>().bold(),
             code: Style::new().bright_yellow(),
-            link: Style::new().bright_blue(),
-            list_marker: Style::new().bright_green().bold(),
+            link: Style::new().fg_rgb::<0x95, 0xe6, 0xcb>(),
+            list_marker: Style::new().fg_rgb::<0xba, 0xe6, 0x7e>().bold(),
             rule: Style::new().bright_black(),
             table_header: Style::new().bright_white().bold(),
             footnote: Style::new().bright_black(),
@@ -311,7 +365,11 @@ where
                 self.heading_level = Some(level);
                 self.h1_started = false;
                 if level != HeadingLevel::H1 {
-                    out.push_str(&"#".repeat(level as usize));
+                    let head = "#"
+                        .repeat(level as usize)
+                        .style(self.theme.heading)
+                        .to_string();
+                    out.push_str(&head);
                     out.push(' ');
                 }
             }
@@ -397,10 +455,12 @@ where
                 match self.list_stack.last() {
                     Some(ListState::Ordered { index }) => {
                         let marker = format!("{}. ", index);
-                        self.pending_list_marker = Some(format!("{}", marker.style(self.theme.list_marker)));
+                        self.pending_list_marker =
+                            Some(format!("{}", marker.style(self.theme.list_marker)));
                     }
                     Some(ListState::Unordered) | None => {
-                        self.pending_list_marker = Some(format!("{}", "• ".style(self.theme.list_marker)));
+                        self.pending_list_marker =
+                            Some(format!("{}", "• ".style(self.theme.list_marker)));
                     }
                 }
             }
@@ -648,7 +708,7 @@ where
             }
         }
         if checked {
-            out.push_str("[x] ");
+            out.push_str("[✓] ");
         } else {
             out.push_str("[ ] ");
         }
