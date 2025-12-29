@@ -1,5 +1,6 @@
 use pulldown_cmark::{Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, Tag, TagEnd};
 use std::collections::HashMap;
+use tracing::debug;
 
 enum TableState {
     Head,
@@ -198,6 +199,7 @@ where
                 match info {
                     CodeBlockKind::Fenced(info) => {
                         let lang = info.split(' ').next().unwrap();
+                        debug!("CodeBlock: {lang}");
                         if lang.is_empty() {
                             buf.push_str("<pre><code>")
                         } else {

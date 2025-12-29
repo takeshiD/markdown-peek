@@ -56,7 +56,6 @@ pub fn serve(watch_path: PathBuf) {
         debug!("Callback End!: {:#?}", result);
     });
     let _ = server.join();
-    // let _ = tokio::join!(server, watcher);
 }
 
 #[tokio::main()]
@@ -76,7 +75,6 @@ async fn run_server(
         .route("/ws", get(websocket_handler))
         .nest_service("/static", static_files_service)
         .with_state(state);
-    // let addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await.unwrap();
     info!("Listening on http://{}", listener.local_addr().unwrap());
@@ -105,8 +103,6 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_TABLES);
     let parser = Parser::new_ext(&markdown_content, options);
-    // let events: Vec<Event> = parser.collect();
-    // info!("{:#?}", events);
     let mut emitter = HtmlEmitter::new(parser);
     let html_body = emitter.run();
     let template = include_str!("../static/index.html");
