@@ -109,6 +109,10 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     let theme = state.theme.read().unwrap().to_string();
     let page = template
         .replace("{{theme}}", &theme)
+        .replace(
+            "{{ title }}",
+            file_path.file_name().unwrap().to_str().unwrap(),
+        )
         .replace("{{ content }}", &html_body);
     Html(page)
 }
