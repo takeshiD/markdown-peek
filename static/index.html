@@ -35,9 +35,6 @@
         socket.onclose = function (event) {
             console.log(`Close: ${event}`);
         };
-        // window.onbeforeunload = function () {
-        //     socket.close();
-        // }
     </script>
 </head>
 
@@ -46,5 +43,6 @@
         {{ content }}
     </article>
 </body>
-
+    <script type="text/javascript" src="/static/js/mermaid/mermaid.min.js"></script>
+    <script type="text/javascript" src="/static/js/main.js"></script>
 </html>
