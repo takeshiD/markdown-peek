@@ -1,10 +1,32 @@
-use pulldown_cmark::{Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, Tag, TagEnd};
+use pulldown_cmark::{
+    Alignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, Tag, TagEnd,
+};
 use std::collections::HashMap;
-use tracing::debug;
+use tracing::{debug, error};
 
 enum TableState {
     Head,
     Body,
+}
+
+#[derive(Debug, Clone)]
+struct HeadingState {
+    level: HeadingLevel,
+    text: String,
+    end_newline: bool,
+}
+
+impl HeadingState {
+    fn with_level(level: HeadingLevel) -> Self {
+        Self {
+            level,
+            end_newline: false,
+            text: "".to_string(),
+        }
+    }
+    fn push_text(&mut self, text: String) {
+        self.text.push_str(&text);
+    }
 }
 
 pub struct HtmlEmitter<I> {
@@ -15,6 +37,7 @@ pub struct HtmlEmitter<I> {
     table_alignments: Vec<Alignment>,
     table_cell_index: usize,
     numbers: HashMap<String, usize>,
+    heading_state: Option<HeadingState>,
 }
 
 impl<'a, I> HtmlEmitter<I>
@@ -30,6 +53,7 @@ where
             table_alignments: Vec::new(),
             table_cell_index: 0,
             numbers: HashMap::new(),
+            heading_state: None,
         }
     }
     pub fn run(&mut self) -> String {
@@ -40,11 +64,18 @@ where
                 Event::End(tag) => self.end_tag(&mut html_body, tag),
                 Event::Text(text) => {
                     if !self.in_non_writing_block {
-                        escape_html_body(&mut html_body, &text);
+                        if let Some(heading_state) = self.heading_state.as_mut() {
+                            heading_state.push_text(text.to_string());
+                        } else {
+                            escape_html_body(&mut html_body, &text);
+                        }
                         self.end_newline = text.ends_with('\n');
                     }
                 }
                 Event::Code(text) => {
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_text(text.to_string());
+                    }
                     html_body.push_str("<code>");
                     escape_html_body(&mut html_body, &text);
                     html_body.push_str("</code>");
@@ -105,45 +136,24 @@ where
                     buf.push_str("\n<p>")
                 }
             }
-            Tag::Heading {
-                level,
-                id,
-                classes,
-                attrs,
-            } => {
-                if self.end_newline {
-                    buf.push('<');
-                } else {
-                    buf.push_str("\n<");
-                }
-                buf.push_str(&format!("{level}"));
-                if let Some(id) = id {
-                    buf.push_str(" id=\"");
-                    escape_html(buf, &id);
-                    buf.push('\"');
-                }
-                let mut classes = classes.iter();
-                if let Some(class) = classes.next() {
-                    buf.push_str(" class=\"");
-                    escape_html(buf, class);
-                    for class in classes {
-                        buf.push(' ');
-                        escape_html(buf, class);
+            Tag::Heading { level, .. } => {
+                match self.heading_state.as_ref() {
+                    Some(_) => {
+                        error!("Heading is nested. This case is not considered.");
                     }
-                    buf.push('\"');
-                }
-                for (attr, value) in attrs {
-                    buf.push(' ');
-                    escape_html(buf, &attr);
-                    if let Some(val) = value {
-                        buf.push_str("=\"");
-                        escape_html(buf, &val);
-                        buf.push('\"');
-                    } else {
-                        buf.push_str("=\"\"");
+                    None => {
+                        self.heading_state = Some(HeadingState::with_level(level));
                     }
                 }
-                buf.push('>')
+                if let Some(heading_state) = self.heading_state.as_mut() {
+                    heading_state.end_newline = self.end_newline;
+                }
+                // buf.push('<');
+                // } else {
+                //     buf.push_str("\n<");
+                // }
+                // buf.push_str(&format!("{level}"));
+                // buf.push('>');
             }
             Tag::Table(alignments) => {
                 self.table_alignments = alignments;
@@ -337,9 +347,45 @@ where
                 buf.push_str("</p>\n");
             }
             TagEnd::Heading(level) => {
+                match self.heading_state.as_ref() {
+                    Some(HeadingState {
+                        text, end_newline, ..
+                    }) => {
+                        if *end_newline {
+                            buf.push('<');
+                        } else {
+                            buf.push_str("\n<");
+                        }
+                        buf.push_str(&format!("{level}"));
+                        if !text.is_empty() {
+                            buf.push_str(&format!(
+                                " id=\"{}\">{}",
+                                convert_to_anochor_text(text.clone()),
+                                text
+                            ));
+                            buf.push_str(
+                                format!(
+                                    "<a class=\"anchor\" aria-label=\"Permalink\" href=\"#{}\">",
+                                    convert_to_anochor_text(text.clone())
+                                )
+                                .as_str(),
+                            );
+                            buf.push_str("<svg class=\"octicon octicon-link\" viewBox=\"0 0 16 16\" version=\"16\" height=\"16\" aria-hidden=\"true\">");
+                            buf.push_str("<path d=\"m7.775 3.275 1.25-1.25a3.5 3.5 0 1 1 4.95 4.95l-2.5 2.5a3.5 3.5 0 0 1-4.95 0 .751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018 1.998 1.998 0 0 0 2.83 0l2.5-2.5a2.002 2.002 0 0 0-2.83-2.83l-1.25 1.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042Zm-4.69 9.64a1.998 1.998 0 0 0 2.83 0l1.25-1.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042l-1.25 1.25a3.5 3.5 0 1 1-4.95-4.95l2.5-2.5a3.5 3.5 0 0 1 4.95 0 .751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018 1.998 1.998 0 0 0-2.83 0l-2.5 2.5a1.998 1.998 0 0 0 0 2.83Z\"></path>");
+                            buf.push_str("</svg>");
+                            buf.push_str("</a>");
+                        } else {
+                            buf.push_str(&format!(">{text}"));
+                        }
+                    }
+                    None => {
+                        error!("Heading is not set. This case is not considered.");
+                    }
+                };
                 buf.push_str("</");
                 buf.push_str(&format!("{level}"));
                 buf.push_str(">\n");
+                self.heading_state = None;
             }
             TagEnd::Table => {
                 buf.push_str("</tbody></table>\n");
@@ -566,4 +612,28 @@ fn escape_href(buf: &mut String, text: &str) {
         }
     }
     buf.push_str(&text[mark..])
+}
+
+fn convert_to_anochor_text(heading_text: String) -> String {
+    let mut anchor = String::with_capacity(heading_text.len());
+    let mut prev_hyphen = false;
+
+    for ch in heading_text.trim().chars() {
+        for lower in ch.to_lowercase() {
+            if lower.is_alphanumeric() || lower == '_' {
+                anchor.push(lower);
+                prev_hyphen = false;
+            } else if (lower.is_whitespace() || lower == '-') && !prev_hyphen && !anchor.is_empty()
+            {
+                anchor.push('-');
+                prev_hyphen = true;
+            }
+        }
+    }
+
+    while anchor.ends_with('-') {
+        anchor.pop();
+    }
+
+    anchor
 }

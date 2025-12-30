@@ -54,7 +54,7 @@ curl -SL https://github.com/takeshid/markdown-peek
 
 
 # Status
-## GFM
+## [GFM](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
 - [x] [Table](https://github.github.com/gfm/#tables-extension-)
 - [x] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
 - [ ] [Strike throough](https://github.github.com/gfm/#strikethrough-extension-)
@@ -70,7 +70,7 @@ curl -SL https://github.com/takeshid/markdown-peek
 - [ ] Table of Contents
 - [ ] Theme Switch(Light/Dark)
 
-## GLFM(Planed)
+## [GLFM(Planed)](https://docs.gitlab.com/user/markdown/)
 - [ ] Table
 - [ ] Strike throough
 - [ ] TaskList
@@ -98,3 +98,4 @@ curl -SL https://github.com/takeshid/markdown-peek
 # License
 MIT License.
 See [LICENSE](LICENSE).
+
