@@ -9,7 +9,7 @@ function initializeMathJax() {
 
 (function() {
     initializeMermaid();
-    initializeMathJax();
+    // initializeMathJax();
     (async function() {
         const socket = new WebSocket("http://127.0.0.1:3000/ws");
         console.log("Create webscoket");

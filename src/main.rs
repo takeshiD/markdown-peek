@@ -22,11 +22,7 @@ fn main() -> Result<()> {
             let _ = watch;
             handle_serve(file)
         }
-        Mode::Term {
-            file,
-            watch,
-            theme,
-        } => handle_term(file, watch, theme),
+        Mode::Term { file, watch, theme } => handle_term(file, watch, theme),
     }
     Ok(())
 }

@@ -102,13 +102,22 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     options.insert(Options::ENABLE_GFM);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_MATH);
     let parser = Parser::new_ext(&markdown_content, options);
+    let parser = parser.inspect(|event| {
+        debug!("{:#?}", event);
+    });
     let mut emitter = HtmlEmitter::new(parser);
     let html_body = emitter.run();
     let template = include_str!("../static/index.html");
     let theme = state.theme.read().unwrap().to_string();
     let page = template
         .replace("{{theme}}", &theme)
+        .replace(
+            "{{ title }}",
+            file_path.file_name().unwrap().to_str().unwrap(),
+        )
         .replace("{{ content }}", &html_body);
     Html(page)
 }
