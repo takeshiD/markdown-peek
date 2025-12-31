@@ -22,7 +22,7 @@ jobs:
 
           # 2. Extract versions
           tag_ver="${GITHUB_REF_NAME#v}"
-          cargo_ver="$(grep -m1 '^version' codex-rs/Cargo.toml \
+          cargo_ver="$(grep -m1 '^version' Cargo.toml \
                         | sed -E 's/version *= *"([^"]+)".*/\1/')"
 
           # 3. Compare
