@@ -6,10 +6,11 @@ use clap::{
 use std::{io::IsTerminal, path::PathBuf};
 
 #[derive(Debug, Parser)]
-#[command(author, name = "mdpeek", about = "markdown viewer in browser and terminal", long_about = None, version)]
+#[command(author, name = "mdpeek", about, long_about = None, version)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
+    /// Target file by default "README.md"
     #[arg(value_name = "FILE")]
     pub root: Option<PathBuf>,
     #[arg(short, long, global = true)]
@@ -18,7 +19,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Serve hot reload previewer on your browser
     Serve(FileArg),
+    /// Display pretty rendered markdown on your terminal
     Term(TermArg),
 }
 
@@ -61,12 +64,17 @@ pub enum Mode {
 
 impl Cli {
     pub fn parse_with_color() -> Result<Self, clap::Error> {
-        const STYLES: Styles = Styles::styled()
-            .header(AnsiColor::Green.on_default().bold())
-            .usage(AnsiColor::Green.on_default().bold())
-            .literal(AnsiColor::Blue.on_default())
-            .placeholder(AnsiColor::Cyan.on_default().bold());
-        let cmd = Self::command().styles(STYLES);
+        pub const CLAP_STYLING: clap::builder::styling::Styles =
+            clap::builder::styling::Styles::styled()
+                .header(clap_cargo::style::HEADER)
+                .usage(clap_cargo::style::USAGE)
+                .literal(clap_cargo::style::LITERAL)
+                .placeholder(clap_cargo::style::PLACEHOLDER)
+                .error(clap_cargo::style::ERROR)
+                .valid(clap_cargo::style::VALID)
+                .invalid(clap_cargo::style::INVALID);
+        // let cmd = Self::command().styles(STYLES);
+        let cmd = Self::command().styles(CLAP_STYLING);
         Self::from_arg_matches(&cmd.get_matches())
     }
     pub fn resolve_mode(self) -> Result<Mode> {
