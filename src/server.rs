@@ -11,13 +11,12 @@ use axum::{
 use core::fmt;
 use futures::{SinkExt, StreamExt};
 use pulldown_cmark::{Options, Parser};
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::emitter::HtmlEmitter;
 use crate::watcher::notify_on_change;
@@ -45,11 +44,11 @@ impl fmt::Display for Theme {
     }
 }
 
-pub fn serve(watch_path: PathBuf) {
+pub fn serve(watch_path: PathBuf, host: String, port: String) {
     let (tx, _) = broadcast::channel::<Message>(16);
     let tx_reload = tx.clone();
     let watch_path_clone = watch_path.clone();
-    let server = std::thread::spawn(move || run_server(watch_path, tx_reload));
+    let server = std::thread::spawn(move || run_server(watch_path, tx_reload, host, port));
     let _: () = notify_on_change(watch_path_clone, move || {
         debug!("Callback Start");
         let result = tx.send(Message::text("reload"));
@@ -62,6 +61,8 @@ pub fn serve(watch_path: PathBuf) {
 async fn run_server(
     file_path: impl AsRef<Path>,
     tx_reload: broadcast::Sender<Message>,
+    host: String,
+    port: String,
 ) -> Result<()> {
     let state = AppState {
         tx: tx_reload,
@@ -75,8 +76,15 @@ async fn run_server(
         .route("/ws", get(websocket_handler))
         .nest_service("/static", static_files_service)
         .with_state(state);
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let listener = match TcpListener::bind(format!("{host}:{port}")).await {
+        Ok(listner) => listner,
+        Err(_) => {
+            warn!("Address '{host}:{port}' already in use.");
+            TcpListener::bind(format!("{host}:0"))
+                .await
+                .expect("failed to bind '{host}:0'")
+        }
+    };
     info!("Listening on http://{}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
     info!("End of serve");
