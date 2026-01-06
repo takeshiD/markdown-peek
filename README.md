@@ -65,7 +65,7 @@ curl -SL https://github.com/takeshid/markdown-peek
 - [x] MathJax
 - [ ] [Color Model](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#supported-color-models)
 - [ ] Auto Link
-- [ ] InPage Link
+- [x] InPage Link
 - [ ] Footnote
 - [ ] Table of Contents
 - [ ] Theme Switch(Light/Dark)
@@ -91,8 +91,6 @@ curl -SL https://github.com/takeshid/markdown-peek
 - [ ] [Alert](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts)
 - [ ] Math Equation
 - [ ] [Color Model](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#supported-color-models)
-- [ ] Auto Link
-- [ ] InPage Link
 - [ ] Footnote
 
 # License

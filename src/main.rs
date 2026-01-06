@@ -18,19 +18,24 @@ fn main() -> Result<()> {
     let cmd = Cli::parse_with_color()?;
     let mode = cmd.resolve_mode()?;
     match mode {
-        Mode::Serve { file, watch } => {
+        Mode::Serve {
+            file,
+            watch,
+            host,
+            port,
+        } => {
             let _ = watch;
-            handle_serve(file)
+            handle_serve(file, host, port)
         }
         Mode::Term { file, watch, theme } => handle_term(file, watch, theme),
     }
     Ok(())
 }
 
-fn handle_serve(root: PathBuf) {
+fn handle_serve(root: PathBuf, host: String, port: String) {
     init_tracing();
     if root.exists() {
-        serve(root);
+        serve(root, host, port);
     } else {
         error!("'{}' is not found.", root.display());
     }

@@ -7,12 +7,13 @@ repository = "https://github.com/takeshid/markdown-peek"
 keywords = ["markdown", "cli"]
 license-file = "LICENSE"
 readme = "README.md"
-description = "Markdown preview in browser and terminal"
+description = "Markdown previewer in browser and terminal"
 
 [dependencies]
 anyhow = "1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 clap = { version = "4", features = ["derive"] }
+clap-cargo = "0.18.3"
 futures = "0.3"
 notify = "8"
 notify-debouncer-mini = "0.7"

@@ -44,8 +44,8 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          # - runner: macos-15-xlarge
-          #   target: x86_64-apple-darwin
+          - runner: macos-latest-large
+            target: x86_64-apple-darwin
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
@@ -64,13 +64,18 @@ jobs:
           mkdir -p dist
           bin_name="$(cargo metadata --no-deps --format-version=1 \
                     | jq -r '.packages[0].targets[] | select(.kind[]=="bin").name')"
-          cp target/${{ matrix.target }}/release/${bin_name} dist/
-          tar czf dist/${bin_name}-${{ matrix.target }}.tar.gz -C dist $bin_name
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            bin_file="${bin_name}".exe
+          else
+            bin_file="${bin_name}"
+          fi
+          cp target/${{ matrix.target }}/release/${bin_file} dist/
+          tar czf dist/${bin_name}-${{ matrix.target }}.tar.gz -C dist ${bin_file}
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}
-          path: target/${{ matrix.target }}/*
+          path: dist/*.tar.gz
 
   publish:
     needs:
