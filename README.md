@@ -84,14 +84,14 @@ curl -SL https://github.com/takeshid/markdown-peek
 ## Terminal
 - [x] [Table](https://github.github.com/gfm/#tables-extension-)
 - [x] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
-- [ ] [Strike throough](https://github.github.com/gfm/#strikethrough-extension-)
+- [x] [Strike throough](https://github.github.com/gfm/#strikethrough-extension-)
 - [x] [Fenced Code](https://github.github.com/gfm/#fenced-code-blocks)
-- [ ] Syntax Hightlight
-- [ ] [Emoji](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis)
-- [ ] [Alert](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts)
-- [ ] Math Equation
-- [ ] [Color Model](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#supported-color-models)
-- [ ] Footnote
+- [x] Syntax Hightlight
+- [x] [Emoji](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis)
+- [x] [Alert](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts)
+- [x] Math Equation
+- [x] [Color Model](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#supported-color-models)
+- [x] Footnote
 
 # License
 MIT License.
