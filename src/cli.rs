@@ -18,6 +18,7 @@ pub struct Cli {
     pub host: Option<String>,
     #[arg(short = 'p', long = "port", value_name = "PORT")]
     pub port: Option<String>,
+    /// Watch for file changes and re-render (term mode only; serve always watches)
     #[arg(short = 'w', long = "watch", global = true)]
     pub watch: bool,
 }
@@ -60,11 +61,11 @@ pub enum ThemeChoice {
 }
 
 pub enum Mode {
+    /// `serve` always performs live-reload internally; no `watch` field needed.
     Serve {
         file: PathBuf,
         host: String,
         port: String,
-        watch: bool,
     },
     Term {
         file: PathBuf,
@@ -106,7 +107,6 @@ impl Cli {
                 file: arg.file,
                 host: arg.host,
                 port: arg.port,
-                watch: self.watch,
             }),
             Some(Commands::Term(arg)) => Ok(Mode::Term {
                 file: arg.file,
@@ -119,7 +119,6 @@ impl Cli {
                         file: root,
                         host,
                         port,
-                        watch: self.watch,
                     })
                 } else {
                     Ok(Mode::Term {

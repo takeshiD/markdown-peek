@@ -32,3 +32,8 @@ walkdir = "2.5"
 [[bin]]
 name = "mdpeek"
 path = "src/main.rs"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
