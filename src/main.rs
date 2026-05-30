@@ -71,6 +71,9 @@ fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     options.insert(Options::ENABLE_GFM);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_MATH);
+    options.insert(Options::ENABLE_FOOTNOTES);
     let parser = Parser::new_ext(&markdown_content, options);
     let theme = match theme {
         ThemeChoice::Glow => Theme::glow(),
