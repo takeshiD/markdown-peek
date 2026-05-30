@@ -1,5 +1,5 @@
 use pulldown_cmark::{
-    Alignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, Tag, TagEnd,
+    Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, Tag, TagEnd,
 };
 use std::collections::HashMap;
 use tracing::{debug, error};
@@ -11,21 +11,30 @@ enum TableState {
 
 #[derive(Debug, Clone)]
 struct HeadingState {
-    level: HeadingLevel,
+    /// 見出しタグ内に出力する表示用HTML（インライン要素タグを含む）
+    html: String,
+    /// アンカーid生成用のプレーンテキスト（タグを含まない）
     text: String,
     end_newline: bool,
 }
 
 impl HeadingState {
-    fn with_level(level: HeadingLevel) -> Self {
+    fn new() -> Self {
         Self {
-            level,
             end_newline: false,
-            text: "".to_string(),
+            html: String::new(),
+            text: String::new(),
         }
     }
-    fn push_text(&mut self, text: String) {
-        self.text.push_str(&text);
+    fn push_html(&mut self, html: &str) {
+        self.html.push_str(html);
+    }
+    fn push_text_escaped(&mut self, text: &str) {
+        // html側はエスケープ済み文字列を追加、text側はプレーンテキストを追加
+        let mut escaped = String::new();
+        escape_html_body(&mut escaped, text);
+        self.html.push_str(&escaped);
+        self.text.push_str(text);
     }
 }
 
@@ -65,7 +74,8 @@ where
                 Event::Text(text) => {
                     if !self.in_non_writing_block {
                         if let Some(heading_state) = self.heading_state.as_mut() {
-                            heading_state.push_text(text.to_string());
+                            // html側はエスケープ済み、text側はプレーンテキストを蓄積
+                            heading_state.push_text_escaped(&text);
                         } else {
                             escape_html_body(&mut html_body, &text);
                         }
@@ -74,11 +84,18 @@ where
                 }
                 Event::Code(text) => {
                     if let Some(heading_state) = self.heading_state.as_mut() {
-                        heading_state.push_text(text.to_string());
+                        // 見出し中: html側に<code>タグ付きで、text側にはプレーンテキストを蓄積
+                        heading_state.push_html("<code>");
+                        let mut escaped = String::new();
+                        escape_html_body(&mut escaped, &text);
+                        heading_state.push_html(&escaped);
+                        heading_state.push_html("</code>");
+                        heading_state.text.push_str(&text);
+                    } else {
+                        html_body.push_str("<code>");
+                        escape_html_body(&mut html_body, &text);
+                        html_body.push_str("</code>");
                     }
-                    html_body.push_str("<code>");
-                    escape_html_body(&mut html_body, &text);
-                    html_body.push_str("</code>");
                 }
                 Event::InlineMath(text) => {
                     html_body.push_str(r#"<span class="math math-inline">"#);
@@ -136,13 +153,13 @@ where
                     buf.push_str("\n<p>")
                 }
             }
-            Tag::Heading { level, .. } => {
+            Tag::Heading { .. } => {
                 match self.heading_state.as_ref() {
                     Some(_) => {
                         error!("Heading is nested. This case is not considered.");
                     }
                     None => {
-                        self.heading_state = Some(HeadingState::with_level(level));
+                        self.heading_state = Some(HeadingState::new());
                     }
                 }
                 if let Some(heading_state) = self.heading_state.as_mut() {
@@ -273,24 +290,60 @@ where
                     buf.push_str("\n<dd>")
                 }
             }
-            Tag::Subscript => buf.push_str("<sub>"),
-            Tag::Superscript => buf.push_str("<sup>"),
-            Tag::Emphasis => buf.push_str("<em>"),
-            Tag::Strong => buf.push_str("<strong>"),
-            Tag::Strikethrough => buf.push_str("<del>"),
+            Tag::Subscript => {
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("<sub>");
+                } else {
+                    buf.push_str("<sub>");
+                }
+            }
+            Tag::Superscript => {
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("<sup>");
+                } else {
+                    buf.push_str("<sup>");
+                }
+            }
+            Tag::Emphasis => {
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("<em>");
+                } else {
+                    buf.push_str("<em>");
+                }
+            }
+            Tag::Strong => {
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("<strong>");
+                } else {
+                    buf.push_str("<strong>");
+                }
+            }
+            Tag::Strikethrough => {
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("<del>");
+                } else {
+                    buf.push_str("<del>");
+                }
+            }
             Tag::Link {
                 link_type: LinkType::Email,
                 dest_url,
                 title,
                 id: _,
             } => {
-                buf.push_str("<a href=\"mailto:");
-                escape_href(buf, &dest_url);
+                let mut tmp = String::new();
+                tmp.push_str("<a href=\"mailto:");
+                escape_href(&mut tmp, &dest_url);
                 if !title.is_empty() {
-                    buf.push_str("\" title=\"");
-                    escape_html(buf, &title);
+                    tmp.push_str("\" title=\"");
+                    escape_html(&mut tmp, &title);
                 }
-                buf.push_str("\">")
+                tmp.push_str("\">");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html(&tmp);
+                } else {
+                    buf.push_str(&tmp);
+                }
             }
             Tag::Link {
                 link_type: _,
@@ -298,13 +351,19 @@ where
                 title,
                 id: _,
             } => {
-                buf.push_str("<a href=\"");
-                escape_href(buf, &dest_url);
+                let mut tmp = String::new();
+                tmp.push_str("<a href=\"");
+                escape_href(&mut tmp, &dest_url);
                 if !title.is_empty() {
-                    buf.push_str("\" title=\"");
-                    escape_html(buf, &title);
+                    tmp.push_str("\" title=\"");
+                    escape_html(&mut tmp, &title);
                 }
-                buf.push_str("\">")
+                tmp.push_str("\">");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html(&tmp);
+                } else {
+                    buf.push_str(&tmp);
+                }
             }
             Tag::Image {
                 link_type: _,
@@ -349,7 +408,10 @@ where
             TagEnd::Heading(level) => {
                 match self.heading_state.as_ref() {
                     Some(HeadingState {
-                        text, end_newline, ..
+                        html,
+                        text,
+                        end_newline,
+                        ..
                     }) => {
                         if *end_newline {
                             buf.push('<');
@@ -358,24 +420,18 @@ where
                         }
                         buf.push_str(&format!("{level}"));
                         if !text.is_empty() {
+                            // id はプレーンテキストから生成、表示は html バッファを使用
+                            let anchor = convert_to_anochor_text(text.clone());
+                            buf.push_str(&format!(" id=\"{anchor}\">{html}"));
                             buf.push_str(&format!(
-                                " id=\"{}\">{}",
-                                convert_to_anochor_text(text.clone()),
-                                text
+                                "<a class=\"anchor\" aria-label=\"Permalink\" href=\"#{anchor}\">"
                             ));
-                            buf.push_str(
-                                format!(
-                                    "<a class=\"anchor\" aria-label=\"Permalink\" href=\"#{}\">",
-                                    convert_to_anochor_text(text.clone())
-                                )
-                                .as_str(),
-                            );
                             buf.push_str("<svg class=\"octicon octicon-link\" viewBox=\"0 0 16 16\" version=\"16\" height=\"16\" aria-hidden=\"true\">");
                             buf.push_str("<path d=\"m7.775 3.275 1.25-1.25a3.5 3.5 0 1 1 4.95 4.95l-2.5 2.5a3.5 3.5 0 0 1-4.95 0 .751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018 1.998 1.998 0 0 0 2.83 0l2.5-2.5a2.002 2.002 0 0 0-2.83-2.83l-1.25 1.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042Zm-4.69 9.64a1.998 1.998 0 0 0 2.83 0l1.25-1.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042l-1.25 1.25a3.5 3.5 0 1 1-4.95-4.95l2.5-2.5a3.5 3.5 0 0 1 4.95 0 .751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018 1.998 1.998 0 0 0-2.83 0l-2.5 2.5a1.998 1.998 0 0 0 0 2.83Z\"></path>");
                             buf.push_str("</svg>");
                             buf.push_str("</a>");
                         } else {
-                            buf.push_str(&format!(">{text}"));
+                            buf.push_str(&format!(">{html}"));
                         }
                     }
                     None => {
@@ -433,22 +489,46 @@ where
                 buf.push_str("</dd>\n");
             }
             TagEnd::Emphasis => {
-                buf.push_str("</em>");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("</em>");
+                } else {
+                    buf.push_str("</em>");
+                }
             }
             TagEnd::Superscript => {
-                buf.push_str("</sup>");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("</sup>");
+                } else {
+                    buf.push_str("</sup>");
+                }
             }
             TagEnd::Subscript => {
-                buf.push_str("</sub>");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("</sub>");
+                } else {
+                    buf.push_str("</sub>");
+                }
             }
             TagEnd::Strong => {
-                buf.push_str("</strong>");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("</strong>");
+                } else {
+                    buf.push_str("</strong>");
+                }
             }
             TagEnd::Strikethrough => {
-                buf.push_str("</del>");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("</del>");
+                } else {
+                    buf.push_str("</del>");
+                }
             }
             TagEnd::Link => {
-                buf.push_str("</a>");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html("</a>");
+                } else {
+                    buf.push_str("</a>");
+                }
             }
             TagEnd::Image => (), // shouldn't happen, handled in start
             TagEnd::FootnoteDefinition => {
@@ -573,7 +653,7 @@ fn escape_html(buf: &mut String, text: &str) {
             None => break,
         }
         let c = bytes[i];
-        let escape = HTML_ESCAPE_TABLE_BODY[c as usize];
+        let escape = HTML_ESCAPE_TABLE[c as usize];
         let espace_seq = HTML_ESCAPES[escape as usize];
         buf.push_str(&text[mark..i]);
         buf.push_str(espace_seq);
