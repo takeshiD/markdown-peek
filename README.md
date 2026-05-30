@@ -21,7 +21,7 @@ Markdown Peek (`mdpeek`) is a lightweight CLI tool that watches a markdown file 
 ```sh
 mdpeek
  INFO mdpeek::watcher: Watching: "README.md"
- INFO mdpeek::server: Listening on http://127.0.0.1:3000NFO mdpeek::watcher Watching: "README.md"
+ INFO mdpeek::server: Listening on http://127.0.0.1:3030
 ```
 
 ## Preview on your terminal

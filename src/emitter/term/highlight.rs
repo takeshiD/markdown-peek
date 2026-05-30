@@ -32,19 +32,25 @@ fn state() -> &'static State {
     })
 }
 
+/// Honour the `NO_COLOR` convention (https://no-color.org): when the variable
+/// is present and non-empty, suppress syntax highlighting.
+fn no_color() -> bool {
+    std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())
+}
+
 /// Return `code` with ANSI 24-bit syntax highlighting applied for `lang`.
 ///
 /// * `lang` is matched case-insensitively as a file-extension / language token
 ///   (e.g. `"rs"`, `"python"`, `"js"`).
-/// * When `lang` is empty or unrecognised, or when highlighting fails for any
-///   reason, `code` is returned unchanged.
+/// * When `lang` is empty or unrecognised, when `NO_COLOR` is set, or when
+///   highlighting fails for any reason, `code` is returned unchanged.
 /// * Trailing-newline presence is preserved: if `code` ends with `'\n'` the
 ///   output does too, and vice-versa.
 /// * Each highlighted line is terminated with `\x1b[0m` so the terminal's
 ///   background colour is never "leaked" between lines.
 pub fn highlight(code: &str, lang: &str) -> String {
-    // Fast-path: nothing to highlight.
-    if lang.is_empty() {
+    // Fast-path: nothing to highlight, or colour explicitly disabled.
+    if lang.is_empty() || no_color() {
         return code.to_owned();
     }
 

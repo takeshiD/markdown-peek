@@ -18,15 +18,7 @@ fn main() -> Result<()> {
     let cmd = Cli::parse_with_color()?;
     let mode = cmd.resolve_mode()?;
     match mode {
-        Mode::Serve {
-            file,
-            watch,
-            host,
-            port,
-        } => {
-            let _ = watch;
-            handle_serve(file, host, port)
-        }
+        Mode::Serve { file, host, port } => handle_serve(file, host, port),
         Mode::Term { file, watch, theme } => handle_term(file, watch, theme),
     }
     Ok(())
@@ -129,6 +121,8 @@ fn page(content: &str) -> std::io::Result<()> {
 
 fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     let markdown_content = std::fs::read_to_string(root)?;
+    // Use the same option set as the HTML server renderer so that GFM
+    // features (strikethrough, math, footnotes) are parsed consistently.
     let mut options = Options::empty();
     options.insert(Options::ENABLE_GFM);
     options.insert(Options::ENABLE_TASKLISTS);
