@@ -21,7 +21,7 @@ Markdown Peek (`mdpeek`) is a lightweight CLI tool that watches a markdown file 
 ```sh
 mdpeek
  INFO mdpeek::watcher: Watching: "README.md"
- INFO mdpeek::server: Listening on http://127.0.0.1:3000NFO mdpeek::watcher Watching: "README.md"
+ INFO mdpeek::server: Listening on http://127.0.0.1:3030
 ```
 
 ## Preview on your terminal
@@ -86,10 +86,10 @@ curl -SL https://github.com/takeshid/markdown-peek
 - [x] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
 - [x] [Strike throough](https://github.github.com/gfm/#strikethrough-extension-)
 - [x] [Fenced Code](https://github.github.com/gfm/#fenced-code-blocks)
-- [ ] Syntax Hightlight
+- [x] Syntax Hightlight
 - [x] [Emoji](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis)
 - [x] [Alert](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts)
-- [ ] Math Equation
+- [x] Math Equation
 - [x] [Color Model](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#supported-color-models)
 - [x] Footnote
 

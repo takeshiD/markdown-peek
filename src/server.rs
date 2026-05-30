@@ -103,7 +103,19 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
         }
         Err(e) => {
             error!("Failed to read file '{}': {}", file_path.display(), e);
-            "Failed to read file".to_string()
+            // Return early with an HTML error page rather than rendering bad markdown
+            let error_html = include_str!("../static/index.html")
+                .replace("{{theme}}", "")
+                .replace("{{ title }}", "Error")
+                .replace(
+                    "{{ content }}",
+                    &format!(
+                        "<h1>Error</h1><p>Failed to read file <code>{}</code>: {}</p>",
+                        file_path.display(),
+                        e
+                    ),
+                );
+            return Html(error_html);
         }
     };
     let mut options = Options::empty();
@@ -122,12 +134,13 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     let html_body = emitter.run();
     let template = include_str!("../static/index.html");
     let theme = state.theme.read().unwrap().to_string();
+    let title = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_else(|| file_path.to_str().unwrap_or("markdown-peek"));
     let page = template
         .replace("{{theme}}", &theme)
-        .replace(
-            "{{ title }}",
-            file_path.file_name().unwrap().to_str().unwrap(),
-        )
+        .replace("{{ title }}", title)
         .replace("{{ content }}", &html_body);
     Html(page)
 }
@@ -141,23 +154,50 @@ async fn websocket_handler(
 }
 
 async fn websocket_connection(ws: WebSocket, tx_reload: broadcast::Sender<Message>) {
-    let (mut tx_ws, _) = ws.split();
+    let (mut tx_ws, mut rx_ws) = ws.split();
     let mut rx_reload = tx_reload.subscribe();
     debug!("Websocket got connection");
-    match rx_reload.recv().await {
-        Ok(m) => {
-            debug!("Client sent reload call: {}", m.to_text().unwrap());
-            match tx_ws.send(m).await {
-                Ok(_) => {
-                    debug!("Success reload");
-                }
-                Err(e) => {
-                    error!("Error reload: {}", e);
+    loop {
+        tokio::select! {
+            result = rx_reload.recv() => {
+                match result {
+                    Ok(m) => {
+                        debug!("Sending reload to client");
+                        match tx_ws.send(m).await {
+                            Ok(_) => {
+                                debug!("Success reload");
+                            }
+                            Err(e) => {
+                                error!("Error sending reload: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("FileWatcher broadcast lagged, skipped {} messages", n);
+                        // Continue: skip lagged messages and keep the connection alive
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        debug!("FileWatcher broadcast channel closed, closing WebSocket");
+                        break;
+                    }
                 }
             }
-        }
-        Err(e) => {
-            error!("FileWatcher receive error: {}", e);
+            client_msg = rx_ws.next() => {
+                match client_msg {
+                    Some(Ok(Message::Close(_))) | None => {
+                        debug!("Client closed WebSocket connection");
+                        break;
+                    }
+                    Some(Ok(_)) => {
+                        // Ignore other client messages
+                    }
+                    Some(Err(e)) => {
+                        error!("WebSocket receive error: {}", e);
+                        break;
+                    }
+                }
+            }
         }
     }
 }

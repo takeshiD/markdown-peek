@@ -12,9 +12,9 @@ description = "Markdown previewer in browser and terminal"
 [dependencies]
 anyhow = "1"
 axum = { version = "0.8", features = ["ws", "macros"] }
-emojis = "0.6"
 clap = { version = "4", features = ["derive"] }
 clap-cargo = "0.18.3"
+emojis = "0.6"
 futures = "0.3"
 notify = "8"
 notify-debouncer-mini = "0.7"
@@ -23,9 +23,11 @@ pulldown-cmark = { version = "0.13", features = ["serde"] }
 pulldown-cmark-escape = "0.11"
 regex = "1"
 thiserror = "2.0"
+terminal_size = "0.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 toml = "0.9"
+two-face = "0.5.1"
 tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -34,3 +36,8 @@ walkdir = "2.5"
 [[bin]]
 name = "mdpeek"
 path = "src/main.rs"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"

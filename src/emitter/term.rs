@@ -1,64 +1,19 @@
-use anyhow::Context;
-use owo_colors::{DynColors, OwoColorize, Style, colors::xterm::PharlapPink};
+use owo_colors::{OwoColorize, Style};
 use pulldown_cmark::{BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, Tag, TagEnd};
 use std::collections::HashMap;
+
+mod color;
+mod emoji;
+mod highlight;
+
+/// ANSI escape that turns on the terminal "crossed out" attribute.
+const STRIKE_ON: &str = "\x1b[9m";
+/// ANSI escape that turns off the "crossed out" attribute.
+const STRIKE_OFF: &str = "\x1b[29m";
 
 enum ListState {
     Ordered { index: usize },
     Unordered,
-}
-
-#[rustfmt::skip]
-#[derive(Clone, Debug)]
-pub struct Palette {
-    black:   DynColors,
-    red:     DynColors,
-    green:   DynColors,
-    yellow:  DynColors,
-    magenta: DynColors,
-    cyan:    DynColors,
-    white:   DynColors,
-    orange:  DynColors,
-    pink:    DynColors,
-    bg:      DynColors,
-    fg:      DynColors,
-    // bg0:     DynColors,
-    // bg1:     DynColors,
-    // bg2:     DynColors,
-    // bg3:     DynColors,
-    // bg4:     DynColors,
-    // fg0:     DynColors,
-    // fg1:     DynColors,
-    // fg2:     DynColors,
-    // fg3:     DynColors,
-}
-
-pub trait BuiltinTheme {
-    fn name(&self) -> &'static str;
-    fn pallete(&self) -> Palette;
-}
-
-pub struct Ayu;
-impl BuiltinTheme for Ayu {
-    fn name(&self) -> &'static str {
-        "ayu"
-    }
-    #[rustfmt::skip]
-    fn pallete(&self) -> Palette {
-        Palette {
-            black:   "#0F141A".parse().unwrap(),
-            red:     "#FF3333".parse().unwrap(),
-            green:   "#BAE67E".parse().unwrap(),
-            yellow:  "#FFD580".parse().unwrap(),
-            magenta: "#D4BFFF".parse().unwrap(),
-            cyan:    "#95E6CB".parse().unwrap(),
-            white:   "#CBCCC6".parse().unwrap(),
-            orange:  "#FFAD66".parse().unwrap(),
-            pink:    "#F07178".parse().unwrap(),
-            bg:      "#0F141A".parse().unwrap(),
-            fg:      "#CBCCC6".parse().unwrap(),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -203,6 +158,8 @@ pub struct TerminalEmitter<I> {
     pending_list_marker: Option<String>,
     numbers: HashMap<String, usize>,
     link_stack: Vec<String>,
+    code_block_lang: String,
+    code_block_buf: String,
 }
 
 impl<'a, I> TerminalEmitter<I>
@@ -233,6 +190,8 @@ where
             pending_list_marker: None,
             numbers: HashMap::new(),
             link_stack: Vec::new(),
+            code_block_lang: String::new(),
+            code_block_buf: String::new(),
         }
     }
 
@@ -244,11 +203,18 @@ where
                 Event::End(tag) => self.end_tag(&mut out, tag),
                 Event::Text(text) => {
                     if !self.in_non_writing_block {
-                        if self.in_table_cell {
-                            self.push_table_text(&text);
+                        if self.in_code_block {
+                            // Buffer raw code; highlighting happens at block end.
+                            self.code_block_buf.push_str(&text);
                         } else {
-                            self.flush_pending_marker(&mut out);
-                            self.push_text(&mut out, &text);
+                            // Substitute `:shortcode:` emoji outside code spans.
+                            let text = emoji::replace_shortcodes(&text);
+                            if self.in_table_cell {
+                                self.push_table_text(&text);
+                            } else {
+                                self.flush_pending_marker(&mut out);
+                                self.push_text(&mut out, &text);
+                            }
                         }
                         self.end_newline = text.ends_with('\n');
                     }
@@ -262,11 +228,10 @@ where
                         out.push('`');
                         out.push_str(&styled);
                         out.push('`');
-                        if let Some(hex) = css_color_to_hex(text.trim()) {
-                            if let Ok(color) = hex.parse::<DynColors>() {
-                                out.push(' ');
-                                out.push_str(&format!("{}", "█".color(color)));
-                            }
+                        // Append a colour swatch when the span is a colour code.
+                        if let Some(sw) = color::swatch(&text) {
+                            out.push(' ');
+                            out.push_str(&sw);
                         }
                     }
                 }
@@ -404,13 +369,24 @@ where
                 self.current_cell.clear();
             }
             Tag::BlockQuote(kind) => {
-                let label = match kind {
+                // GitHub-style alerts: icon + coloured label per kind.
+                let alert = match kind {
                     None => None,
-                    Some(BlockQuoteKind::Note) => Some("[!NOTE]"),
-                    Some(BlockQuoteKind::Tip) => Some("[!TIP]"),
-                    Some(BlockQuoteKind::Important) => Some("[!IMPORTANT]"),
-                    Some(BlockQuoteKind::Warning) => Some("[!WARNING]"),
-                    Some(BlockQuoteKind::Caution) => Some("[!CAUTION]"),
+                    Some(BlockQuoteKind::Note) => {
+                        Some(("ℹ", "NOTE", Style::new().bright_blue().bold()))
+                    }
+                    Some(BlockQuoteKind::Tip) => {
+                        Some(("💡", "TIP", Style::new().bright_green().bold()))
+                    }
+                    Some(BlockQuoteKind::Important) => {
+                        Some(("❗", "IMPORTANT", Style::new().bright_magenta().bold()))
+                    }
+                    Some(BlockQuoteKind::Warning) => {
+                        Some(("⚠", "WARNING", Style::new().bright_yellow().bold()))
+                    }
+                    Some(BlockQuoteKind::Caution) => {
+                        Some(("🛑", "CAUTION", Style::new().bright_red().bold()))
+                    }
                 };
                 if out.ends_with("\n\n") {
                     out.pop();
@@ -420,9 +396,9 @@ where
                 }
                 self.in_block_quote = true;
                 out.push_str(&format!("{}", "│".style(self.theme.quote_bar)));
-                if let Some(label) = label {
+                if let Some((icon, label, style)) = alert {
                     out.push(' ');
-                    out.push_str(&format!("{}", label.style(self.theme.block_quote)));
+                    out.push_str(&format!("{} {}", icon, label.style(style)));
                     out.push('\n');
                     out.push_str(&format!("{}", "│".style(self.theme.quote_bar)));
                     out.push(' ');
@@ -435,13 +411,16 @@ where
                     out.push('\n');
                 }
                 self.in_code_block = true;
+                self.code_block_buf.clear();
                 match info {
                     CodeBlockKind::Fenced(lang) => {
+                        self.code_block_lang = lang.split(' ').next().unwrap_or("").to_string();
                         out.push_str("```");
-                        out.push_str(lang.split(' ').next().unwrap_or(""));
+                        out.push_str(&self.code_block_lang);
                         out.push('\n');
                     }
                     CodeBlockKind::Indented => {
+                        self.code_block_lang.clear();
                         out.push_str("```\n");
                     }
                 }
@@ -499,7 +478,7 @@ where
                 out.push_str(&format!("{}", "**".style(self.theme.code)));
             }
             Tag::Strikethrough => {
-                out.push_str(&format!("{}", "~~".style(self.theme.code)));
+                out.push_str(STRIKE_ON);
             }
             Tag::Link {
                 link_type: LinkType::Email,
@@ -598,6 +577,13 @@ where
                 self.end_newline = true;
             }
             TagEnd::CodeBlock => {
+                let buf = std::mem::take(&mut self.code_block_buf);
+                let lang = std::mem::take(&mut self.code_block_lang);
+                let highlighted = highlight::highlight(&buf, &lang);
+                out.push_str(&highlighted);
+                if !highlighted.ends_with('\n') {
+                    out.push('\n');
+                }
                 out.push_str("```\n\n");
                 self.in_code_block = false;
                 self.end_newline = true;
@@ -640,7 +626,7 @@ where
                 out.push_str(&format!("{}", "**".style(self.theme.code)));
             }
             TagEnd::Strikethrough => {
-                out.push_str(&format!("{}", "~~".style(self.theme.code)));
+                out.push_str(STRIKE_OFF);
             }
             TagEnd::Link => {
                 if let Some(dest) = self.link_stack.pop()
@@ -801,64 +787,87 @@ where
     }
 }
 
-/// If `s` is exactly a CSS color value (HEX / rgb() / rgba() / hsl() / hsla()),
-/// return a `#RRGGBB` HEX string that `DynColors` can parse. HEX inputs are
-/// normalized to 6-digit form; `rgb()`/`rgba()` are converted; `hsl()`/`hsla()`
-/// are not converted (returns `None`) since DynColors cannot represent them.
-fn css_color_to_hex(s: &str) -> Option<String> {
-    let s = s.trim();
-    if let Some(hex) = s.strip_prefix('#') {
-        return normalize_hex(hex);
-    }
-    let lower = s.to_ascii_lowercase();
-    let rest = lower
-        .strip_prefix("rgba")
-        .or_else(|| lower.strip_prefix("rgb"))?;
-    let rest = rest.trim_start();
-    let inner = rest.strip_prefix('(')?.strip_suffix(')')?;
-    let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
-    if parts.len() < 3 {
-        return None;
-    }
-    let r = parse_rgb_component(parts[0])?;
-    let g = parse_rgb_component(parts[1])?;
-    let b = parse_rgb_component(parts[2])?;
-    Some(format!("#{:02X}{:02X}{:02X}", r, g, b))
-}
-
-/// Parse a HEX body (no leading '#') of length 3/4/6/8 into a `#RRGGBB` string.
-fn normalize_hex(hex: &str) -> Option<String> {
-    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let rgb = match hex.len() {
-        3 | 4 => {
-            // Expand each nibble: #RGB -> #RRGGBB
-            let c: Vec<char> = hex.chars().collect();
-            format!("{0}{0}{1}{1}{2}{2}", c[0], c[1], c[2])
-        }
-        6 | 8 => hex[..6].to_string(),
-        _ => return None,
-    };
-    Some(format!("#{}", rgb.to_ascii_uppercase()))
-}
-
-/// Parse an `rgb()` component (integer, float, or percentage) into 0-255.
-fn parse_rgb_component(token: &str) -> Option<u8> {
-    if let Some(pct) = token.strip_suffix('%') {
-        let v: f64 = pct.trim().parse().ok()?;
-        let clamped = (v / 100.0 * 255.0).round().clamp(0.0, 255.0);
-        return Some(clamped as u8);
-    }
-    let v: f64 = token.parse().ok()?;
-    Some(v.round().clamp(0.0, 255.0) as u8)
-}
-
 fn pad(text: &str, width: usize) -> String {
     let len = text.chars().count();
     if len >= width {
         text.to_string()
     } else {
         format!("{}{}", text, " ".repeat(width - len))
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use pulldown_cmark::{Options, Parser};
+
+    /// 端末向け機能をすべて有効にしたパーサで markdown をレンダリングする。
+    fn render(md: &str) -> String {
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_GFM);
+        options.insert(Options::ENABLE_TASKLISTS);
+        options.insert(Options::ENABLE_TABLES);
+        options.insert(Options::ENABLE_STRIKETHROUGH);
+        options.insert(Options::ENABLE_MATH);
+        options.insert(Options::ENABLE_FOOTNOTES);
+        let parser = Parser::new_ext(md, options);
+        TerminalEmitter::new(parser, Theme::glow()).run()
+    }
+
+    #[test]
+    fn strikethrough_uses_ansi_crossed_out() {
+        let out = render("~~gone~~");
+        assert!(out.contains(STRIKE_ON), "missing strike-on escape");
+        assert!(out.contains(STRIKE_OFF), "missing strike-off escape");
+        assert!(out.contains("gone"));
+        assert!(!out.contains("~~"), "literal tildes should not leak");
+    }
+
+    #[test]
+    fn emoji_shortcode_is_replaced() {
+        let smile = emojis::get_by_shortcode("smile").unwrap().as_str();
+        let out = render("hello :smile:");
+        assert!(out.contains(smile), "emoji not substituted: {out:?}");
+        assert!(!out.contains(":smile:"));
+    }
+
+    #[test]
+    fn color_span_gets_swatch() {
+        let out = render("`#FF0000`");
+        // background-colour swatch for pure red
+        assert!(out.contains("48;2;255;0;0m"), "missing swatch: {out:?}");
+    }
+
+    #[test]
+    fn non_color_code_span_has_no_swatch() {
+        let out = render("`hello`");
+        assert!(!out.contains("48;2;"), "unexpected swatch: {out:?}");
+    }
+
+    #[test]
+    fn fenced_code_is_syntax_highlighted() {
+        let out = render("```rust\nfn main() {}\n```");
+        // 24-bit foreground escapes from the highlighter
+        assert!(out.contains("\x1b[38;2;"), "code not highlighted: {out:?}");
+    }
+
+    #[test]
+    fn inline_math_is_rendered() {
+        let out = render("$E = mc^2$");
+        assert!(out.contains("$E = mc^2$"), "math not rendered: {out:?}");
+    }
+
+    #[test]
+    fn footnote_reference_and_definition() {
+        let out = render("text[^1]\n\n[^1]: note");
+        assert!(out.contains("[^1]"), "footnote ref missing: {out:?}");
+        assert!(out.contains("note"), "footnote def missing: {out:?}");
+    }
+
+    #[test]
+    fn alert_note_has_icon_and_label() {
+        let out = render("> [!NOTE]\n> body");
+        assert!(out.contains("NOTE"), "alert label missing: {out:?}");
+        assert!(out.contains('ℹ'), "alert icon missing: {out:?}");
     }
 }
