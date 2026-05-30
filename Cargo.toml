@@ -1,6 +1,6 @@
 [package]
 name = "markdown-peek"
-version = "0.1.7"
+version = "0.0.0"
 edition = "2024"
 authors = ["tkcd <goriponikeike55@gmail.com>"]
 repository = "https://github.com/takeshid/markdown-peek"
@@ -24,11 +24,10 @@ pulldown-cmark-escape = "0.11"
 regex = "1"
 thiserror = "2.0"
 terminal_size = "0.4"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 toml = "0.9"
 two-face = "0.5.1"
-tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2.5"
