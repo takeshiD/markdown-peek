@@ -1,5 +1,7 @@
+use crate::config::{BrowserTheme, Config, DefaultMode};
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use serde::Deserialize;
 use std::{io::IsTerminal, path::PathBuf};
 
 const DEFAULT_ROOT: &str = "README.md";
@@ -21,6 +23,9 @@ pub struct Cli {
     /// Watch for file changes and re-render (term mode only; serve always watches)
     #[arg(short = 'w', long = "watch", global = true)]
     pub watch: bool,
+    /// Path to a config file (overrides the default XDG location)
+    #[arg(short = 'c', long = "config", value_name = "FILE", global = true)]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -31,25 +36,29 @@ pub enum Commands {
     Term(TermArg),
 }
 
+// Subcommand arguments are optional so that an unset flag can fall back to
+// `config.toml`, then to the built-in default. clap defaults are intentionally
+// omitted here and applied in `resolve_mode`.
 #[derive(Debug, Args)]
 pub struct ServeArg {
-    #[arg(value_name = "FILE", default_value = DEFAULT_ROOT)]
-    pub file: PathBuf,
-    #[arg(long, value_name = "HOST", default_value = DEFAULT_HOST)]
-    pub host: String,
-    #[arg(long, value_name = "PORT", default_value = DEFAULT_PORT)]
-    pub port: String,
+    #[arg(value_name = "FILE")]
+    pub file: Option<PathBuf>,
+    #[arg(long, value_name = "HOST")]
+    pub host: Option<String>,
+    #[arg(long, value_name = "PORT")]
+    pub port: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub struct TermArg {
-    #[arg(value_name = "FILE", default_value = "README.md")]
-    pub file: PathBuf,
-    #[arg(long, value_enum, default_value = "glow")]
-    pub theme: ThemeChoice,
+    #[arg(value_name = "FILE")]
+    pub file: Option<PathBuf>,
+    #[arg(long, value_enum)]
+    pub theme: Option<ThemeChoice>,
 }
 
-#[derive(Debug, Copy, Clone, ValueEnum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ThemeChoice {
     Glow,
     Mono,
@@ -66,11 +75,15 @@ pub enum Mode {
         file: PathBuf,
         host: String,
         port: String,
+        theme: BrowserTheme,
     },
     Term {
         file: PathBuf,
         watch: bool,
         theme: ThemeChoice,
+        /// Pager override from config: `None` uses `$PAGER`/`less -R`, `Some("")`
+        /// disables paging, `Some(cmd)` runs `cmd`.
+        pager: Option<String>,
     },
 }
 
@@ -89,43 +102,67 @@ impl Cli {
         let cmd = Self::command().styles(CLAP_STYLING);
         Self::from_arg_matches(&cmd.get_matches())
     }
-    pub fn resolve_mode(self) -> Result<Mode> {
-        let root = match self.root {
-            Some(root) => root,
-            None => PathBuf::from(DEFAULT_ROOT),
-        };
-        let host = match self.host {
-            Some(host) => host,
-            None => DEFAULT_HOST.to_string(),
-        };
-        let port = match self.port {
-            Some(port) => port,
-            None => DEFAULT_PORT.to_string(),
-        };
+    /// Resolve the final run mode by merging, in order of precedence:
+    /// CLI arguments, then `config.toml`, then built-in defaults.
+    pub fn resolve_mode(self, config: &Config) -> Result<Mode> {
+        let cfg_host = config.server.host.clone();
+        let cfg_port = config.server.port.clone();
+        let browser_theme = config.server.theme.unwrap_or(BrowserTheme::Light);
+        let pager = config.term.pager.clone();
+
         match self.command {
             Some(Commands::Serve(arg)) => Ok(Mode::Serve {
-                file: arg.file,
-                host: arg.host,
-                port: arg.port,
+                file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
+                host: arg
+                    .host
+                    .or(self.host)
+                    .or(cfg_host)
+                    .unwrap_or_else(|| DEFAULT_HOST.to_string()),
+                port: arg
+                    .port
+                    .or(self.port)
+                    .or(cfg_port)
+                    .unwrap_or_else(|| DEFAULT_PORT.to_string()),
+                theme: browser_theme,
             }),
             Some(Commands::Term(arg)) => Ok(Mode::Term {
-                file: arg.file,
+                file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
                 watch: self.watch,
-                theme: arg.theme,
+                theme: arg.theme.or(config.term.theme).unwrap_or(ThemeChoice::Glow),
+                pager,
             }),
             None => {
-                if std::io::stdout().is_terminal() {
-                    Ok(Mode::Serve {
+                let root = self.root.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
+                let host = self
+                    .host
+                    .or(cfg_host)
+                    .unwrap_or_else(|| DEFAULT_HOST.to_string());
+                let port = self
+                    .port
+                    .or(cfg_port)
+                    .unwrap_or_else(|| DEFAULT_PORT.to_string());
+                // Config wins over the stdout-tty heuristic when `default_mode`
+                // is set; otherwise keep the original behaviour.
+                let mode = config.default_mode.unwrap_or_else(|| {
+                    if std::io::stdout().is_terminal() {
+                        DefaultMode::Serve
+                    } else {
+                        DefaultMode::Term
+                    }
+                });
+                match mode {
+                    DefaultMode::Serve => Ok(Mode::Serve {
                         file: root,
                         host,
                         port,
-                    })
-                } else {
-                    Ok(Mode::Term {
+                        theme: browser_theme,
+                    }),
+                    DefaultMode::Term => Ok(Mode::Term {
                         file: root,
-                        watch: false,
-                        theme: ThemeChoice::Glow,
-                    })
+                        watch: self.watch,
+                        theme: config.term.theme.unwrap_or(ThemeChoice::Glow),
+                        pager,
+                    }),
                 }
             }
         }

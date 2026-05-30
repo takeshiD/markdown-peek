@@ -31,6 +31,7 @@ tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2.5"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [[bin]]
 name = "mdpeek"
