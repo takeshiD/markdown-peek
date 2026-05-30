@@ -18,6 +18,7 @@ use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
 use tracing::{debug, error, info, warn};
 
+use crate::config::BrowserTheme;
 use crate::emitter::HtmlEmitter;
 use crate::watcher::notify_on_change;
 
@@ -28,7 +29,6 @@ struct AppState {
     theme: Arc<RwLock<Theme>>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum Theme {
     GitHubLight,
@@ -43,12 +43,20 @@ impl fmt::Display for Theme {
         write!(f, "{s}")
     }
 }
+impl From<BrowserTheme> for Theme {
+    fn from(theme: BrowserTheme) -> Self {
+        match theme {
+            BrowserTheme::Light => Theme::GitHubLight,
+            BrowserTheme::Dark => Theme::GitHubDark,
+        }
+    }
+}
 
-pub fn serve(watch_path: PathBuf, host: String, port: String) {
+pub fn serve(watch_path: PathBuf, host: String, port: String, theme: BrowserTheme) {
     let (tx, _) = broadcast::channel::<Message>(16);
     let tx_reload = tx.clone();
     let watch_path_clone = watch_path.clone();
-    let server = std::thread::spawn(move || run_server(watch_path, tx_reload, host, port));
+    let server = std::thread::spawn(move || run_server(watch_path, tx_reload, host, port, theme));
     let _: () = notify_on_change(watch_path_clone, move || {
         debug!("Callback Start");
         let result = tx.send(Message::text("reload"));
@@ -63,11 +71,12 @@ async fn run_server(
     tx_reload: broadcast::Sender<Message>,
     host: String,
     port: String,
+    theme: BrowserTheme,
 ) -> Result<()> {
     let state = AppState {
         tx: tx_reload,
         file_path: Arc::new(RwLock::new(file_path.as_ref().to_path_buf())),
-        theme: Arc::new(RwLock::new(Theme::GitHubLight)),
+        theme: Arc::new(RwLock::new(Theme::from(theme))),
     };
     let static_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
     let static_files_service = ServeDir::new(static_dir).append_index_html_on_directories(true);

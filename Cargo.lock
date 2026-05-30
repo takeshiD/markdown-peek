@@ -746,6 +746,7 @@ dependencies = [
  "pulldown-cmark",
  "pulldown-cmark-escape",
  "regex",
+ "serde",
  "tempfile",
  "terminal_size",
  "thiserror",
