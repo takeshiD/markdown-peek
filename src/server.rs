@@ -133,7 +133,9 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_MATH);
+    options.insert(Options::ENABLE_FOOTNOTES);
     let parser = Parser::new_ext(&markdown_content, options);
+    let parser = crate::gfm::transform(parser);
     let parser = parser.inspect(|event| {
         debug!("{:#?}", event);
     });

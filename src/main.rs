@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod emitter;
+mod gfm;
 mod server;
 mod watcher;
 
@@ -158,6 +159,7 @@ fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     options.insert(Options::ENABLE_MATH);
     options.insert(Options::ENABLE_FOOTNOTES);
     let parser = Parser::new_ext(&markdown_content, options);
+    let parser = crate::gfm::transform(parser);
     let theme = match theme {
         ThemeChoice::Glow => Theme::glow(),
         ThemeChoice::Mono => Theme::mono(),

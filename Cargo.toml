@@ -21,6 +21,7 @@ notify-debouncer-mini = "0.7"
 owo-colors = "4.2"
 pulldown-cmark = { version = "0.13", features = ["serde"] }
 pulldown-cmark-escape = "0.11"
+regex = "1"
 thiserror = "2.0"
 terminal_size = "0.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
