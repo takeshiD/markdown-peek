@@ -29,9 +29,8 @@ static EMOJI_RE: LazyLock<Regex> =
 /// The match is intentionally greedy on the trailing characters; precise
 /// trimming of trailing punctuation and unbalanced parentheses is handled
 /// afterwards in [`trim_autolink`].
-static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(https?://|www\.)[^\s<]+").expect("valid url regex")
-});
+static URL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(https?://|www\.)[^\s<]+").expect("valid url regex"));
 
 /// Wraps an event iterator and applies the GFM text transformations
 /// (emoji shortcodes first, then extended autolinks).
@@ -188,17 +187,17 @@ fn trim_autolink(raw: &str) -> (&str, usize) {
         }
 
         // Trailing HTML entity reference such as `&amp;`.
-        if slice.ends_with(';') {
-            if let Some(amp) = slice.rfind('&') {
-                let entity = &slice[amp..];
-                if entity.len() >= 3
-                    && entity[1..entity.len() - 1]
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '#')
-                {
-                    end = amp;
-                    continue;
-                }
+        if slice.ends_with(';')
+            && let Some(amp) = slice.rfind('&')
+        {
+            let entity = &slice[amp..];
+            if entity.len() >= 3
+                && entity[1..entity.len() - 1]
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '#')
+            {
+                end = amp;
+                continue;
             }
         }
 

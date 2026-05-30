@@ -1,6 +1,4 @@
-use pulldown_cmark::{
-    Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, Tag, TagEnd,
-};
+use pulldown_cmark::{Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, Tag, TagEnd};
 use std::collections::HashMap;
 use tracing::{debug, error};
 
@@ -721,11 +719,12 @@ pub(crate) fn parse_css_color(s: &str) -> Option<String> {
     for prefix in ["rgba", "rgb", "hsla", "hsl"] {
         if let Some(rest) = lower.strip_prefix(prefix) {
             let rest = rest.trim_start();
-            if let Some(inner) = rest.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
-                if is_valid_color_args(inner) {
-                    return Some(s.to_string());
-                }
+            if let Some(inner) = rest.strip_prefix('(').and_then(|r| r.strip_suffix(')'))
+                && is_valid_color_args(inner)
+            {
+                return Some(s.to_string());
             }
+
             return None;
         }
     }
