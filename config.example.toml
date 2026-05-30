@@ -1,0 +1,31 @@
+# mdpeek configuration file
+#
+# Location (XDG Base Directory compliant):
+#   $XDG_CONFIG_HOME/mdpeek/config.toml
+#   Falls back to ~/.config/mdpeek/config.toml when XDG_CONFIG_HOME is not set.
+#
+# Priority: CLI arguments > config file > built-in defaults
+
+# Default mode when mdpeek is invoked with no subcommand.
+# Accepted values: "serve" | "term"
+default_mode = "term"
+
+[server]
+# IP address to bind the preview server to.
+host = "127.0.0.1"
+
+# Port number to listen on.
+port = "3030"
+
+# Browser preview theme.
+# Accepted values: "light" | "dark"
+theme = "light"
+
+[term]
+# Terminal rendering theme.
+# Accepted values: glow | mono | catputtin | dracura | solarized | nord | ayu
+theme = "glow"
+
+# Pager command used to display the terminal preview.
+# Set to an empty string "" to disable paging and write directly to stdout.
+pager = "less -R"
