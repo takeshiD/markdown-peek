@@ -1,11 +1,13 @@
 use anyhow::Result;
 use axum::{
     Router,
+    body::Body,
     extract::{
-        State,
+        Path as AxumPath, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
-    response::{Html, IntoResponse},
+    http::{StatusCode, header},
+    response::{Html, IntoResponse, Response},
     routing::get,
 };
 use core::fmt;
@@ -15,9 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
-use tower_http::services::ServeDir;
 use tracing::{debug, error, info, warn};
 
+use crate::config::BrowserTheme;
 use crate::emitter::HtmlEmitter;
 use crate::watcher::notify_on_change;
 
@@ -28,7 +30,6 @@ struct AppState {
     theme: Arc<RwLock<Theme>>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum Theme {
     GitHubLight,
@@ -43,12 +44,20 @@ impl fmt::Display for Theme {
         write!(f, "{s}")
     }
 }
+impl From<BrowserTheme> for Theme {
+    fn from(theme: BrowserTheme) -> Self {
+        match theme {
+            BrowserTheme::Light => Theme::GitHubLight,
+            BrowserTheme::Dark => Theme::GitHubDark,
+        }
+    }
+}
 
-pub fn serve(watch_path: PathBuf, host: String, port: String) {
+pub fn serve(watch_path: PathBuf, host: String, port: String, theme: BrowserTheme) {
     let (tx, _) = broadcast::channel::<Message>(16);
     let tx_reload = tx.clone();
     let watch_path_clone = watch_path.clone();
-    let server = std::thread::spawn(move || run_server(watch_path, tx_reload, host, port));
+    let server = std::thread::spawn(move || run_server(watch_path, tx_reload, host, port, theme));
     let _: () = notify_on_change(watch_path_clone, move || {
         debug!("Callback Start");
         let result = tx.send(Message::text("reload"));
@@ -63,18 +72,17 @@ async fn run_server(
     tx_reload: broadcast::Sender<Message>,
     host: String,
     port: String,
+    theme: BrowserTheme,
 ) -> Result<()> {
     let state = AppState {
         tx: tx_reload,
         file_path: Arc::new(RwLock::new(file_path.as_ref().to_path_buf())),
-        theme: Arc::new(RwLock::new(Theme::GitHubLight)),
+        theme: Arc::new(RwLock::new(Theme::from(theme))),
     };
-    let static_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
-    let static_files_service = ServeDir::new(static_dir).append_index_html_on_directories(true);
     let app = Router::new()
         .route("/", get(file_handler))
         .route("/ws", get(websocket_handler))
-        .nest_service("/static", static_files_service)
+        .route("/static/{*path}", get(static_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
         Ok(listner) => listner,
@@ -124,7 +132,9 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_MATH);
+    options.insert(Options::ENABLE_FOOTNOTES);
     let parser = Parser::new_ext(&markdown_content, options);
+    let parser = crate::gfm::transform(parser);
     let parser = parser.inspect(|event| {
         debug!("{:#?}", event);
     });
@@ -141,6 +151,60 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
         .replace("{{ title }}", title)
         .replace("{{ content }}", &html_body);
     Html(page)
+}
+
+struct StaticAsset {
+    bytes: &'static [u8],
+    content_type: &'static str,
+}
+
+fn embedded_static_asset(path: &str) -> Option<StaticAsset> {
+    match path.trim_start_matches('/') {
+        "css/github-dark.css" => Some(StaticAsset {
+            bytes: include_bytes!("../static/css/github-dark.css"),
+            content_type: "text/css; charset=utf-8",
+        }),
+        "css/github-light.css" => Some(StaticAsset {
+            bytes: include_bytes!("../static/css/github-light.css"),
+            content_type: "text/css; charset=utf-8",
+        }),
+        "icons/github-mark.svg" => Some(StaticAsset {
+            bytes: include_bytes!("../static/icons/github-mark.svg"),
+            content_type: "image/svg+xml",
+        }),
+        "js/highlight/github-dark.min.css" => Some(StaticAsset {
+            bytes: include_bytes!("../static/js/highlight/github-dark.min.css"),
+            content_type: "text/css; charset=utf-8",
+        }),
+        "js/highlight/github.min.css" => Some(StaticAsset {
+            bytes: include_bytes!("../static/js/highlight/github.min.css"),
+            content_type: "text/css; charset=utf-8",
+        }),
+        "js/highlight/highlight.min.js" => Some(StaticAsset {
+            bytes: include_bytes!("../static/js/highlight/highlight.min.js"),
+            content_type: "application/javascript; charset=utf-8",
+        }),
+        "js/main.js" => Some(StaticAsset {
+            bytes: include_bytes!("../static/js/main.js"),
+            content_type: "application/javascript; charset=utf-8",
+        }),
+        "js/mermaid/mermaid.min.js" => Some(StaticAsset {
+            bytes: include_bytes!("../static/js/mermaid/mermaid.min.js"),
+            content_type: "application/javascript; charset=utf-8",
+        }),
+        _ => None,
+    }
+}
+
+async fn static_handler(AxumPath(path): AxumPath<String>) -> Response {
+    match embedded_static_asset(&path) {
+        Some(asset) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, asset.content_type)
+            .body(Body::from(asset.bytes))
+            .expect("static asset response should be valid"),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn websocket_handler(
@@ -197,5 +261,32 @@ async fn websocket_connection(ws: WebSocket, tx_reload: broadcast::Sender<Messag
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::embedded_static_asset;
+
+    #[test]
+    fn static_assets_are_embedded() {
+        for path in [
+            "css/github-light.css",
+            "css/github-dark.css",
+            "icons/github-mark.svg",
+            "js/highlight/github.min.css",
+            "js/highlight/github-dark.min.css",
+            "js/highlight/highlight.min.js",
+            "js/main.js",
+            "js/mermaid/mermaid.min.js",
+        ] {
+            let asset = embedded_static_asset(path).expect(path);
+            assert!(!asset.bytes.is_empty(), "{path} should not be empty");
+        }
+    }
+
+    #[test]
+    fn unknown_static_asset_is_not_found() {
+        assert!(embedded_static_asset("missing.css").is_none());
     }
 }

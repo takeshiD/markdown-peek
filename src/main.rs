@@ -1,9 +1,12 @@
 mod cli;
+mod config;
 mod emitter;
+mod gfm;
 mod server;
 mod watcher;
 
 use crate::cli::{Cli, Mode, ThemeChoice};
+use crate::config::{BrowserTheme, Config};
 use crate::emitter::{TerminalEmitter, Theme};
 use crate::server::serve;
 use crate::watcher::notify_on_change;
@@ -16,24 +19,39 @@ use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
     let cmd = Cli::parse_with_color()?;
-    let mode = cmd.resolve_mode()?;
+    // A `--config` path overrides the default XDG location.
+    let config = match &cmd.config {
+        Some(path) => Config::load_explicit(path),
+        None => Config::load(),
+    };
+    let mode = cmd.resolve_mode(&config)?;
     match mode {
-        Mode::Serve { file, host, port } => handle_serve(file, host, port),
-        Mode::Term { file, watch, theme } => handle_term(file, watch, theme),
+        Mode::Serve {
+            file,
+            host,
+            port,
+            theme,
+        } => handle_serve(file, host, port, theme),
+        Mode::Term {
+            file,
+            watch,
+            theme,
+            pager,
+        } => handle_term(file, watch, theme, pager),
     }
     Ok(())
 }
 
-fn handle_serve(root: PathBuf, host: String, port: String) {
+fn handle_serve(root: PathBuf, host: String, port: String, theme: BrowserTheme) {
     init_tracing();
     if root.exists() {
-        serve(root, host, port);
+        serve(root, host, port, theme);
     } else {
         error!("'{}' is not found.", root.display());
     }
 }
 
-fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice) {
+fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {
     init_tracing();
     if !root.exists() {
         error!("'{}' is not found.", root.display());
@@ -48,7 +66,7 @@ fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice) {
             // Watch mode redraws continuously, so a pager would get in the way.
             println!("{rendered}");
         } else {
-            display_term(&rendered);
+            display_term(&rendered, &pager);
         }
     }
     if watch {
@@ -65,7 +83,7 @@ fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice) {
 /// Print the rendered output, launching a pager when it is too long to fit on
 /// one screen. Falls back to a plain print when stdout is not a terminal or the
 /// pager cannot be started.
-fn display_term(content: &str) {
+fn display_term(content: &str, pager_cfg: &Option<String>) {
     use std::io::IsTerminal;
 
     let stdout = std::io::stdout();
@@ -75,24 +93,34 @@ fn display_term(content: &str) {
         return;
     }
 
+    // An explicit empty pager in config.toml disables paging entirely.
+    if matches!(pager_cfg.as_deref(), Some("")) {
+        println!("{content}");
+        return;
+    }
+
     // Page only when the output would overflow the visible screen.
     let rows = terminal_size::terminal_size()
         .map(|(_, h)| h.0 as usize)
         .unwrap_or(40);
     let line_count = content.lines().count();
-    if line_count > rows && page(content).is_ok() {
+    if line_count > rows && page(content, pager_cfg).is_ok() {
         return;
     }
 
     println!("{content}");
 }
 
-/// Pipe `content` through the user's pager (`$PAGER`, or `less -R`).
-fn page(content: &str) -> std::io::Result<()> {
+/// Pipe `content` through a pager. The pager is chosen with this precedence:
+/// the `term.pager` config value, then `$PAGER`, then `less -R`.
+fn page(content: &str, pager_cfg: &Option<String>) -> std::io::Result<()> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    let pager = std::env::var("PAGER").unwrap_or_default();
+    let pager = match pager_cfg {
+        Some(p) if !p.trim().is_empty() => p.clone(),
+        _ => std::env::var("PAGER").unwrap_or_default(),
+    };
     let mut cmd = if pager.trim().is_empty() {
         let mut c = Command::new("less");
         c.arg("-R"); // keep ANSI colour escapes intact
@@ -131,6 +159,7 @@ fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     options.insert(Options::ENABLE_MATH);
     options.insert(Options::ENABLE_FOOTNOTES);
     let parser = Parser::new_ext(&markdown_content, options);
+    let parser = crate::gfm::transform(parser);
     let theme = match theme {
         ThemeChoice::Glow => Theme::glow(),
         ThemeChoice::Mono => Theme::mono(),
