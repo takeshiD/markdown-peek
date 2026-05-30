@@ -75,10 +75,18 @@ where
                 Event::Code(text) => {
                     if let Some(heading_state) = self.heading_state.as_mut() {
                         heading_state.push_text(text.to_string());
+                    } else {
+                        html_body.push_str("<code>");
+                        escape_html_body(&mut html_body, &text);
+                        html_body.push_str("</code>");
+                        if let Some(color) = parse_css_color(text.trim()) {
+                            html_body.push_str(
+                                "<span class=\"color-swatch\" style=\"display:inline-block;width:0.85em;height:0.85em;border-radius:3px;border:1px solid #d0d7de;vertical-align:middle;margin-left:0.4em;background-color:",
+                            );
+                            escape_html(&mut html_body, &color);
+                            html_body.push_str("\"></span>");
+                        }
                     }
-                    html_body.push_str("<code>");
-                    escape_html_body(&mut html_body, &text);
-                    html_body.push_str("</code>");
                 }
                 Event::InlineMath(text) => {
                     html_body.push_str(r#"<span class="math math-inline">"#);
@@ -612,6 +620,65 @@ fn escape_href(buf: &mut String, text: &str) {
         }
     }
     buf.push_str(&text[mark..])
+}
+
+/// Parse a string that is exactly a CSS color value (HEX / rgb() / rgba() /
+/// hsl() / hsla()). Returns the color string usable in CSS, or `None`.
+pub(crate) fn parse_css_color(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Some(hex) = s.strip_prefix('#') {
+        let len = hex.len();
+        if (len == 3 || len == 4 || len == 6 || len == 8)
+            && hex.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Some(s.to_string());
+        }
+        return None;
+    }
+    let lower = s.to_ascii_lowercase();
+    for prefix in ["rgba", "rgb", "hsla", "hsl"] {
+        if let Some(rest) = lower.strip_prefix(prefix) {
+            let rest = rest.trim_start();
+            if let Some(inner) = rest.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+                if is_valid_color_args(inner) {
+                    return Some(s.to_string());
+                }
+            }
+            return None;
+        }
+    }
+    None
+}
+
+/// Check that the inside of `rgb(...)`/`hsl(...)` is comma-separated tokens
+/// that each look like a number or percentage.
+fn is_valid_color_args(inner: &str) -> bool {
+    let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
+    if parts.len() < 3 || parts.len() > 4 {
+        return false;
+    }
+    parts.iter().all(|p| is_number_or_percent(p))
+}
+
+fn is_number_or_percent(token: &str) -> bool {
+    let token = token.strip_suffix('%').unwrap_or(token);
+    if token.is_empty() {
+        return false;
+    }
+    let mut seen_dot = false;
+    let mut seen_digit = false;
+    for (i, c) in token.chars().enumerate() {
+        match c {
+            '0'..='9' => seen_digit = true,
+            '.' if !seen_dot => seen_dot = true,
+            '+' | '-' if i == 0 => {}
+            _ => return false,
+        }
+    }
+    seen_digit
 }
 
 fn convert_to_anochor_text(heading_text: String) -> String {

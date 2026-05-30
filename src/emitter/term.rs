@@ -262,6 +262,12 @@ where
                         out.push('`');
                         out.push_str(&styled);
                         out.push('`');
+                        if let Some(hex) = css_color_to_hex(text.trim()) {
+                            if let Ok(color) = hex.parse::<DynColors>() {
+                                out.push(' ');
+                                out.push_str(&format!("{}", "█".color(color)));
+                            }
+                        }
                     }
                 }
                 Event::InlineMath(text) => {
@@ -793,6 +799,59 @@ where
             }
         }
     }
+}
+
+/// If `s` is exactly a CSS color value (HEX / rgb() / rgba() / hsl() / hsla()),
+/// return a `#RRGGBB` HEX string that `DynColors` can parse. HEX inputs are
+/// normalized to 6-digit form; `rgb()`/`rgba()` are converted; `hsl()`/`hsla()`
+/// are not converted (returns `None`) since DynColors cannot represent them.
+fn css_color_to_hex(s: &str) -> Option<String> {
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix('#') {
+        return normalize_hex(hex);
+    }
+    let lower = s.to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("rgba")
+        .or_else(|| lower.strip_prefix("rgb"))?;
+    let rest = rest.trim_start();
+    let inner = rest.strip_prefix('(')?.strip_suffix(')')?;
+    let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let r = parse_rgb_component(parts[0])?;
+    let g = parse_rgb_component(parts[1])?;
+    let b = parse_rgb_component(parts[2])?;
+    Some(format!("#{:02X}{:02X}{:02X}", r, g, b))
+}
+
+/// Parse a HEX body (no leading '#') of length 3/4/6/8 into a `#RRGGBB` string.
+fn normalize_hex(hex: &str) -> Option<String> {
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let rgb = match hex.len() {
+        3 | 4 => {
+            // Expand each nibble: #RGB -> #RRGGBB
+            let c: Vec<char> = hex.chars().collect();
+            format!("{0}{0}{1}{1}{2}{2}", c[0], c[1], c[2])
+        }
+        6 | 8 => hex[..6].to_string(),
+        _ => return None,
+    };
+    Some(format!("#{}", rgb.to_ascii_uppercase()))
+}
+
+/// Parse an `rgb()` component (integer, float, or percentage) into 0-255.
+fn parse_rgb_component(token: &str) -> Option<u8> {
+    if let Some(pct) = token.strip_suffix('%') {
+        let v: f64 = pct.trim().parse().ok()?;
+        let clamped = (v / 100.0 * 255.0).round().clamp(0.0, 255.0);
+        return Some(clamped as u8);
+    }
+    let v: f64 = token.parse().ok()?;
+    Some(v.round().clamp(0.0, 255.0) as u8)
 }
 
 fn pad(text: &str, width: usize) -> String {
