@@ -18,6 +18,50 @@
             margin: 0 auto;
             padding: 45px;
         }
+
+        @keyframes mdpeek-flash-added {
+            0%   { background-color: rgba(46, 160, 67, 0.45); }
+            100% { background-color: transparent; }
+        }
+        @keyframes mdpeek-flash-modified {
+            0%   { background-color: rgba(210, 153, 34, 0.45); }
+            100% { background-color: transparent; }
+        }
+        @keyframes mdpeek-flash-removed {
+            0%   { background-color: rgba(248, 81, 73, 0.45); opacity: 1; }
+            80%  { background-color: rgba(248, 81, 73, 0.2);  opacity: 0.4; }
+            100% { background-color: transparent; opacity: 0; }
+        }
+        .mdpeek-diff-added,
+        .mdpeek-diff-modified,
+        .mdpeek-diff-removed {
+            border-radius: 3px;
+            padding-left: 12px;
+            margin-left: -15px;
+            border-left-width: 3px;
+            border-left-style: solid;
+            transition: border-left-color 1.2s ease-out;
+        }
+        .mdpeek-diff-added {
+            animation: mdpeek-flash-added 1.2s ease-out forwards;
+            border-left-color: #2ea043;
+        }
+        .mdpeek-diff-modified {
+            animation: mdpeek-flash-modified 1.2s ease-out forwards;
+            border-left-color: #d29922;
+        }
+        .mdpeek-diff-removed {
+            animation: mdpeek-flash-removed 1.0s ease-out forwards;
+            border-left-color: #f85149;
+            pointer-events: none;
+        }
+        .mdpeek-diff-fade-in {
+            animation: mdpeek-fade-in 0.25s ease-out;
+        }
+        @keyframes mdpeek-fade-in {
+            0%   { opacity: 0; transform: translateY(-2px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
     </style>
     <script>
         MathJax = {

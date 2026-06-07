@@ -7,21 +7,24 @@ function initializeMathJax() {
     window.MathJax.typeset();
 }
 
-function initializeHighlight() {
+function highlightWithin(root) {
     if (!window.hljs) {
         return;
     }
-    // Highlight every code block except mermaid diagrams and math blocks,
-    // which are handled by mermaid/MathJax respectively.
-    document.querySelectorAll("pre code").forEach(function (block) {
+    root.querySelectorAll("pre code").forEach(function (block) {
         if (
             block.classList.contains("language-mermaid") ||
-            block.classList.contains("language-math")
+            block.classList.contains("language-math") ||
+            block.dataset.highlighted === "yes"
         ) {
             return;
         }
         window.hljs.highlightElement(block);
     });
+}
+
+function initializeHighlight() {
+    highlightWithin(document);
 }
 
 const MDPEEK_THEME_KEY = "mdpeek-theme";
@@ -79,6 +82,11 @@ function initializeToc() {
     if (!article) {
         return;
     }
+    // Remove any prior TOC so this function can be re-run after a diff update.
+    const existing = document.getElementById("mdpeek-toc");
+    if (existing) {
+        existing.remove();
+    }
     const headings = article.querySelectorAll("h1, h2, h3, h4, h5, h6");
     // Only show the table of contents when there is more than one heading.
     if (headings.length < 2) {
@@ -133,6 +141,208 @@ function initializeToc() {
     document.body.appendChild(toc);
 }
 
+const MDPEEK_DIFF_CLASSES = [
+    "mdpeek-diff-added",
+    "mdpeek-diff-modified",
+    "mdpeek-diff-removed",
+    "mdpeek-diff-fade-in",
+];
+
+// Strip transient diff classes so a node's outerHTML is comparable across
+// successive updates regardless of whether it was last animated.
+function diffKey(node) {
+    const clone = node.cloneNode(true);
+    MDPEEK_DIFF_CLASSES.forEach(function (cls) {
+        clone.classList && clone.classList.remove(cls);
+        clone.querySelectorAll && clone.querySelectorAll("." + cls).forEach(function (n) {
+            n.classList.remove(cls);
+        });
+    });
+    return clone.outerHTML;
+}
+
+// LCS-based diff producing keep/add/remove ops over the two child sequences.
+function diffBlocks(oldNodes, newNodes) {
+    const oldKeys = oldNodes.map(diffKey);
+    const newKeys = newNodes.map(diffKey);
+    const m = oldKeys.length;
+    const n = newKeys.length;
+    const dp = Array.from({ length: m + 1 }, function () {
+        return new Array(n + 1).fill(0);
+    });
+    for (let i = m - 1; i >= 0; i--) {
+        for (let j = n - 1; j >= 0; j--) {
+            if (oldKeys[i] === newKeys[j]) {
+                dp[i][j] = dp[i + 1][j + 1] + 1;
+            } else {
+                dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+    }
+    const ops = [];
+    let i = 0;
+    let j = 0;
+    while (i < m && j < n) {
+        if (oldKeys[i] === newKeys[j]) {
+            ops.push({ type: "keep", old: oldNodes[i] });
+            i++;
+            j++;
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+            ops.push({ type: "remove", old: oldNodes[i] });
+            i++;
+        } else {
+            ops.push({ type: "add", new: newNodes[j] });
+            j++;
+        }
+    }
+    while (i < m) {
+        ops.push({ type: "remove", old: oldNodes[i++] });
+    }
+    while (j < n) {
+        ops.push({ type: "add", new: newNodes[j++] });
+    }
+    return ops;
+}
+
+// Pair an adjacent remove+add (in either order) of the same tag into a single
+// "modify" op so the user sees a yellow flash instead of red+green.
+function collapseModifications(ops) {
+    const out = [];
+    let i = 0;
+    while (i < ops.length) {
+        const cur = ops[i];
+        const next = ops[i + 1];
+        if (next) {
+            if (
+                cur.type === "remove" &&
+                next.type === "add" &&
+                cur.old.tagName === next.new.tagName
+            ) {
+                out.push({ type: "modify", old: cur.old, new: next.new });
+                i += 2;
+                continue;
+            }
+            if (
+                cur.type === "add" &&
+                next.type === "remove" &&
+                cur.new.tagName === next.old.tagName
+            ) {
+                out.push({ type: "modify", old: next.old, new: cur.new });
+                i += 2;
+                continue;
+            }
+        }
+        out.push(cur);
+        i++;
+    }
+    return out;
+}
+
+function clearDiffClasses(node) {
+    MDPEEK_DIFF_CLASSES.forEach(function (cls) {
+        node.classList.remove(cls);
+    });
+}
+
+function applyDiff(newHtml) {
+    const article = document.querySelector("article.markdown-body");
+    if (!article) {
+        return;
+    }
+    const parser = new DOMParser();
+    const newDoc = parser.parseFromString(newHtml, "text/html");
+    const newArticle = newDoc.querySelector("article.markdown-body");
+    if (!newArticle) {
+        return;
+    }
+
+    const newTitle = newDoc.querySelector("title");
+    if (newTitle && newTitle.textContent) {
+        document.title = newTitle.textContent;
+    }
+
+    // Ignore stale removed-but-still-animating nodes from a previous update.
+    const oldNodes = Array.from(article.children).filter(function (n) {
+        return !n.classList.contains("mdpeek-diff-removed");
+    });
+    const newNodes = Array.from(newArticle.children);
+
+    const ops = collapseModifications(diffBlocks(oldNodes, newNodes));
+
+    const finalChildren = [];
+    const toRemove = [];
+    const toHighlight = [];
+
+    ops.forEach(function (op) {
+        if (op.type === "keep") {
+            clearDiffClasses(op.old);
+            finalChildren.push(op.old);
+        } else if (op.type === "add") {
+            const node = document.adoptNode(op.new);
+            node.classList.add("mdpeek-diff-added", "mdpeek-diff-fade-in");
+            finalChildren.push(node);
+            toHighlight.push(node);
+        } else if (op.type === "modify") {
+            const node = document.adoptNode(op.new);
+            node.classList.add("mdpeek-diff-modified", "mdpeek-diff-fade-in");
+            finalChildren.push(node);
+            toHighlight.push(node);
+        } else if (op.type === "remove") {
+            op.old.classList.add("mdpeek-diff-removed");
+            finalChildren.push(op.old);
+            toRemove.push(op.old);
+        }
+    });
+
+    article.replaceChildren.apply(article, finalChildren);
+
+    toHighlight.forEach(function (node) {
+        highlightWithin(node);
+        if (window.mermaid) {
+            try {
+                window.mermaid.run({
+                    nodes: node.querySelectorAll("code.language-mermaid"),
+                });
+            } catch (e) {
+                // Mermaid throws for nodes it has already processed; ignore.
+            }
+        }
+        if (window.MathJax && window.MathJax.typesetPromise) {
+            window.MathJax.typesetPromise([node]).catch(function () {});
+        }
+    });
+
+    initializeToc();
+
+    setTimeout(function () {
+        toRemove.forEach(function (n) {
+            if (n.parentNode) {
+                n.parentNode.removeChild(n);
+            }
+        });
+        article
+            .querySelectorAll(".mdpeek-diff-added, .mdpeek-diff-modified, .mdpeek-diff-fade-in")
+            .forEach(clearDiffClasses);
+    }, 1200);
+}
+
+async function fetchAndDiff() {
+    try {
+        const response = await fetch(window.location.href, {
+            cache: "no-store",
+            headers: { Accept: "text/html" },
+        });
+        if (!response.ok) {
+            throw new Error("HTTP " + response.status);
+        }
+        const html = await response.text();
+        applyDiff(html);
+    } catch (err) {
+        console.log("Diff update failed, falling back to reload: " + err);
+        window.location.reload();
+    }
+}
+
 (function() {
     initializeTheme();
     initializeMermaid();
@@ -159,8 +369,7 @@ function initializeToc() {
         socket.onmessage = function(event) {
             console.log("WebSocket message: " + event.data);
             if (event.data === "reload") {
-                socket.close();
-                window.location.reload();
+                fetchAndDiff();
             }
         };
 
