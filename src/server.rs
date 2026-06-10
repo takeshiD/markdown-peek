@@ -90,7 +90,7 @@ async fn run_server(
             warn!("Address '{host}:{port}' already in use.");
             TcpListener::bind(format!("{host}:0"))
                 .await
-                .expect("failed to bind '{host}:0'")
+                .unwrap_or_else(|e| panic!("failed to bind '{host}:0': {e}"))
         }
     };
     info!("Listening on http://{}", listener.local_addr().unwrap());

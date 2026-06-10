@@ -356,6 +356,7 @@ where
             Tag::TableHead => {
                 self.table_cell_index = 0;
                 self.in_table_head = true;
+                self.current_row.clear();
             }
             Tag::TableRow => {
                 self.table_cell_index = 0;
@@ -466,19 +467,41 @@ where
                 out.push_str(": ");
             }
             Tag::Subscript => {
-                out.push('~');
+                if self.in_table_cell {
+                    self.push_table_text("~");
+                } else {
+                    out.push('~');
+                }
             }
             Tag::Superscript => {
-                out.push('^');
+                if self.in_table_cell {
+                    self.push_table_text("^");
+                } else {
+                    out.push('^');
+                }
             }
             Tag::Emphasis => {
-                out.push_str(&format!("{}", "*".style(self.theme.code)));
+                if self.in_table_cell {
+                    // Plain markers inside cells: ANSI escapes would distort
+                    // the column-width calculation.
+                    self.push_table_text("*");
+                } else {
+                    out.push_str(&format!("{}", "*".style(self.theme.code)));
+                }
             }
             Tag::Strong => {
-                out.push_str(&format!("{}", "**".style(self.theme.code)));
+                if self.in_table_cell {
+                    self.push_table_text("**");
+                } else {
+                    out.push_str(&format!("{}", "**".style(self.theme.code)));
+                }
             }
             Tag::Strikethrough => {
-                out.push_str(STRIKE_ON);
+                if self.in_table_cell {
+                    self.push_table_text("~~");
+                } else {
+                    out.push_str(STRIKE_ON);
+                }
             }
             Tag::Link {
                 link_type: LinkType::Email,
@@ -493,13 +516,22 @@ where
                 self.link_stack.push(dest_url.to_string());
             }
             Tag::Image { dest_url, .. } => {
-                out.push_str(&format!("{}", "[image: ".style(self.theme.code)));
-                self.raw_text(out);
-                out.push_str(&format!("{}", "]".style(self.theme.code)));
-                if !dest_url.is_empty() {
-                    out.push_str(" (");
-                    out.push_str(&format!("{}", dest_url.style(self.theme.link)));
-                    out.push(')');
+                if self.in_table_cell {
+                    let mut alt = String::new();
+                    self.raw_text(&mut alt);
+                    self.push_table_text(&format!("[image: {alt}]"));
+                    if !dest_url.is_empty() {
+                        self.push_table_text(&format!(" ({dest_url})"));
+                    }
+                } else {
+                    out.push_str(&format!("{}", "[image: ".style(self.theme.code)));
+                    self.raw_text(out);
+                    out.push_str(&format!("{}", "]".style(self.theme.code)));
+                    if !dest_url.is_empty() {
+                        out.push_str(" (");
+                        out.push_str(&format!("{}", dest_url.style(self.theme.link)));
+                        out.push(')');
+                    }
                 }
             }
             Tag::FootnoteDefinition(name) => {
@@ -549,6 +581,13 @@ where
                 self.end_newline = true;
             }
             TagEnd::TableHead => {
+                // The header cells live directly inside `TableHead` (no
+                // `TableRow` event), so capture the accumulated row here.
+                if self.in_table_cell {
+                    self.current_row.push(self.current_cell.trim().to_string());
+                    self.in_table_cell = false;
+                }
+                self.table_header_row = Some(std::mem::take(&mut self.current_row));
                 self.in_table_head = false;
                 self.end_newline = true;
             }
@@ -557,11 +596,7 @@ where
                     self.current_row.push(self.current_cell.trim().to_string());
                     self.in_table_cell = false;
                 }
-                if self.in_table_head {
-                    self.table_header_row = Some(self.current_row.clone());
-                } else {
-                    self.table_rows.push(self.current_row.clone());
-                }
+                self.table_rows.push(std::mem::take(&mut self.current_row));
                 self.end_newline = true;
             }
             TagEnd::TableCell => {
@@ -614,30 +649,54 @@ where
                 self.end_newline = true;
             }
             TagEnd::Emphasis => {
-                out.push_str(&format!("{}", "*".style(self.theme.code)));
+                if self.in_table_cell {
+                    self.push_table_text("*");
+                } else {
+                    out.push_str(&format!("{}", "*".style(self.theme.code)));
+                }
             }
             TagEnd::Superscript => {
-                out.push('^');
+                if self.in_table_cell {
+                    self.push_table_text("^");
+                } else {
+                    out.push('^');
+                }
             }
             TagEnd::Subscript => {
-                out.push('~');
+                if self.in_table_cell {
+                    self.push_table_text("~");
+                } else {
+                    out.push('~');
+                }
             }
             TagEnd::Strong => {
-                out.push_str(&format!("{}", "**".style(self.theme.code)));
+                if self.in_table_cell {
+                    self.push_table_text("**");
+                } else {
+                    out.push_str(&format!("{}", "**".style(self.theme.code)));
+                }
             }
             TagEnd::Strikethrough => {
-                out.push_str(STRIKE_OFF);
+                if self.in_table_cell {
+                    self.push_table_text("~~");
+                } else {
+                    out.push_str(STRIKE_OFF);
+                }
             }
             TagEnd::Link => {
                 if let Some(dest) = self.link_stack.pop()
                     && !dest.is_empty()
                 {
-                    out.push_str(" (");
-                    out.push_str(&format!(
-                        "{}",
-                        dest.style(self.theme.link.underline().dimmed())
-                    ));
-                    out.push(')');
+                    if self.in_table_cell {
+                        self.push_table_text(&format!(" ({dest})"));
+                    } else {
+                        out.push_str(" (");
+                        out.push_str(&format!(
+                            "{}",
+                            dest.style(self.theme.link.underline().dimmed())
+                        ));
+                        out.push(')');
+                    }
                 }
                 self.in_link = false;
             }
@@ -737,7 +796,9 @@ where
             if i > 0 {
                 out.push('┼');
             }
-            out.push_str(&"─".repeat(*width + if i > 0 { 2 } else { 0 }));
+            // Cells are joined with " │ ", so every column except the first
+            // spans `width + 2` characters; the first gets one trailing pad.
+            out.push_str(&"─".repeat(*width + if i > 0 { 2 } else { 1 }));
         }
         out.push('\n');
         for row in self.table_rows.iter().skip(1) {
@@ -869,5 +930,48 @@ mod integration_tests {
         let out = render("> [!NOTE]\n> body");
         assert!(out.contains("NOTE"), "alert label missing: {out:?}");
         assert!(out.contains('ℹ'), "alert icon missing: {out:?}");
+    }
+
+    #[test]
+    fn table_header_row_is_rendered() {
+        let out = render("| Name | Score |\n|------|-------|\n| Alice | 100 |\n");
+        assert!(out.contains("Name"), "header row missing: {out:?}");
+        assert!(out.contains("Alice"), "body row missing: {out:?}");
+        let header_pos = out.find("Name").unwrap();
+        let body_pos = out.find("Alice").unwrap();
+        assert!(header_pos < body_pos, "header should precede body: {out:?}");
+    }
+
+    #[test]
+    fn table_separator_aligns_with_column_bars() {
+        let out = render("| Name | Score |\n|------|-------|\n| Alice | 100 |\n");
+        let header_line = out.lines().find(|l| l.contains("Name")).unwrap();
+        let sep_line = out.lines().find(|l| l.contains('┼')).unwrap();
+        let bar_idx = header_line.chars().position(|c| c == '│').unwrap();
+        let cross_idx = sep_line.chars().position(|c| c == '┼').unwrap();
+        assert_eq!(bar_idx, cross_idx, "misaligned:\n{header_line}\n{sep_line}");
+    }
+
+    #[test]
+    fn link_in_table_cell_stays_in_cell() {
+        let out = render("| col |\n|-----|\n| [link](http://e.com) |\n");
+        let row_line = out
+            .lines()
+            .find(|l| l.contains("link"))
+            .expect("row with link text");
+        assert!(
+            row_line.contains("http://e.com"),
+            "url leaked out of the cell: {out:?}"
+        );
+    }
+
+    #[test]
+    fn emphasis_in_table_cell_stays_in_cell() {
+        let out = render("| col |\n|-----|\n| **bold** |\n");
+        let row_line = out.lines().find(|l| l.contains("bold")).unwrap();
+        assert!(
+            row_line.contains("**bold**"),
+            "markers leaked out of the cell: {out:?}"
+        );
     }
 }

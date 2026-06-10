@@ -41,6 +41,7 @@ where
     GfmTransform {
         iter,
         queue: VecDeque::new(),
+        link_depth: 0,
     }
 }
 
@@ -54,6 +55,10 @@ where
     /// expands into multiple events (link start / text / link end), so we need
     /// somewhere to stage the overflow.
     queue: VecDeque<Event<'a>>,
+    /// Nesting depth of `Link`/`Image` tags. Autolink expansion is suppressed
+    /// inside them: linkifying text that already belongs to a link would
+    /// produce nested links (invalid `<a>` nesting / duplicated URLs).
+    link_depth: usize,
 }
 
 impl<'a, I> Iterator for GfmTransform<'a, I>
@@ -71,8 +76,20 @@ where
                 // Resolve emoji shortcodes first, then detect autolinks within
                 // the (possibly emoji-substituted) text.
                 let replaced = replace_emoji(&text);
-                expand_autolinks(&replaced, &mut self.queue);
-                self.queue.pop_front()
+                if self.link_depth > 0 {
+                    Some(Event::Text(CowStr::from(replaced)))
+                } else {
+                    expand_autolinks(&replaced, &mut self.queue);
+                    self.queue.pop_front()
+                }
+            }
+            ev @ Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
+                self.link_depth += 1;
+                Some(ev)
+            }
+            ev @ Event::End(TagEnd::Link | TagEnd::Image) => {
+                self.link_depth = self.link_depth.saturating_sub(1);
+                Some(ev)
             }
             other => Some(other),
         }
@@ -294,5 +311,44 @@ mod tests {
         expand_autolinks("no links here", &mut q);
         assert_eq!(q.len(), 1);
         assert!(matches!(q.front(), Some(Event::Text(_))));
+    }
+
+    #[test]
+    fn no_autolink_inside_existing_link() {
+        use pulldown_cmark::Parser;
+        // `<...>` autolinks already arrive as Link events; the URL text inside
+        // must not be linkified a second time.
+        let events: Vec<_> = transform(Parser::new("See <https://example.com>")).collect();
+        let link_starts = events
+            .iter()
+            .filter(|e| matches!(e, Event::Start(Tag::Link { .. })))
+            .count();
+        assert_eq!(link_starts, 1, "nested link created: {events:?}");
+    }
+
+    #[test]
+    fn no_autolink_inside_image_alt() {
+        use pulldown_cmark::Parser;
+        let events: Vec<_> =
+            transform(Parser::new("![see https://example.com](img.png)")).collect();
+        let link_starts = events
+            .iter()
+            .filter(|e| matches!(e, Event::Start(Tag::Link { .. })))
+            .count();
+        assert_eq!(link_starts, 0, "link created inside alt: {events:?}");
+    }
+
+    #[test]
+    fn autolink_after_link_still_works() {
+        use pulldown_cmark::Parser;
+        let events: Vec<_> =
+            transform(Parser::new("[a](http://a.com) then www.b.com here")).collect();
+        let autolinked = events.iter().any(|e| {
+            matches!(
+                e,
+                Event::Start(Tag::Link { dest_url, .. }) if dest_url.as_ref() == "http://www.b.com"
+            )
+        });
+        assert!(autolinked, "events: {events:?}");
     }
 }
