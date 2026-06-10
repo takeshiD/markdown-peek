@@ -58,16 +58,20 @@ fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<Str
         return;
     }
     if !root.is_file() {
-        error!("'{}' is not file and directory.", root.display());
+        error!("'{}' is not a file.", root.display());
         return;
     }
-    if let Ok(rendered) = render_term(&root, theme) {
-        if watch {
-            // Watch mode redraws continuously, so a pager would get in the way.
-            println!("{rendered}");
-        } else {
-            display_term(&rendered, &pager);
+    match render_term(&root, theme) {
+        Ok(rendered) => {
+            if watch {
+                // Watch mode redraws continuously, so a pager would get in the way.
+                println!("{rendered}");
+            } else {
+                display_term(&rendered, &pager);
+            }
         }
+        // Keep going in watch mode: the file may become readable again.
+        Err(e) => error!("Failed to render '{}': {e}", root.display()),
     }
     if watch {
         let watch_path = root.clone();
