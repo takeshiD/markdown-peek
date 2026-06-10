@@ -863,18 +863,11 @@ fn pad(text: &str, width: usize) -> String {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use pulldown_cmark::{Options, Parser};
+    use pulldown_cmark::Parser;
 
     /// 端末向け機能をすべて有効にしたパーサで markdown をレンダリングする。
     fn render(md: &str) -> String {
-        let mut options = Options::empty();
-        options.insert(Options::ENABLE_GFM);
-        options.insert(Options::ENABLE_TASKLISTS);
-        options.insert(Options::ENABLE_TABLES);
-        options.insert(Options::ENABLE_STRIKETHROUGH);
-        options.insert(Options::ENABLE_MATH);
-        options.insert(Options::ENABLE_FOOTNOTES);
-        let parser = Parser::new_ext(md, options);
+        let parser = Parser::new_ext(md, crate::gfm::parser_options());
         TerminalEmitter::new(parser, Theme::glow()).run()
     }
 
@@ -981,5 +974,12 @@ mod integration_tests {
             row_line.contains("**bold**"),
             "markers leaked out of the cell: {out:?}"
         );
+    }
+
+    #[test]
+    fn yaml_front_matter_is_hidden() {
+        let out = render("---\ntitle: meta\n---\n\nbody text\n");
+        assert!(!out.contains("title: meta"), "front matter leaked: {out:?}");
+        assert!(out.contains("body text"));
     }
 }

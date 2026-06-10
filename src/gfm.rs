@@ -12,10 +12,26 @@
 //! ([`Event::Code`]) and raw HTML ([`Event::Html`] / [`Event::InlineHtml`])
 //! arrive as distinct events and are therefore left untouched automatically.
 
-use pulldown_cmark::{CowStr, Event, LinkType, Tag, TagEnd};
+use pulldown_cmark::{CowStr, Event, LinkType, Options, Tag, TagEnd};
 use regex::Regex;
 use std::collections::VecDeque;
 use std::sync::LazyLock;
+
+/// Parser options shared by the terminal and HTML renderers so that GFM
+/// features are parsed consistently in both modes.
+pub fn parser_options() -> Options {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_GFM);
+    options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_MATH);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    // Hide YAML front matter instead of rendering it as a heading/rule; the
+    // emitters skip the resulting `MetadataBlock` events.
+    options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+    options
+}
 
 /// Matches an emoji shortcode like `:smile:` or `:+1:`.
 ///
