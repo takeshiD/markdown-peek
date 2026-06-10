@@ -128,11 +128,22 @@ where
                     html_body.push_str(&html);
                 }
                 Event::SoftBreak => {
-                    self.end_newline = true;
-                    html_body.push('\n');
+                    // Setext headings can span multiple source lines.
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_html("\n");
+                        heading_state.text.push(' ');
+                    } else {
+                        self.end_newline = true;
+                        html_body.push('\n');
+                    }
                 }
                 Event::HardBreak => {
-                    html_body.push_str("<br />\n");
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_html("<br />\n");
+                        heading_state.text.push(' ');
+                    } else {
+                        html_body.push_str("<br />\n");
+                    }
                 }
                 Event::Rule => {
                     if self.end_newline {
@@ -821,6 +832,19 @@ mod tests {
         let h_open = out.find("<h1").expect("h1 tag");
         let img = out.find("<img").expect("img tag");
         assert!(img > h_open, "img leaked before heading: {out}");
+    }
+
+    #[test]
+    fn setext_heading_softbreak_stays_inside_heading() {
+        let out = render("Line1\nLine2\n=====\n");
+        assert!(
+            out.contains("Line1\nLine2"),
+            "lines should be separated inside the heading: {out}"
+        );
+        assert!(
+            out.contains("id=\"line1-line2\""),
+            "anchor should treat the soft break as a space: {out}"
+        );
     }
 
     #[test]

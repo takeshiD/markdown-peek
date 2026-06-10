@@ -796,9 +796,12 @@ where
             if i > 0 {
                 out.push('┼');
             }
-            // Cells are joined with " │ ", so every column except the first
-            // spans `width + 2` characters; the first gets one trailing pad.
-            out.push_str(&"─".repeat(*width + if i > 0 { 2 } else { 1 }));
+            // Cells are joined with " │ ": pad one dash for the space on each
+            // side of the bar (no leading pad on the first column, no trailing
+            // pad on the last) so the separator matches the row width exactly.
+            let lead = usize::from(i > 0);
+            let trail = usize::from(i + 1 < widths.len());
+            out.push_str(&"─".repeat(*width + lead + trail));
         }
         out.push('\n');
         for row in self.table_rows.iter().skip(1) {
@@ -950,6 +953,11 @@ mod integration_tests {
         let bar_idx = header_line.chars().position(|c| c == '│').unwrap();
         let cross_idx = sep_line.chars().position(|c| c == '┼').unwrap();
         assert_eq!(bar_idx, cross_idx, "misaligned:\n{header_line}\n{sep_line}");
+        assert_eq!(
+            header_line.chars().count(),
+            sep_line.chars().count(),
+            "separator length should match the header row:\n{header_line}\n{sep_line}"
+        );
     }
 
     #[test]
