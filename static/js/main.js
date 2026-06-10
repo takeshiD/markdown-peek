@@ -1,5 +1,5 @@
 function initializeMermaid() {
-    window.mermaid.initialize({ startOnLoad: false, isLight: "default" });
+    window.mermaid.initialize({ startOnLoad: false, theme: "default" });
     window.mermaid.run({ querySelector: "code.language-mermaid" });
 }
 

@@ -103,24 +103,47 @@ where
                     }
                 }
                 Event::InlineMath(text) => {
-                    html_body.push_str(r#"<span class="math math-inline">"#);
-                    escape_html_body(&mut html_body, &text);
-                    html_body.push_str(r#"</span>"#);
+                    let mut span = String::from(r#"<span class="math math-inline">"#);
+                    escape_html_body(&mut span, &text);
+                    span.push_str(r#"</span>"#);
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_html(&span);
+                        heading_state.text.push_str(&text);
+                    } else {
+                        html_body.push_str(&span);
+                    }
                 }
                 Event::DisplayMath(text) => {
-                    html_body.push_str(r#"<span class="math math-display">"#);
-                    escape_html_body(&mut html_body, &text);
-                    html_body.push_str(r#"</span>"#);
+                    let mut span = String::from(r#"<span class="math math-display">"#);
+                    escape_html_body(&mut span, &text);
+                    span.push_str(r#"</span>"#);
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_html(&span);
+                        heading_state.text.push_str(&text);
+                    } else {
+                        html_body.push_str(&span);
+                    }
                 }
                 Event::Html(html) | Event::InlineHtml(html) => {
                     html_body.push_str(&html);
                 }
                 Event::SoftBreak => {
-                    self.end_newline = true;
-                    html_body.push('\n');
+                    // Setext headings can span multiple source lines.
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_html("\n");
+                        heading_state.text.push(' ');
+                    } else {
+                        self.end_newline = true;
+                        html_body.push('\n');
+                    }
                 }
                 Event::HardBreak => {
-                    html_body.push_str("<br />\n");
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_html("<br />\n");
+                        heading_state.text.push(' ');
+                    } else {
+                        html_body.push_str("<br />\n");
+                    }
                 }
                 Event::Rule => {
                     if self.end_newline {
@@ -131,12 +154,17 @@ where
                 }
                 Event::FootnoteReference(name) => {
                     let len = self.numbers.len() + 1;
-                    html_body.push_str("<sup class=\"footnote-reference\"><a href=\"#");
-                    escape_html(&mut html_body, &name);
-                    html_body.push_str("\">");
+                    let mut sup = String::from("<sup class=\"footnote-reference\"><a href=\"#");
+                    escape_html(&mut sup, &name);
+                    sup.push_str("\">");
                     let number = *self.numbers.entry(name.to_string()).or_insert(len);
-                    html_body.push_str(&format!("{number}"));
-                    html_body.push_str("</a></sup>");
+                    sup.push_str(&format!("{number}"));
+                    sup.push_str("</a></sup>");
+                    if let Some(heading_state) = self.heading_state.as_mut() {
+                        heading_state.push_html(&sup);
+                    } else {
+                        html_body.push_str(&sup);
+                    }
                 }
                 Event::TaskListMarker(true) => {
                     html_body.push_str("<input disabled=\"\" type=\"checkbox\" checked=\"\">\n");
@@ -376,15 +404,21 @@ where
                 title,
                 id: _,
             } => {
-                buf.push_str("<img src=\"");
-                escape_href(buf, &dest_url);
-                buf.push_str("\" alt=\"");
-                self.raw_text(buf);
+                let mut tmp = String::new();
+                tmp.push_str("<img src=\"");
+                escape_href(&mut tmp, &dest_url);
+                tmp.push_str("\" alt=\"");
+                self.raw_text(&mut tmp);
                 if !title.is_empty() {
-                    buf.push_str("\" title=\"");
-                    escape_html(buf, &title);
+                    tmp.push_str("\" title=\"");
+                    escape_html(&mut tmp, &title);
                 }
-                buf.push_str("\" />")
+                tmp.push_str("\" />");
+                if let Some(hs) = self.heading_state.as_mut() {
+                    hs.push_html(&tmp);
+                } else {
+                    buf.push_str(&tmp);
+                }
             }
             Tag::FootnoteDefinition(name) => {
                 if self.end_newline {
@@ -781,4 +815,45 @@ fn convert_to_anochor_text(heading_text: String) -> String {
     }
 
     anchor
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pulldown_cmark::Parser;
+
+    fn render(md: &str) -> String {
+        HtmlEmitter::new(Parser::new(md)).run()
+    }
+
+    #[test]
+    fn image_in_heading_stays_inside_heading_tag() {
+        let out = render("# ![alt](img.png)");
+        let h_open = out.find("<h1").expect("h1 tag");
+        let img = out.find("<img").expect("img tag");
+        assert!(img > h_open, "img leaked before heading: {out}");
+    }
+
+    #[test]
+    fn setext_heading_softbreak_stays_inside_heading() {
+        let out = render("Line1\nLine2\n=====\n");
+        assert!(
+            out.contains("Line1\nLine2"),
+            "lines should be separated inside the heading: {out}"
+        );
+        assert!(
+            out.contains("id=\"line1-line2\""),
+            "anchor should treat the soft break as a space: {out}"
+        );
+    }
+
+    #[test]
+    fn math_in_heading_stays_inside_heading_tag() {
+        let mut options = pulldown_cmark::Options::empty();
+        options.insert(pulldown_cmark::Options::ENABLE_MATH);
+        let out = HtmlEmitter::new(Parser::new_ext("# $x$", options)).run();
+        let h_open = out.find("<h1").expect("h1 tag");
+        let math = out.find("math-inline").expect("math span");
+        assert!(math > h_open, "math leaked before heading: {out}");
+    }
 }

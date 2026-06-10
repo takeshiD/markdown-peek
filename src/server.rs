@@ -12,7 +12,7 @@ use axum::{
 };
 use core::fmt;
 use futures::{SinkExt, StreamExt};
-use pulldown_cmark::{Options, Parser};
+use pulldown_cmark::Parser;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
@@ -90,7 +90,7 @@ async fn run_server(
             warn!("Address '{host}:{port}' already in use.");
             TcpListener::bind(format!("{host}:0"))
                 .await
-                .expect("failed to bind '{host}:0'")
+                .unwrap_or_else(|e| panic!("failed to bind '{host}:0': {e}"))
         }
     };
     info!("Listening on http://{}", listener.local_addr().unwrap());
@@ -126,14 +126,7 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
             return Html(error_html);
         }
     };
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_GFM);
-    options.insert(Options::ENABLE_TASKLISTS);
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_MATH);
-    options.insert(Options::ENABLE_FOOTNOTES);
-    let parser = Parser::new_ext(&markdown_content, options);
+    let parser = Parser::new_ext(&markdown_content, crate::gfm::parser_options());
     let parser = crate::gfm::transform(parser);
     let parser = parser.inspect(|event| {
         debug!("{:#?}", event);

@@ -11,7 +11,7 @@ use crate::emitter::{TerminalEmitter, Theme};
 use crate::server::serve;
 use crate::watcher::notify_on_change;
 use anyhow::Result;
-use pulldown_cmark::{Options, Parser};
+use pulldown_cmark::Parser;
 use std::path::PathBuf;
 use std::sync::Once;
 use tracing::error;
@@ -58,16 +58,20 @@ fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<Str
         return;
     }
     if !root.is_file() {
-        error!("'{}' is not file and directory.", root.display());
+        error!("'{}' is not a file.", root.display());
         return;
     }
-    if let Ok(rendered) = render_term(&root, theme) {
-        if watch {
-            // Watch mode redraws continuously, so a pager would get in the way.
-            println!("{rendered}");
-        } else {
-            display_term(&rendered, &pager);
+    match render_term(&root, theme) {
+        Ok(rendered) => {
+            if watch {
+                // Watch mode redraws continuously, so a pager would get in the way.
+                println!("{rendered}");
+            } else {
+                display_term(&rendered, &pager);
+            }
         }
+        // Keep going in watch mode: the file may become readable again.
+        Err(e) => error!("Failed to render '{}': {e}", root.display()),
     }
     if watch {
         let watch_path = root.clone();
@@ -149,16 +153,7 @@ fn page(content: &str, pager_cfg: &Option<String>) -> std::io::Result<()> {
 
 fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     let markdown_content = std::fs::read_to_string(root)?;
-    // Use the same option set as the HTML server renderer so that GFM
-    // features (strikethrough, math, footnotes) are parsed consistently.
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_GFM);
-    options.insert(Options::ENABLE_TASKLISTS);
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_MATH);
-    options.insert(Options::ENABLE_FOOTNOTES);
-    let parser = Parser::new_ext(&markdown_content, options);
+    let parser = Parser::new_ext(&markdown_content, crate::gfm::parser_options());
     let parser = crate::gfm::transform(parser);
     let theme = match theme {
         ThemeChoice::Glow => Theme::glow(),
