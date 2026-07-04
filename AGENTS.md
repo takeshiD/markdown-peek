@@ -16,7 +16,7 @@
 
 `DESIGN.md` の「重要な設計思想」10項目は不変の制約として本書全体に効かせる(特に *Markdown 本文は変更しない* / *LLM は UI IR だけを生成* / *renderer は決定論的* / *全 UI は sourceRange に紐づく* / *任意コード実行禁止*)。
 
-### 0.1 論点 A–F の決定 (2026-07-05)
+### 0.1 論点 A–K の決定 (2026-07-05)
 
 | 論点 | 決定 | 要旨 |
 |------|------|------|
@@ -26,6 +26,11 @@
 | **D** ノードのメタ表現 | **入れ子 `meta`** | 共通メタ(source_range/confidence/origin/visibility)を各ノードの `meta: NodeMeta` に**入れ子**で持つ(`#[serde(flatten)]` は使わない)。serde × 内部タグ enum × `ts-rs` の相性問題を回避。 |
 | **E** 生成物の永続化 | **保存しない** | 生成 UI IR をディスクにキャッシュ/コミットしない。実行中プロセスの**メモリ内再利用のみ**。恒久キャッシュ(`.gui.json`)・sidecar・`--emit-gui` は採用しない。 |
 | **F** LLM 呼び出しの位置 | **両方** | rules-first で即描画 → LLM 依存ノードは server 内 async でプログレッシブに後追い(#16 と統合)。加えて `mdpeek gen` を**一回きりの明示エクスポート**(stdout/指定ファイル)として提供。E に従い管理キャッシュは作らない。 |
+| **G** 本文ペインの描画方式 | **server が HTML 断片、Preact が挿入** | mdpeek-core が `BlockTree` を HTML 断片へエミット(現 `html.rs` の GFM 変換を web でも活用=二重実装しない)。Preact は断片を挿入し、`data-block-id` 単位で差分/ハイライト/イベントを管理。自前生成 HTML のみ信頼(§8)。 |
+| **H** アセット埋め込み | **全部 embed(CDN 廃止)** | Mermaid/hljs に加え MathJax も embed(現 index.html の CDN 依存を解消)。数式は軽量な **KaTeX 置換**も検討。単一バイナリ・CSP 維持に整合。 |
+| **I** WS ライブ更新プロトコル | **差分メッセージ** | `{ type, blockId \| nodeId, payload }` 形で**変わったブロック/ノードだけ**送る(full reload しない)。#16。 |
+| **J** LLM モデル/機構 | **config で指定** | provider/model を `config.toml` の `[llm]` セクションで設定(既定モデル + `structured output`/`tool use` の機構も設定可能に)。 |
+| **K** confidence 閾値 | **定数 default + config** | LLM を呼ぶ/低信頼バッジのしきい値は既定 **0.6**、`[llm] confidence_threshold` で上書き可。 |
 
 > **E と F の整合**: 恒久キャッシュを持たない(E)ため、`serve` 再起動や別プロセスでは LLM を再実行する。これは *rules-first(LLM 依存ノードだけ生成)* と *同一プロセス内メモリ再利用* で吸収する、というトレードオフを受け入れる。`mdpeek gen` はユーザーが出力先を指定する一回きりのエクスポートであり、自動管理される cache ではない。
 
@@ -63,7 +68,7 @@ document.md ─▶ parser ─▶ model ─▶ analyzer ─▶ planner ─▶ gen
 | 現行 | 本設計での位置づけ |
 |------|------------------|
 | `src/gfm.rs` (`parser_options`, `transform`) | `mdpeek-core::parser` にそのまま移設。Layer 1 として維持。 |
-| `src/emitter/html.rs` | **web では廃止**(論点 A: 全面 Preact)。本文描画も `BlockTree`/IR から Preact が行う。※ 静的 HTML エクスポート(`mdpeek gen --html` 等)の用途にのみ残置を検討。 |
+| `src/emitter/html.rs` | **BlockTree→HTML 断片エミッタとして存続**(論点 G)。ページ全体テンプレ注入は廃止(論点 A)。server はブロック単位の HTML 断片を返し、Preact が挿入して差分/ハイライトを管理する。GFM 変換を TS へ二重実装しない。 |
 | `src/emitter/term.rs` | TUI Layer 1 描画として存続(TUI は Preact 化しない)。 |
 | `src/server.rs` (`file_path`/`theme` が `Arc<RwLock>`) | `BlockTree`/IR を JSON で配る API を足す土台として再利用。HTML テンプレ注入は Preact 配信へ置換。 |
 | `src/watcher.rs` (単一パス blocking) | チャネル化し再生成トリガに接続(#12/#16 と共通)。 |
@@ -226,7 +231,7 @@ pub trait Generator {
 - serde でのデシリアライズ(型が合わない IR は reject)。
 - `registry.rs` の allowlist に無い `kind` は reject(`DESIGN.md`: 未知 component は reject)。
 - **sourceRange 検証**: すべての `sourceRange` が実ドキュメントの範囲内で、かつ対応 Block と矛盾しないこと。捏造レンジは reject(hallucination 検出)。
-- `confidence` が閾値未満のノードは `low_confidence` フラグ付きで通す(renderer が明示表示)。
+- `confidence` が閾値未満のノードは `low_confidence` フラグ付きで通す(renderer が明示表示)。閾値は既定 **0.6**、`[llm] confidence_threshold` で上書き可(論点 K)。
 
 ### 3.6 生成物の非永続方針
 
@@ -419,7 +424,7 @@ pub struct DocGenState {
 
 ### 5.1 Web (Preact)
 
-web は**全面 Preact**(論点 A)。本文ペインは `BlockTree` を描画する Preact マークダウンレンダラ、生成 UI ペインは `UiNode.kind` → コンポーネントの写像(`registry.ts`)。`DESIGN.md` の `componentRegistry` をそのまま実装。
+web は**全面 Preact**(論点 A)。本文ペインは、mdpeek-core が返す **`BlockTree`→HTML 断片**(論点 G)を Preact が挿入(`data-block-id` 単位で差分/ハイライト管理)。生成 UI ペインは `UiNode.kind` → コンポーネントの写像(`registry.ts`)。`DESIGN.md` の `componentRegistry` をそのまま実装。
 
 ```ts
 import type { UiNode } from "./ir";           // ts-rs 生成
@@ -445,7 +450,7 @@ export function Render({ node }: { node: UiNode }) {
 - **2 層 registry**: `coreRegistry`(汎用12種)＋`domainRegistry`(ドメインプリミティブ)。文書タイプが増えてもコアは不変で、ドメイン層に数個足すだけで済む(§9.3 の発見)。未知 `kind` は描画しない。
 - **信頼度表示**: `confidence` が低い / `origin === "llm"` のノードには「生成・要確認」バッジを出す(`DESIGN.md` 思想 8, 判断は人間)。
 - **SourceRangeLink**: 各ノードから原文へジャンプ。本文ペインも Preact 描画なので、`data-block-id` 付きの同一コンポーネントツリー内でスクロール&ハイライトを解決(全面 Preact の利点)。`sourceRange` 必須の根拠表示。
-- **ライブ更新 (#16 と統合)**: `@preact/signals` で BlockTree/IR を signal 化。WS で届いた**変更ノード/ブロックだけ**差し替え、`origin`/変更フラグからハイライトアニメーション。full reload しない(素の JS 版 `main.js` の全リロードは廃止)。
+- **ライブ更新 (#16 と統合)**: `@preact/signals` で BlockTree/IR を signal 化。WS は差分メッセージ `{ type, blockId | nodeId, payload }`(論点 I)で**変更ブロック/ノードだけ**送り、該当だけ差し替えて `origin`/変更フラグからハイライトアニメーション。full reload しない(素の JS 版 `main.js` の全リロードは廃止)。
 
 想定コンポーネント一覧は `DESIGN.md` §「想定 UI コンポーネント」を registry の実装対象とする(基本 / 文書理解 / コード・設定 / 図・構造 / 表・データ / ログ・調査 / Git)。
 
@@ -457,7 +462,7 @@ export function Render({ node }: { node: UiNode }) {
 
 ### 5.3 レイアウト(3 ペイン)
 
-`DESIGN.md`「複数ビュー表示」の 3 ペイン(Outline / Content / Generated UI)。**3 ペインとも Preact が描画**(論点 A: 全面 Preact)。Content ペインは `BlockTree` から Preact のマークダウンレンダラで描画し、各ブロックに `data-block-id` を付けて SourceRangeLink とライブハイライトを同一ツリー内で解決する。
+`DESIGN.md`「複数ビュー表示」の 3 ペイン(Outline / Content / Generated UI)。**3 ペインとも Preact が管理**(論点 A: 全面 Preact)。Content ペインは mdpeek-core が返す `BlockTree`→HTML 断片(論点 G)を Preact が挿入し、各ブロックの `data-block-id` で SourceRangeLink とライブハイライトを同一ツリー内で解決する。
 
 ---
 
@@ -475,7 +480,7 @@ export function Render({ node }: { node: UiNode }) {
 ## 7. LLM 連携設計 (`generator/llm/`)
 
 - **trait**: `Analyzer`(分類・抽出)と `Generator`(IR 生成)を分離。どちらも rules 実装が既定、LLM 実装は `feature = "llm"`。
-- **provider**: Anthropic Claude(最新の Claude モデル)を既定 adapter に。`ANTHROPIC_API_KEY` 未設定なら自動で rules-only にフォールバック(オフラインで壊れない)。
+- **provider/model(論点 J)**: Anthropic Claude を既定 adapter に。**provider・model・機構(`structured output` / `tool use`)・`confidence_threshold` は `config.toml` の `[llm]` セクションで設定**(config.rs に `[llm]` を追加)。`ANTHROPIC_API_KEY` 未設定なら自動で rules-only にフォールバック(オフラインで壊れない)。
 - **入出力契約**:
   - 入力: 文書モデルの必要部分 + 「この plan のこのノードを埋めよ」という指示 + **UI IR の JSON schema**。
   - 出力: **UI IR(JSON)のみ**。React/HTML/JS/任意テキストは一切受け付けない(§8, `DESIGN.md` 思想 3・9)。
@@ -496,7 +501,8 @@ export function Render({ node }: { node: UiNode }) {
 - **bash/コードブロックは自動実行しない**。`CommandSafetyPanel` は preview + 危険度表示のみ(`security/command.rs` が `rm -rf` / `curl | sh` 等を検出)。
 - **外部リンク・remote image** は policy 管理(既定は展開せず明示許可)。
 - **Mermaid / 埋め込み HTML は sandbox**(iframe sandbox or DOMPurify 相当)。
-- Preact 採用で attack surface が増えるため、CSP を維持し、IR→DOM 生成は `dangerouslySetInnerHTML` を使わず**テキストノードとして描画**する(コードは `<pre>` にエスケープ挿入)。
+- **信頼境界(論点 G)**: 本文ペインに挿入する HTML は **mdpeek-core が生成した断片に限り信頼**(既存 `html.rs` はエスケープ済み)。**LLM/IR 由来の値は生 HTML として挿入しない** — `dangerouslySetInnerHTML` は使わず**テキストノードとして描画**(コードは `<pre>` にエスケープ挿入)。原文由来のリンク/画像は §外部ポリシーに従う。
+- **全アセット embed(論点 H)**: Mermaid/hljs/MathJax(または KaTeX)を含め外部 CDN を使わず self-contained。CSP を厳格に維持できる(外部ホストへの接続を全遮断)。
 - confidence が低い生成結果は UI 上で明示。
 
 ---
@@ -626,11 +632,15 @@ SourceRange parser ──┬─▶ Layer2 analyzer ──▶ Layer3 IR/generator
 
 ## 11. 次アクション
 
-論点 A–F は決定済み(§0.1)。残作業:
+論点 A–K は決定済み(§0.1)。残作業:
 
-1. **issue の整合**: #20(workspace 化)を Layer 1 へ移動(論点 B: 今すぐ)。#26 のスコープから恒久キャッシュを外し「RulesGenerator + メモリ内差分再生成」に修正(論点 E)。#25 に「本文ペインも Preact 描画(全面 Preact)」「素の `main.js` 撤去」を追記(論点 A)。#27 に `mdpeek gen` を追記(論点 F)。
-2. **UI IR 第一版**: 技術設計書・README の 2 タイプに絞って `UiNode`/`NodeMeta`(入れ子 meta=論点 D)を確定 → `ts-rs` 生成の PoC。
-3. **全面 Preact の PoC**: `BlockTree` → Preact マークダウンレンダラ(`data-block-id` 付き)+ WS 差分更新の骨組み。
-4. **CI**: `web/dist` の鮮度チェックジョブ(論点 C)。
+1. **issue の整合**: #20(workspace 化)を Layer 1 へ移動(論点 B)。#26 のスコープから恒久キャッシュを外し「RulesGenerator + メモリ内差分再生成」に(論点 E)。#25 に「本文は core の HTML 断片を Preact が挿入(論点 A/G)」「素の `main.js` 撤去」「アセット全 embed(論点 H)」を追記。#27 に `mdpeek gen` + `[llm]` config(論点 F/J/K)を追記。
+2. **config `[llm]` セクション**: `config.rs` に provider/model/機構/`confidence_threshold`(既定 0.6)を追加(論点 J/K)。
+3. **UI IR 第一版**: 技術設計書・README の 2 タイプに絞って `UiNode`/`NodeMeta`(入れ子 meta=論点 D)を確定 → `ts-rs` 生成の PoC。
+4. **描画/ライブ更新の PoC**: core の `BlockTree`→HTML 断片エミッタ(論点 G)+ Preact 挿入 + WS 差分メッセージ `{type,blockId|nodeId,payload}`(論点 I)の骨組み。
+5. **アセット embed**: MathJax の embed 化 or KaTeX 置換(論点 H)。
+6. **CI**: `web/dist` の鮮度チェックジョブ(論点 C)。
 
+> **保留**: 論点 **L(E の運用方針 = 再起動時 LLM 再実行を許容するか / `mdpeek gen` ワークフロー標準化)** は未決定。その他(watcher API・`serve` 無引数詳細・diff 方式 #15・CLI/config 列挙・プロダクト名・TUI 生成UI 範囲)は letter を振らず各実装 issue で決める。
+>
 > 決定は §0.1 に記録。以降の設計変更もここに追記していく。
