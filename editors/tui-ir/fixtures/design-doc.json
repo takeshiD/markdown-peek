@@ -1,0 +1,76 @@
+{
+  "ui_ir": [
+    {
+      "kind": "Callout",
+      "severity": "info",
+      "title": "設計方針",
+      "body": "重い処理は Rust core に集約し、UI IR を web/TUI 共通の契約にする。\nこの IR はその契約を TUI で描画したもの。",
+      "origin": "rules"
+    },
+    {
+      "kind": "Checklist",
+      "origin": "llm",
+      "confidence": 0.82,
+      "items": [
+        { "title": "SourceRange parser", "checked": true, "category": "Layer1" },
+        { "title": "DocumentModel + rules analyzer", "checked": false, "category": "Layer2" },
+        { "title": "IR 型定義 + validate", "checked": false, "category": "Layer3" },
+        { "title": "TUI renderer (IR 対応)", "checked": true, "category": "Layer5" }
+      ]
+    },
+    {
+      "kind": "RiskPanel",
+      "risks": [
+        { "title": "workspace 化が release CI に影響", "severity": "warning", "mitigation": "Layer2 直前でまとめて実施 (論点 B)" },
+        { "title": "LLM が任意 UI を生成", "severity": "error", "mitigation": "serde 型 + registry allowlist で構造的に不可能化" }
+      ]
+    },
+    {
+      "kind": "DataTable",
+      "columns": [
+        { "key": "layer", "label": "Layer", "type": "text" },
+        { "key": "name", "label": "内容", "type": "text" },
+        { "key": "issues", "label": "件数", "type": "number" }
+      ],
+      "rows": [
+        { "layer": "1", "name": "強い Markdown viewer", "issues": 5 },
+        { "layer": "2", "name": "Semantic viewer", "issues": 3 },
+        { "layer": "5", "name": "Editor/TUI 統合", "issues": 3 }
+      ]
+    },
+    {
+      "kind": "CommitGraph",
+      "commits": [
+        { "hash": "dbd0f70abc", "summary": "Merge PR #17 design", "author": "tkcd" },
+        { "hash": "0b5a3c9def", "summary": "docs: expand design", "author": "tkcd" }
+      ]
+    },
+    {
+      "kind": "Diagram",
+      "title": "critical path",
+      "lang": "mermaid",
+      "summary": "SourceRange parser → Layer2 analyzer → Layer3 IR → renderer"
+    },
+    {
+      "kind": "StepNavigator",
+      "steps": [
+        { "title": "worktree を切る", "duration": "1min", "prerequisite": "clean tree" },
+        { "title": "editors/ に実装", "duration": "—", "detail": "既存 Rust ソースは触らない" }
+      ]
+    },
+    {
+      "kind": "Callout",
+      "severity": "warning",
+      "title": "ネタバレ制御デモ",
+      "body": "下のノードは 100 行目以降を既読にするまで隠れる。",
+      "visibility": { "until_read": { "reveal_after_line": 100 } }
+    },
+    {
+      "kind": "Glossary",
+      "visibility": { "until_read": { "reveal_after_line": 100 } },
+      "terms": [
+        { "term": "IR", "definition": "Intermediate Representation。web/TUI 共通の描画契約。" }
+      ]
+    }
+  ]
+}

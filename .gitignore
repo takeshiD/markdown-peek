@@ -1,4 +1,7 @@
 /target
+# Layer 5: standalone tui-ir crate build output + preview export dir
+editors/tui-ir/target
+_mdpeek_preview
 .envrc
 .env
 .direnv

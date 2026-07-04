@@ -1,0 +1,45 @@
+name: "mdpeek preview"
+description: "Render Markdown files to static HTML with mdpeek for a PR preview artifact (Layer 5)."
+author: "markdown-peek"
+branding:
+  icon: "eye"
+  color: "purple"
+
+inputs:
+  files:
+    description: "Space-separated list of Markdown files to render."
+    required: true
+  output-dir:
+    description: "Directory to write the rendered HTML into."
+    required: false
+    default: "_mdpeek_preview"
+  mdpeek-bin:
+    description: "mdpeek binary to use (must be on PATH or an absolute path)."
+    required: false
+    default: "mdpeek"
+  static-dir:
+    description: "Static asset dir to copy next to the pages (empty to skip)."
+    required: false
+    default: "static"
+  port:
+    description: "Localhost port mdpeek serves on while rendering."
+    required: false
+    default: "38080"
+
+outputs:
+  preview-dir:
+    description: "Directory containing the rendered HTML and index.html."
+    value: ${{ inputs.output-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Render Markdown with mdpeek
+      shell: bash
+      env:
+        MDPEEK_BIN: ${{ inputs.mdpeek-bin }}
+        MDPEEK_PORT: ${{ inputs.port }}
+        MDPEEK_STATIC_DIR: ${{ inputs.static-dir }}
+      run: |
+        bash "${{ github.action_path }}/render.sh" \
+          "${{ inputs.output-dir }}" ${{ inputs.files }}
