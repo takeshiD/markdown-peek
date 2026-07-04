@@ -74,13 +74,146 @@ function initializeTheme() {
     }
 }
 
-function initializeToc() {
+// Subsequence fuzzy match: every char of `query` appears in `text` in order.
+function fuzzyMatch(query, text) {
+    if (!query) {
+        return true;
+    }
+    query = query.toLowerCase();
+    text = text.toLowerCase();
+    let qi = 0;
+    for (let i = 0; i < text.length && qi < query.length; i++) {
+        if (text[i] === query[qi]) {
+            qi++;
+        }
+    }
+    return qi === query.length;
+}
+
+// Fold the flat heading list into a tree nested by heading level.
+function buildOutlineTree(headings) {
+    const root = { level: 0, children: [] };
+    const stack = [root];
+    headings.forEach(function (heading) {
+        if (!heading.id) {
+            return;
+        }
+        const level = parseInt(heading.tagName.substring(1), 10);
+        const node = {
+            id: heading.id,
+            level: level,
+            text: (heading.textContent || "").trim(),
+            children: [],
+        };
+        // Pop until the parent is a strictly shallower heading.
+        while (stack.length > 1 && stack[stack.length - 1].level >= level) {
+            stack.pop();
+        }
+        stack[stack.length - 1].children.push(node);
+        stack.push(node);
+    });
+    return root.children;
+}
+
+function renderOutline(nodes) {
+    const ul = document.createElement("ul");
+    nodes.forEach(function (node) {
+        const item = document.createElement("li");
+        item.className = "mdpeek-toc-item";
+        const link = document.createElement("a");
+        link.href = "#" + node.id;
+        link.textContent = node.text;
+        link.dataset.tocId = node.id;
+        link.addEventListener("click", function (event) {
+            event.preventDefault();
+            const target = document.getElementById(node.id);
+            if (target) {
+                target.scrollIntoView({ behavior: "smooth", block: "start" });
+                history.replaceState(null, "", "#" + node.id);
+            }
+        });
+        item.appendChild(link);
+        if (node.children.length) {
+            item.appendChild(renderOutline(node.children));
+        }
+        ul.appendChild(item);
+    });
+    return ul;
+}
+
+// Show only items whose heading fuzzy-matches the query, keeping the ancestors
+// of each hit visible so the path stays navigable.
+function filterOutline(toc, query) {
+    const items = toc.querySelectorAll("li.mdpeek-toc-item");
+    if (!query) {
+        items.forEach(function (li) {
+            li.hidden = false;
+        });
+        return;
+    }
+    items.forEach(function (li) {
+        const link = li.querySelector(":scope > a");
+        const hit = link && fuzzyMatch(query, link.textContent || "");
+        li.hidden = !hit;
+        li.dataset.tocHit = hit ? "1" : "";
+    });
+    // Reveal ancestors of every hit.
+    toc.querySelectorAll('li.mdpeek-toc-item[data-toc-hit="1"]').forEach(function (li) {
+        let parent = li.parentElement;
+        while (parent && parent !== toc) {
+            if (parent.tagName === "LI") {
+                parent.hidden = false;
+            }
+            parent = parent.parentElement;
+        }
+    });
+}
+
+// Highlight the outline entry for the heading currently scrolled into view.
+function initScrollSpy(toc) {
+    const links = new Map();
+    toc.querySelectorAll("a[data-toc-id]").forEach(function (a) {
+        links.set(a.dataset.tocId, a);
+    });
+    const headings = Array.from(links.keys())
+        .map(function (id) { return document.getElementById(id); })
+        .filter(Boolean);
+    if (!headings.length) {
+        return;
+    }
+    let activeId = null;
+    function onScroll() {
+        let current = headings[0].id;
+        for (let i = 0; i < headings.length; i++) {
+            if (headings[i].getBoundingClientRect().top <= 80) {
+                current = headings[i].id;
+            } else {
+                break;
+            }
+        }
+        if (current === activeId) {
+            return;
+        }
+        if (activeId && links.get(activeId)) {
+            links.get(activeId).classList.remove("mdpeek-toc-active");
+        }
+        activeId = current;
+        const active = links.get(activeId);
+        if (active) {
+            active.classList.add("mdpeek-toc-active");
+        }
+    }
+    document.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+}
+
+function initializeOutline() {
     const article = document.querySelector(".markdown-body");
     if (!article) {
         return;
     }
     const headings = article.querySelectorAll("h1, h2, h3, h4, h5, h6");
-    // Only show the table of contents when there is more than one heading.
+    // Only show the outline when there is more than one heading.
     if (headings.length < 2) {
         return;
     }
@@ -93,34 +226,27 @@ function initializeToc() {
     title.innerHTML = "<span>Contents</span><span aria-hidden=\"true\">▾</span>";
     toc.appendChild(title);
 
-    const list = document.createElement("ul");
-    headings.forEach(function (heading) {
-        if (!heading.id) {
-            return;
-        }
-        const level = heading.tagName.toLowerCase();
-        const item = document.createElement("li");
-        item.className = "toc-" + level;
-        const link = document.createElement("a");
-        link.href = "#" + heading.id;
-        // Use only the heading's text, ignoring the anchor link octicon.
-        link.textContent = (heading.textContent || "").trim();
-        link.addEventListener("click", function (event) {
-            event.preventDefault();
-            const target = document.getElementById(heading.id);
-            if (target) {
-                target.scrollIntoView({ behavior: "smooth", block: "start" });
-                history.replaceState(null, "", "#" + heading.id);
-            }
-        });
-        item.appendChild(link);
-        list.appendChild(item);
-    });
+    const search = document.createElement("input");
+    search.id = "mdpeek-toc-search";
+    search.type = "search";
+    search.placeholder = "Filter headings…";
+    search.setAttribute("aria-label", "Filter headings");
+    toc.appendChild(search);
 
+    const tree = buildOutlineTree(headings);
+    const list = renderOutline(tree);
     if (!list.children.length) {
         return;
     }
     toc.appendChild(list);
+
+    search.addEventListener("input", function () {
+        filterOutline(toc, search.value.trim());
+    });
+    // Don't let the collapse toggle fire when interacting with the search box.
+    search.addEventListener("click", function (event) {
+        event.stopPropagation();
+    });
 
     title.addEventListener("click", function () {
         toc.classList.toggle("mdpeek-toc-collapsed");
@@ -131,13 +257,49 @@ function initializeToc() {
     });
 
     document.body.appendChild(toc);
+    initScrollSpy(toc);
+}
+
+// Render the document's front matter (served in a hidden element) as a
+// collapsible panel.
+function initializeFrontmatter() {
+    const source = document.getElementById("mdpeek-frontmatter");
+    if (!source) {
+        return;
+    }
+    const raw = (source.textContent || "").trim();
+    if (!raw) {
+        return;
+    }
+
+    const panel = document.createElement("section");
+    panel.id = "mdpeek-frontmatter-panel";
+
+    const title = document.createElement("div");
+    title.id = "mdpeek-frontmatter-title";
+    title.innerHTML = "<span>Front matter</span><span aria-hidden=\"true\">▾</span>";
+    title.addEventListener("click", function () {
+        panel.classList.toggle("mdpeek-collapsed");
+        const caret = title.lastElementChild;
+        if (caret) {
+            caret.textContent = panel.classList.contains("mdpeek-collapsed") ? "▸" : "▾";
+        }
+    });
+
+    const pre = document.createElement("pre");
+    pre.textContent = raw;
+
+    panel.appendChild(title);
+    panel.appendChild(pre);
+    document.body.appendChild(panel);
 }
 
 (function() {
     initializeTheme();
     initializeMermaid();
     initializeHighlight();
-    initializeToc();
+    initializeOutline();
+    initializeFrontmatter();
     // initializeMathJax();
 
     var RECONNECT_INTERVAL_MS = 3000;
