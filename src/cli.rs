@@ -34,6 +34,8 @@ pub enum Commands {
     Serve(ServeArg),
     /// Display pretty rendered markdown on your terminal
     Term(TermArg),
+    /// Repository-aware view: cross-check a document against the repo (Layer 4)
+    Repo(RepoArg),
 }
 
 // Subcommand arguments are optional so that an unset flag can fall back to
@@ -55,6 +57,15 @@ pub struct TermArg {
     pub file: Option<PathBuf>,
     #[arg(long, value_enum)]
     pub theme: Option<ThemeChoice>,
+}
+
+#[derive(Debug, Args)]
+pub struct RepoArg {
+    #[arg(value_name = "FILE")]
+    pub file: Option<PathBuf>,
+    /// Emit the report as JSON instead of the terminal view.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum, Deserialize)]
@@ -85,6 +96,8 @@ pub enum Mode {
         /// disables paging, `Some(cmd)` runs `cmd`.
         pager: Option<String>,
     },
+    /// Repository-aware analysis of a document (Layer 4).
+    Repo { file: PathBuf, json: bool },
 }
 
 impl Cli {
@@ -130,6 +143,13 @@ impl Cli {
                 watch: self.watch,
                 theme: arg.theme.or(config.term.theme).unwrap_or(ThemeChoice::Glow),
                 pager,
+            }),
+            Some(Commands::Repo(arg)) => Ok(Mode::Repo {
+                file: arg
+                    .file
+                    .or(self.root)
+                    .unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
+                json: arg.json,
             }),
             None => {
                 let root = self.root.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
