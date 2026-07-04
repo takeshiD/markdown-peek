@@ -32,6 +32,17 @@ If you want preview on termianl, using `term` subcommand.
 mdpeek term
 ```
 
+## Repository-aware view
+The `repo` subcommand relates a document to the repository around it: it lists
+git worktrees, parses `Cargo.toml`/`package.json`, checks that the file
+references in the document actually resolve, correlates ADRs with their git
+history, and collects `TODO`/`FIXME` markers (flagging which are linked to an
+issue).
+```sh
+mdpeek repo README.md        # coloured terminal report
+mdpeek repo --json README.md # machine-readable JSON
+```
+
 # Installation
 ## `cargo`
 ```

@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod emitter;
 mod gfm;
+mod repo;
 mod server;
 mod watcher;
 
@@ -38,6 +39,28 @@ fn main() -> Result<()> {
             theme,
             pager,
         } => handle_term(file, watch, theme, pager),
+        Mode::Repo { file, json } => handle_repo(file, json)?,
+    }
+    Ok(())
+}
+
+fn handle_repo(root: PathBuf, json: bool) -> Result<()> {
+    init_tracing();
+    if !root.exists() {
+        error!("'{}' is not found.", root.display());
+        return Ok(());
+    }
+    if !root.is_file() {
+        error!("'{}' is not a file.", root.display());
+        return Ok(());
+    }
+    let report = repo::analyze(&root)?;
+    if json {
+        println!("{}", report.to_json()?);
+    } else {
+        use std::io::IsTerminal;
+        let color = std::io::stdout().is_terminal();
+        print!("{}", report.to_terminal(color));
     }
     Ok(())
 }
