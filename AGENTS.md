@@ -2,7 +2,7 @@
 
 > このドキュメントは [`DESIGN.md`](DESIGN.md) の構想を、現行の Rust 実装 (`pulldown-cmark` + `axum` + TUI) の上に**実装可能な形**へ落とし込んだ設計書のたたき台です。`DESIGN.md` = *what / why*、本書 = *how* という役割分担です。
 >
-> 論点 A–K は **2026-07-05 に決定済み**(§0.1、L のみ保留)。以降の記述はその決定を反映しています。
+> 論点 A–L は **2026-07-05 に決定済み**(§0.1)。以降の記述はその決定を反映しています。
 
 ## 0. 確定した基本方針
 
@@ -16,7 +16,7 @@
 
 `DESIGN.md` の「重要な設計思想」10項目は不変の制約として本書全体に効かせる(特に *Markdown 本文は変更しない* / *LLM は UI IR だけを生成* / *renderer は決定論的* / *全 UI は sourceRange に紐づく* / *任意コード実行禁止*)。
 
-### 0.1 論点 A–K の決定 (2026-07-05)
+### 0.1 論点 A–L の決定 (2026-07-05)
 
 | 論点 | 決定 | 要旨 |
 |------|------|------|
@@ -31,6 +31,7 @@
 | **I** WS ライブ更新プロトコル | **差分メッセージ** | `{ type, blockId \| nodeId, payload }` 形で**変わったブロック/ノードだけ**送る(full reload しない)。#16。 |
 | **J** LLM モデル/機構 | **config で指定** | provider/model を `config.toml` の `[llm]` セクションで設定(既定モデル + `structured output`/`tool use` の機構も設定可能に)。 |
 | **K** confidence 閾値 | **定数 default + config** | LLM を呼ぶ/低信頼バッジのしきい値は既定 **0.6**、`[llm] confidence_threshold` で上書き可。 |
+| **L** E の運用方針 | **許容(標準化しない)** | 永続化しない(E)結果、`serve` 再起動ごとに LLM を再実行することを**許容する**。`mdpeek gen` は任意手段にとどめ、標準ワークフローとして強制しない。rules-first の即描画があるため実用上問題ないと判断。 |
 
 > **E と F の整合**: 恒久キャッシュを持たない(E)ため、`serve` 再起動や別プロセスでは LLM を再実行する。これは *rules-first(LLM 依存ノードだけ生成)* と *同一プロセス内メモリ再利用* で吸収する、というトレードオフを受け入れる。`mdpeek gen` はユーザーが出力先を指定する一回きりのエクスポートであり、自動管理される cache ではない。
 
@@ -632,7 +633,7 @@ SourceRange parser ──┬─▶ Layer2 analyzer ──▶ Layer3 IR/generator
 
 ## 11. 次アクション
 
-論点 A–K は決定済み(§0.1)。残作業:
+論点 A–L は決定済み(§0.1)。残作業:
 
 1. **issue の整合**: #20(workspace 化)を Layer 1 へ移動(論点 B)。#26 のスコープから恒久キャッシュを外し「RulesGenerator + メモリ内差分再生成」に(論点 E)。#25 に「本文は core の HTML 断片を Preact が挿入(論点 A/G)」「素の `main.js` 撤去」「アセット全 embed(論点 H)」を追記。#27 に `mdpeek gen` + `[llm]` config(論点 F/J/K)を追記。
 2. **config `[llm]` セクション**: `config.rs` に provider/model/機構/`confidence_threshold`(既定 0.6)を追加(論点 J/K)。
@@ -641,6 +642,6 @@ SourceRange parser ──┬─▶ Layer2 analyzer ──▶ Layer3 IR/generator
 5. **アセット embed**: MathJax の embed 化 or KaTeX 置換(論点 H)。
 6. **CI**: `web/dist` の鮮度チェックジョブ(論点 C)。
 
-> **保留**: 論点 **L(E の運用方針 = 再起動時 LLM 再実行を許容するか / `mdpeek gen` ワークフロー標準化)** は未決定。その他(watcher API・`serve` 無引数詳細・diff 方式 #15・CLI/config 列挙・プロダクト名・TUI 生成UI 範囲)は letter を振らず各実装 issue で決める。
+> **letter を振らない実装時決定**: watcher API・`serve` 無引数詳細・diff 方式 #15・プロダクト名・TUI 生成UI 範囲は各実装 issue で決める。
 >
 > 決定は §0.1 に記録。以降の設計変更もここに追記していく。
