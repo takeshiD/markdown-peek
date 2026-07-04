@@ -1,0 +1,191 @@
+{
+  "nodes": [
+    {
+      "kind": "Checklist",
+      "sourceRange": {
+        "start_line": 9,
+        "start_column": 1,
+        "end_line": 15,
+        "end_column": 1
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "items": [
+        {
+          "title": "Task1",
+          "checked": false,
+          "category": "TaskList",
+          "sourceRange": {
+            "start_line": 9,
+            "start_column": 1,
+            "end_line": 10,
+            "end_column": 1
+          }
+        },
+        {
+          "title": "detail task1.1",
+          "checked": false,
+          "category": "TaskList",
+          "sourceRange": {
+            "start_line": 11,
+            "start_column": 3,
+            "end_line": 12,
+            "end_column": 1
+          }
+        },
+        {
+          "title": "detail task1.2",
+          "checked": false,
+          "category": "TaskList",
+          "sourceRange": {
+            "start_line": 12,
+            "start_column": 3,
+            "end_line": 13,
+            "end_column": 1
+          }
+        },
+        {
+          "title": "Task2",
+          "checked": false,
+          "category": "TaskList",
+          "sourceRange": {
+            "start_line": 10,
+            "start_column": 1,
+            "end_line": 13,
+            "end_column": 1
+          }
+        },
+        {
+          "title": "Task3",
+          "checked": false,
+          "category": "TaskList",
+          "sourceRange": {
+            "start_line": 13,
+            "start_column": 1,
+            "end_line": 15,
+            "end_column": 1
+          }
+        }
+      ]
+    },
+    {
+      "kind": "DataTable",
+      "sourceRange": {
+        "start_line": 2,
+        "start_column": 1,
+        "end_line": 7,
+        "end_column": 1
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "columns": [
+        {
+          "key": "level",
+          "label": "Level"
+        },
+        {
+          "key": "description",
+          "label": "Description"
+        }
+      ],
+      "rows": [
+        {
+          "description": "Gold Gym",
+          "level": "S Tier"
+        },
+        {
+          "description": "Anytime Fitness",
+          "level": "A Tier"
+        },
+        {
+          "description": "Jexer",
+          "level": "B Tier"
+        }
+      ]
+    },
+    {
+      "kind": "Callout",
+      "sourceRange": {
+        "start_line": 82,
+        "start_column": 1,
+        "end_line": 84,
+        "end_column": 1
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "severity": "info",
+      "title": "Note",
+      "body": "Useful information that users should know, even when skimming content."
+    },
+    {
+      "kind": "Callout",
+      "sourceRange": {
+        "start_line": 85,
+        "start_column": 1,
+        "end_line": 87,
+        "end_column": 1
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "severity": "info",
+      "title": "Tip",
+      "body": "Helpful advice for doing things better or more easily."
+    },
+    {
+      "kind": "Callout",
+      "sourceRange": {
+        "start_line": 88,
+        "start_column": 1,
+        "end_line": 90,
+        "end_column": 1
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "severity": "error",
+      "title": "Important",
+      "body": "Key information users need to know to achieve their goal."
+    },
+    {
+      "kind": "Callout",
+      "sourceRange": {
+        "start_line": 91,
+        "start_column": 1,
+        "end_line": 93,
+        "end_column": 1
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "severity": "warning",
+      "title": "Warning",
+      "body": "Urgent info that needs immediate user attention to avoid problems."
+    },
+    {
+      "kind": "Callout",
+      "sourceRange": {
+        "start_line": 94,
+        "start_column": 1,
+        "end_line": 96,
+        "end_column": 1
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "severity": "warning",
+      "title": "Caution",
+      "body": "Advises about risks or negative outcomes of certain actions."
+    },
+    {
+      "kind": "Diagram",
+      "sourceRange": {
+        "start_line": 136,
+        "start_column": 1,
+        "end_line": 140,
+        "end_column": 4
+      },
+      "origin": "rules",
+      "visibility": "always",
+      "format": "mermaid",
+      "code": "graph TD\n    A-->B\n    B-->C"
+    }
+  ],
+  "markdown": "# Table\n| Level  | Description     |\n|--------|-----------------|\n| S Tier | Gold Gym        |\n| A Tier | Anytime Fitness |\n| B Tier | Jexer           |\n\n# TaskList\n- [ ] Task1\n- [ ] Task2\n    - [ ] detail task1.1\n    - [ ] detail task1.2\n- [ ] Task3\n\n# Strike through\n~~Hi~~ Hello, ~there~ world!\n\nThis ~~has a\n\nnew paragraph~~.\n\nThis will ~~~not~~~ strike.\n\n\n# Fenced Code\n```\n<\n>\n```\n\n```rust\nfn main() {\n    println!(\"hello world!\");\n}\n```\n\n# AutoLink\nwww.commonmark.org\n\nVisit www.commonmark.org/help for more information.\n\n\nVisit www.commonmark.org.\n\nVisit www.commonmark.org/a.b.\n\nwww.google.com/search?q=Markup+(business)\n\nwww.google.com/search?q=Markup+(business)))\n\n(www.google.com/search?q=Markup+(business))\n\n(www.google.com/search?q=Markup+(business)\n\n# In Page Link\n## Example headings\n\n### Sample Section\n\n### This'll be a _Helpful_ Section About the Greek Letter Θ!\nA heading containing characters not allowed in fragments, UTF-8 characters, two consecutive spaces between the first and second words, and formatting.\n\n### This heading is not unique in the file\n\nTEXT 1\n\n### This heading is not unique in the file\n\nTEXT 2\n\n## Links to the example headings above\n\nLink to the sample section: [Link Text](#sample-section).\n\nLink to the helpful section: [Link Text](#thisll-be-a-helpful-section-about-the-greek-letter-Θ).\n\nLink to the first non-unique section: [Link Text](#this-heading-is-not-unique-in-the-file).\n\nLink to the second non-unique section: [Link Text](#this-heading-is-not-unique-in-the-file-1).\n\n# Alert\n> [!NOTE]\n> Useful information that users should know, even when skimming content.\n\n> [!TIP]\n> Helpful advice for doing things better or more easily.\n\n> [!IMPORTANT]\n> Key information users need to know to achieve their goal.\n\n> [!WARNING]\n> Urgent info that needs immediate user attention to avoid problems.\n\n> [!CAUTION]\n> Advises about risks or negative outcomes of certain actions.\n\n# Color model\n#0969DA\n\n`rgb(9, 105, 218)`\n\n`hsl(212, 92%, 45%)`\n\n# Emoji\n\n@octocat :+1: This PR looks great - it's ready to merge! :shipit:\n\n# Footnote\nHere is a simple footnote[^1].\n\nA footnote can also have multiple lines[^2].\n\n[^1]: My reference.\n[^2]: To add line breaks within a footnote, add 2 spaces to the end of a line.  \nThis is a second line.\n\n# MathJax\n## Inline Math\nthis sentence is uses `$` delimiters to show math inline: $\\sqrt{3x-1}+{1+x}^2$\n\nThis sentence uses $\\` and \\`$ delimiters to show math inline: $`\\sqrt{3x-1}+(1+x)^2`$\n\n\n## Block Math\n**The Cauchy-Schwarz Inequality**\\\n$$\\left( \\sum_{k=1}^n a_k b_k \\right)^2 \\leq \\left( \\sum_{k=1}^n a_k^2 \\right) \\left( \\sum_{k=1}^n b_k^2 \\right)$$\n\n\n**The Cauchy-Schwarz Inequality**\n```math\n\\left( \\sum_{k=1}^n a_k b_k \\right)^2 \\leq \\left( \\sum_{k=1}^n a_k^2 \\right) \\left( \\sum_{k=1}^n b_k^2 \\right)\n```\n\n# Mermaid\n\n```mermaid\ngraph TD\n    A-->B\n    B-->C\n```\n"
+}

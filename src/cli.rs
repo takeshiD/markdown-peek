@@ -34,6 +34,17 @@ pub enum Commands {
     Serve(ServeArg),
     /// Display pretty rendered markdown on your terminal
     Term(TermArg),
+    /// Generate Generative-UI IR (JSON) from a markdown file (Layer 3)
+    Gen(GenArg),
+}
+
+#[derive(Debug, Args)]
+pub struct GenArg {
+    #[arg(value_name = "FILE")]
+    pub file: Option<PathBuf>,
+    /// Skip the on-disk cache and always regenerate.
+    #[arg(long)]
+    pub no_cache: bool,
 }
 
 // Subcommand arguments are optional so that an unset flag can fall back to
@@ -85,6 +96,8 @@ pub enum Mode {
         /// disables paging, `Some(cmd)` runs `cmd`.
         pager: Option<String>,
     },
+    /// Generate Generative-UI IR JSON (Layer 3) and print it to stdout.
+    Gen { file: PathBuf, no_cache: bool },
 }
 
 impl Cli {
@@ -130,6 +143,10 @@ impl Cli {
                 watch: self.watch,
                 theme: arg.theme.or(config.term.theme).unwrap_or(ThemeChoice::Glow),
                 pager,
+            }),
+            Some(Commands::Gen(arg)) => Ok(Mode::Gen {
+                file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
+                no_cache: arg.no_cache,
             }),
             None => {
                 let root = self.root.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));

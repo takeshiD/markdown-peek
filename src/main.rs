@@ -1,7 +1,11 @@
+mod cache;
 mod cli;
 mod config;
 mod emitter;
+mod generator;
 mod gfm;
+mod gui;
+mod ir;
 mod server;
 mod watcher;
 
@@ -38,7 +42,25 @@ fn main() -> Result<()> {
             theme,
             pager,
         } => handle_term(file, watch, theme, pager),
+        Mode::Gen { file, no_cache } => handle_gen(file, no_cache)?,
     }
+    Ok(())
+}
+
+/// Generate Generative-UI IR (Layer 3) for `root` and print the JSON to stdout.
+/// The cache lives under `.cache/mdpeek/` in the current directory.
+fn handle_gen(root: PathBuf, no_cache: bool) -> Result<()> {
+    if !root.is_file() {
+        anyhow::bail!("'{}' is not a file.", root.display());
+    }
+    let markdown = std::fs::read_to_string(&root)?;
+    let cache_root = if no_cache {
+        None
+    } else {
+        Some(std::path::Path::new("."))
+    };
+    let json = gui::generate_json(&markdown, cache_root)?;
+    println!("{json}");
     Ok(())
 }
 

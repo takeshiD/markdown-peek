@@ -32,6 +32,16 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2.5"
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# LLM (Claude) generator backend, opt-in to keep the default build offline.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+
+[features]
+default = []
+# Enables the Claude-backed UI IR generator (generator::llm). Requires network
+# + ANTHROPIC_API_KEY at runtime; falls back to RulesGenerator when unset.
+llm = ["dep:reqwest"]
 
 [[bin]]
 name = "mdpeek"

@@ -5,3 +5,8 @@
 .serena
 PLAN.md
 .claude
+# Generative-UI cache (Layer 3, design §6): regenerated on demand.
+.cache
+# Web frontend (Layer 3): deps + build output are reproducible via `npm run build`.
+web/node_modules
+web/dist
