@@ -867,7 +867,7 @@ mod integration_tests {
 
     /// 端末向け機能をすべて有効にしたパーサで markdown をレンダリングする。
     fn render(md: &str) -> String {
-        let parser = Parser::new_ext(md, mdpeek_core::gfm::parser_options());
+        let parser = Parser::new_ext(md, mdpeek_gfm::parser_options());
         TerminalEmitter::new(parser, Theme::glow()).run()
     }
 

@@ -1,15 +1,12 @@
 mod cli;
 mod config;
-mod emitter;
-mod server;
-mod watcher;
 
 use crate::cli::{Cli, Mode, ThemeChoice};
 use crate::config::{BrowserTheme, Config};
-use crate::emitter::{TerminalEmitter, Theme};
-use crate::server::serve;
-use crate::watcher::notify_on_change;
 use anyhow::Result;
+use mdpeek_render_term::{TerminalEmitter, Theme};
+use mdpeek_server::serve;
+use mdpeek_watcher::notify_on_change;
 use pulldown_cmark::Parser;
 use std::path::PathBuf;
 use std::sync::Once;
@@ -43,6 +40,12 @@ fn main() -> Result<()> {
 
 fn handle_serve(root: PathBuf, host: String, port: String, theme: BrowserTheme) {
     init_tracing();
+    // Map the binary's config theme onto the server crate's own theme so the
+    // server stays independent of the binary's config types.
+    let theme = match theme {
+        BrowserTheme::Light => mdpeek_server::Theme::Light,
+        BrowserTheme::Dark => mdpeek_server::Theme::Dark,
+    };
     if root.exists() {
         serve(root, host, port, theme);
     } else {
@@ -152,8 +155,8 @@ fn page(content: &str, pager_cfg: &Option<String>) -> std::io::Result<()> {
 
 fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     let markdown_content = std::fs::read_to_string(root)?;
-    let parser = Parser::new_ext(&markdown_content, mdpeek_core::gfm::parser_options());
-    let parser = mdpeek_core::gfm::transform(parser);
+    let parser = Parser::new_ext(&markdown_content, mdpeek_gfm::parser_options());
+    let parser = mdpeek_gfm::transform(parser);
     let theme = match theme {
         ThemeChoice::Glow => Theme::glow(),
         ThemeChoice::Mono => Theme::mono(),

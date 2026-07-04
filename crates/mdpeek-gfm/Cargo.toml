@@ -1,14 +1,13 @@
 [package]
-name = "mdpeek-core"
+name = "mdpeek-gfm"
 version = "0.0.0"
 edition = "2024"
 authors = ["tkcd <goriponikeike55@gmail.com>"]
 repository = "https://github.com/takeshid/markdown-peek"
 license-file = "../../LICENSE"
-description = "Core Markdown parsing/model machinery shared by markdown-peek binaries"
+description = "GFM stream adapters (emoji shortcodes, extended autolinks) for markdown-peek"
 
 [dependencies]
 emojis = "0.6"
-pulldown-cmark = { version = "0.13", features = ["serde"] }
+pulldown-cmark = "0.13"
 regex = "1"
-serde = { version = "1.0.228", features = ["derive"] }

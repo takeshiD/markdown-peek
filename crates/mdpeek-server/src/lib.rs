@@ -19,9 +19,8 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
-use crate::config::BrowserTheme;
-use crate::emitter::HtmlEmitter;
-use crate::watcher::notify_on_change;
+use mdpeek_render_html::HtmlEmitter;
+use mdpeek_watcher::notify_on_change;
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -30,30 +29,25 @@ struct AppState {
     theme: Arc<RwLock<Theme>>,
 }
 
-#[derive(Debug, Clone)]
-enum Theme {
-    GitHubLight,
-    GitHubDark,
+/// Browser colour theme selected for the served page. The caller (the `mdpeek`
+/// binary) maps its own config theme onto this so the server crate stays
+/// independent of the binary's config types.
+#[derive(Debug, Clone, Copy)]
+pub enum Theme {
+    Light,
+    Dark,
 }
 impl fmt::Display for Theme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            Theme::GitHubLight => "github-light",
-            Theme::GitHubDark => "github-dark",
+            Theme::Light => "github-light",
+            Theme::Dark => "github-dark",
         };
         write!(f, "{s}")
     }
 }
-impl From<BrowserTheme> for Theme {
-    fn from(theme: BrowserTheme) -> Self {
-        match theme {
-            BrowserTheme::Light => Theme::GitHubLight,
-            BrowserTheme::Dark => Theme::GitHubDark,
-        }
-    }
-}
 
-pub fn serve(watch_path: PathBuf, host: String, port: String, theme: BrowserTheme) {
+pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
     let (tx, _) = broadcast::channel::<Message>(16);
     let tx_reload = tx.clone();
     let watch_path_clone = watch_path.clone();
@@ -72,12 +66,12 @@ async fn run_server(
     tx_reload: broadcast::Sender<Message>,
     host: String,
     port: String,
-    theme: BrowserTheme,
+    theme: Theme,
 ) -> Result<()> {
     let state = AppState {
         tx: tx_reload,
         file_path: Arc::new(RwLock::new(file_path.as_ref().to_path_buf())),
-        theme: Arc::new(RwLock::new(Theme::from(theme))),
+        theme: Arc::new(RwLock::new(theme)),
     };
     let app = Router::new()
         .route("/", get(file_handler))
@@ -112,7 +106,7 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
         Err(e) => {
             error!("Failed to read file '{}': {}", file_path.display(), e);
             // Return early with an HTML error page rather than rendering bad markdown
-            let error_html = include_str!("../static/index.html")
+            let error_html = include_str!("../../../static/index.html")
                 .replace("{{theme}}", "")
                 .replace("{{ title }}", "Error")
                 .replace(
@@ -126,14 +120,14 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
             return Html(error_html);
         }
     };
-    let parser = Parser::new_ext(&markdown_content, mdpeek_core::gfm::parser_options());
-    let parser = mdpeek_core::gfm::transform(parser);
+    let parser = Parser::new_ext(&markdown_content, mdpeek_gfm::parser_options());
+    let parser = mdpeek_gfm::transform(parser);
     let parser = parser.inspect(|event| {
         debug!("{:#?}", event);
     });
     let mut emitter = HtmlEmitter::new(parser);
     let html_body = emitter.run();
-    let template = include_str!("../static/index.html");
+    let template = include_str!("../../../static/index.html");
     let theme = state.theme.read().unwrap().to_string();
     let title = file_path
         .file_name()
@@ -154,35 +148,35 @@ struct StaticAsset {
 fn embedded_static_asset(path: &str) -> Option<StaticAsset> {
     match path.trim_start_matches('/') {
         "css/github-dark.css" => Some(StaticAsset {
-            bytes: include_bytes!("../static/css/github-dark.css"),
+            bytes: include_bytes!("../../../static/css/github-dark.css"),
             content_type: "text/css; charset=utf-8",
         }),
         "css/github-light.css" => Some(StaticAsset {
-            bytes: include_bytes!("../static/css/github-light.css"),
+            bytes: include_bytes!("../../../static/css/github-light.css"),
             content_type: "text/css; charset=utf-8",
         }),
         "icons/github-mark.svg" => Some(StaticAsset {
-            bytes: include_bytes!("../static/icons/github-mark.svg"),
+            bytes: include_bytes!("../../../static/icons/github-mark.svg"),
             content_type: "image/svg+xml",
         }),
         "js/highlight/github-dark.min.css" => Some(StaticAsset {
-            bytes: include_bytes!("../static/js/highlight/github-dark.min.css"),
+            bytes: include_bytes!("../../../static/js/highlight/github-dark.min.css"),
             content_type: "text/css; charset=utf-8",
         }),
         "js/highlight/github.min.css" => Some(StaticAsset {
-            bytes: include_bytes!("../static/js/highlight/github.min.css"),
+            bytes: include_bytes!("../../../static/js/highlight/github.min.css"),
             content_type: "text/css; charset=utf-8",
         }),
         "js/highlight/highlight.min.js" => Some(StaticAsset {
-            bytes: include_bytes!("../static/js/highlight/highlight.min.js"),
+            bytes: include_bytes!("../../../static/js/highlight/highlight.min.js"),
             content_type: "application/javascript; charset=utf-8",
         }),
         "js/main.js" => Some(StaticAsset {
-            bytes: include_bytes!("../static/js/main.js"),
+            bytes: include_bytes!("../../../static/js/main.js"),
             content_type: "application/javascript; charset=utf-8",
         }),
         "js/mermaid/mermaid.min.js" => Some(StaticAsset {
-            bytes: include_bytes!("../static/js/mermaid/mermaid.min.js"),
+            bytes: include_bytes!("../../../static/js/mermaid/mermaid.min.js"),
             content_type: "application/javascript; charset=utf-8",
         }),
         _ => None,
