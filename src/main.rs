@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod emitter;
 mod gfm;
+mod parser;
 mod server;
 mod watcher;
 
