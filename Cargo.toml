@@ -1,3 +1,9 @@
+# The repo root is both the `mdpeek` binary package and the workspace root.
+# Keeping the binary package here means release.yml's version check
+# (`grep '^version' Cargo.toml`) keeps working after workspace-ization.
+[workspace]
+members = ["crates/mdpeek-core"]
+
 [package]
 name = "markdown-peek"
 version = "0.0.0"
@@ -10,6 +16,7 @@ readme = "README.md"
 description = "Markdown previewer in browser and terminal"
 
 [dependencies]
+mdpeek-core = { path = "crates/mdpeek-core" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 clap = { version = "4", features = ["derive"] }
@@ -21,7 +28,6 @@ notify-debouncer-mini = "0.7"
 owo-colors = "4.2"
 pulldown-cmark = { version = "0.13", features = ["serde"] }
 pulldown-cmark-escape = "0.11"
-regex = "1"
 thiserror = "2.0"
 terminal_size = "0.4"
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }

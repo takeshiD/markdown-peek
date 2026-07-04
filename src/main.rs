@@ -1,8 +1,6 @@
 mod cli;
 mod config;
 mod emitter;
-mod gfm;
-mod parser;
 mod server;
 mod watcher;
 
@@ -154,8 +152,8 @@ fn page(content: &str, pager_cfg: &Option<String>) -> std::io::Result<()> {
 
 fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     let markdown_content = std::fs::read_to_string(root)?;
-    let parser = Parser::new_ext(&markdown_content, crate::gfm::parser_options());
-    let parser = crate::gfm::transform(parser);
+    let parser = Parser::new_ext(&markdown_content, mdpeek_core::gfm::parser_options());
+    let parser = mdpeek_core::gfm::transform(parser);
     let theme = match theme {
         ThemeChoice::Glow => Theme::glow(),
         ThemeChoice::Mono => Theme::mono(),

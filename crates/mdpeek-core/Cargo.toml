@@ -1,0 +1,14 @@
+[package]
+name = "mdpeek-core"
+version = "0.0.0"
+edition = "2024"
+authors = ["tkcd <goriponikeike55@gmail.com>"]
+repository = "https://github.com/takeshid/markdown-peek"
+license-file = "../../LICENSE"
+description = "Core Markdown parsing/model machinery shared by markdown-peek binaries"
+
+[dependencies]
+emojis = "0.6"
+pulldown-cmark = { version = "0.13", features = ["serde"] }
+regex = "1"
+serde = { version = "1.0.228", features = ["derive"] }

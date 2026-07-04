@@ -126,8 +126,8 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
             return Html(error_html);
         }
     };
-    let parser = Parser::new_ext(&markdown_content, crate::gfm::parser_options());
-    let parser = crate::gfm::transform(parser);
+    let parser = Parser::new_ext(&markdown_content, mdpeek_core::gfm::parser_options());
+    let parser = mdpeek_core::gfm::transform(parser);
     let parser = parser.inspect(|event| {
         debug!("{:#?}", event);
     });
