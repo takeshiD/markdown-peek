@@ -1227,7 +1227,8 @@
   box-shadow: 0 1px 3px rgba(1, 4, 9, 0.5);
   z-index: 50;
 }
-#mdpeek-toc.mdpeek-toc-collapsed ul { display: none; }
+#mdpeek-toc.mdpeek-toc-collapsed ul,
+#mdpeek-toc.mdpeek-toc-collapsed #mdpeek-toc-search { display: none; }
 #mdpeek-toc-title {
   font-weight: 600;
   cursor: pointer;
@@ -1237,11 +1238,27 @@
   align-items: center;
   gap: 8px;
 }
+#mdpeek-toc-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #e6edf3;
+  background-color: #0d1117;
+  border: 1px solid #3d444d;
+  border-radius: 6px;
+}
+#mdpeek-toc-search:focus {
+  outline: none;
+  border-color: #4493f8;
+}
 #mdpeek-toc ul {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
 }
+#mdpeek-toc li ul { margin: 0; padding-left: 12px; }
 #mdpeek-toc li { margin: 2px 0; }
 #mdpeek-toc a {
   color: #9198a1;
@@ -1253,12 +1270,52 @@
   color: #4493f8;
   text-decoration: underline;
 }
-#mdpeek-toc .toc-h3 { padding-left: 12px; }
-#mdpeek-toc .toc-h4 { padding-left: 24px; }
-#mdpeek-toc .toc-h5 { padding-left: 36px; }
-#mdpeek-toc .toc-h6 { padding-left: 48px; }
+#mdpeek-toc a.mdpeek-toc-active {
+  color: #4493f8;
+  font-weight: 600;
+}
 @media (max-width: 1280px) {
   #mdpeek-toc { display: none; }
+}
+
+/* Front matter panel (floating, bottom-left) */
+#mdpeek-frontmatter-panel {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  max-width: 280px;
+  max-height: 40vh;
+  overflow: auto;
+  padding: 10px 14px;
+  font-size: 12px;
+  background-color: #161b22;
+  color: #e6edf3;
+  border: 1px solid #3d444d;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(1, 4, 9, 0.5);
+  z-index: 50;
+}
+#mdpeek-frontmatter-title {
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+#mdpeek-frontmatter-panel pre {
+  margin: 8px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#mdpeek-frontmatter-panel.mdpeek-collapsed pre { display: none; }
+@media (max-width: 1280px) {
+  #mdpeek-frontmatter-panel { display: none; }
 }
 
 /* Theme toggle button */

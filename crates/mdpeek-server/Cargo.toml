@@ -9,6 +9,7 @@ description = "Axum web server with WebSocket live-reload for markdown-peek"
 
 [dependencies]
 mdpeek-gfm = { path = "../mdpeek-gfm" }
+mdpeek-parser = { path = "../mdpeek-parser" }
 mdpeek-render-html = { path = "../mdpeek-render-html" }
 mdpeek-watcher = { path = "../mdpeek-watcher" }
 anyhow = "1"

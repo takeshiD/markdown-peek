@@ -116,7 +116,8 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
                         file_path.display(),
                         e
                     ),
-                );
+                )
+                .replace("{{ frontmatter }}", "");
             return Html(error_html);
         }
     };
@@ -127,6 +128,21 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     });
     let mut emitter = HtmlEmitter::new(parser);
     let html_body = emitter.run();
+
+    // Front matter panel (#19): surface the leading YAML/+++ block, which the
+    // renderer otherwise hides. Escaped and stashed in a hidden element for the
+    // client to display.
+    let frontmatter_html =
+        match mdpeek_parser::BlockTree::parse(&markdown_content).frontmatter() {
+            Some(fm) if !fm.trim().is_empty() => {
+                format!(
+                    "<div id=\"mdpeek-frontmatter\" hidden>{}</div>",
+                    escape_html_min(fm)
+                )
+            }
+            _ => String::new(),
+        };
+
     let template = include_str!("../../../static/index.html");
     let theme = state.theme.read().unwrap().to_string();
     let title = file_path
@@ -136,8 +152,25 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
     let page = template
         .replace("{{theme}}", &theme)
         .replace("{{ title }}", title)
-        .replace("{{ content }}", &html_body);
+        .replace("{{ content }}", &html_body)
+        .replace("{{ frontmatter }}", &frontmatter_html);
     Html(page)
+}
+
+/// Minimal HTML-body escaping (`&`, `<`, `>`) so arbitrary front matter text
+/// can be embedded in a hidden element without breaking out of it. Newlines are
+/// preserved for the client's front matter panel.
+fn escape_html_min(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 struct StaticAsset {
@@ -275,5 +308,19 @@ mod tests {
     #[test]
     fn unknown_static_asset_is_not_found() {
         assert!(embedded_static_asset("missing.css").is_none());
+    }
+
+    #[test]
+    fn escape_html_min_neutralizes_markup() {
+        use super::escape_html_min;
+        let escaped = escape_html_min("a </div><script> & b");
+        assert!(!escaped.contains('<'));
+        assert!(!escaped.contains('>'));
+        assert_eq!(escaped, "a &lt;/div&gt;&lt;script&gt; &amp; b");
+    }
+
+    #[test]
+    fn escape_html_min_preserves_newlines() {
+        assert_eq!(super::escape_html_min("k: v\nk2: v2"), "k: v\nk2: v2");
     }
 }
