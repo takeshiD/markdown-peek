@@ -1,6 +1,6 @@
 # Generative UI Markdown Viewer — アーキテクチャ設計書 (v0 draft)
 
-> このドキュメントは [`DESIGN.md`](../DESIGN.md) の構想を、現行の Rust 実装 (`pulldown-cmark` + `axum` + TUI) の上に**実装可能な形**へ落とし込んだ設計書のたたき台です。`DESIGN.md` = *what / why*、本書 = *how* という役割分担です。
+> このドキュメントは [`DESIGN.md`](DESIGN.md) の構想を、現行の Rust 実装 (`pulldown-cmark` + `axum` + TUI) の上に**実装可能な形**へ落とし込んだ設計書のたたき台です。`DESIGN.md` = *what / why*、本書 = *how* という役割分担です。
 >
 > 一緒にブラッシュアップする前提の v0 です。未確定点は各所の **⚠ 論点** で明示しています。
 
@@ -95,7 +95,11 @@ markdown-peek/
 │   │   │   │       ├── minutes.rs
 │   │   │   │       ├── runbook.rs
 │   │   │   │       ├── investigation.rs
-│   │   │   │       └── changelog.rs
+│   │   │   │       ├── changelog.rs
+│   │   │   │       ├── novel.rs          # 小説・物語
+│   │   │   │       ├── production_order.rs # 生産/製造指示書
+│   │   │   │       ├── procedure.rs      # 手順書/SOP(runbook を汎用化)
+│   │   │   │       └── recipe.rs         # レシピ(手順書の身近な例)
 │   │   │   ├── generator/          # UI plan -> UI IR
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── rules.rs        # RulesGenerator(既定・オフライン)
@@ -252,15 +256,25 @@ pub enum UiNode {
     DependencyGraph(DependencyGraphNode),
     LogTimeline(LogTimelineNode),
     CommitGraph(CommitGraphNode),
+
+    // --- ドメインプリミティブ(§5.1 の 2 層 registry・外側層) ---
+    Glossary(GlossaryNode),                 // 用語集: 小説の世界観語 / 契約の定義語
+    CharacterRoster(CharacterRosterNode),   // 登場人物パネル(初出ジャンプ + 一言要約)
+    StepNavigator(StepNavigatorNode),       // 手順の 1 ステップずつナビ(前提/所要時間)
+    ToleranceMeter(ToleranceMeterNode),     // 公差/許容範囲のビジュアルバー(Quantity)
+    ScalableTable(ScalableTableNode),       // 数量連動テーブル(材料の人数スケーリング等)
+    ObligationMatrix(ObligationMatrixNode), // 当事者 × 義務/権利マトリクス(契約/規程)
 }
 
-/// 全ノード共通のメタ(sourceRange + 信頼度 + 出所)。
+/// 全ノード共通のメタ(sourceRange + 信頼度 + 出所 + 可視条件)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeMeta {
     pub source_range: Option<SourceRange>,
     pub confidence: Option<f32>,          // 0.0–1.0, LLM 生成時
     #[serde(default)]
-    pub origin: Origin,                   // Rules | Llm { model }
+    pub origin: Origin,                   // Rules | Llm
+    #[serde(default)]
+    pub visibility: Visibility,           // ネタバレ/読書位置制御(§9.3)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -269,6 +283,30 @@ pub enum Origin {
     #[default]
     Rules,
     Llm,
+}
+
+/// ノードの可視条件。小説などで「既読位置より先の内容を要約・生成に出さない」
+/// ための制御(§9.3 reading-position aware)。既定は常に可視。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Visibility {
+    #[default]
+    Always,
+    /// 指定行以降を既読にした場合のみ表示(ネタバレ防止)。
+    UntilRead { reveal_after_line: u32 },
+}
+
+/// 数値を「読む」ではなく「使える」形にするための共通型(§9.3 quantity operable)。
+/// 公差メーター・材料スケーリング・チャートが共通で利用する。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Quantity {
+    pub value: f64,
+    pub unit: Option<String>,             // "mm", "個", "g", "min", ...
+    pub min: Option<f64>,                 // 公差/許容 下限
+    pub max: Option<f64>,                 // 公差/許容 上限
+    pub nominal: Option<f64>,             // 規格中心値
+    #[serde(default)]
+    pub scalable: bool,                   // 人数スケーリング等で連動再計算するか
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -314,7 +352,8 @@ pub struct Column {
 pub enum Severity { Info, Warning, Error }
 
 // TimelineNode / DiagramNode / CalloutNode / RiskPanelNode / ApiExplorerNode /
-// ConfigViewerNode / DependencyGraphNode / LogTimelineNode / CommitGraphNode も同様に定義。
+// ConfigViewerNode / DependencyGraphNode / LogTimelineNode / CommitGraphNode、
+// および各ドメインプリミティブ Node も同様に定義。
 ```
 
 > **⚠ 論点 D**: `NodeMeta` を全ノードに `#[serde(flatten)]` で持たせるか、`DESIGN.md` のように各ノードが個別に `sourceRange` を持つか。共通メタ(confidence/origin を必ず載せたい)を考えると flatten 推奨。TS 生成との相性は要検証。
@@ -332,8 +371,12 @@ pub struct DocumentModel {
 }
 
 pub enum DocumentType {
+    // 開発文書
     DesignDoc, Readme, Adr, Minutes, Runbook,
-    Investigation, Changelog, GitLog, Generic,
+    Investigation, Changelog, GitLog,
+    // 非開発ドメイン(§9.2)
+    Novel, ProductionOrder, Procedure, Recipe, Contract, Paper, Faq,
+    Generic,
 }
 
 pub struct Classified<T> { pub value: T, pub confidence: f32, pub by: Origin }
@@ -373,11 +416,18 @@ pub struct GuiCacheEntry {
 
 ```ts
 import type { UiNode } from "./ir";           // ts-rs 生成
-const registry = {
+
+// 2 層 registry: 汎用コア(どの文書でも使う) + ドメインプリミティブ(特定ドメイン)。
+const coreRegistry = {
   Tabs, Timeline, DataTable, Checklist, Diagram, Callout,
   RiskPanel, ApiExplorer, ConfigViewer, DependencyGraph,
   LogTimeline, CommitGraph,
-} as const;
+};
+const domainRegistry = {
+  Glossary, CharacterRoster, StepNavigator,
+  ToleranceMeter, ScalableTable, ObligationMatrix,
+};
+const registry = { ...coreRegistry, ...domainRegistry } as const;
 
 export function Render({ node }: { node: UiNode }) {
   const C = registry[node.kind];
@@ -385,6 +435,7 @@ export function Render({ node }: { node: UiNode }) {
 }
 ```
 
+- **2 層 registry**: `coreRegistry`(汎用12種)＋`domainRegistry`(ドメインプリミティブ)。文書タイプが増えてもコアは不変で、ドメイン層に数個足すだけで済む(§9.3 の発見)。未知 `kind` は描画しない。
 - **信頼度表示**: `confidence` が低い / `origin === "llm"` のノードには「生成・要確認」バッジを出す(`DESIGN.md` 思想 8, 判断は人間)。
 - **SourceRangeLink**: 各ノードから原文へジャンプ(Content ペインの該当行へスクロール&ハイライト)。`sourceRange` 必須の根拠表示。
 - **ライブ更新 (#16 と統合)**: `@preact/signals` で IR を signal 化。WS で届いた**変更ノードだけ**差し替え、`origin`/変更フラグからハイライトアニメーション。full reload しない。
@@ -449,7 +500,11 @@ export function Render({ node }: { node: UiNode }) {
 
 ## 9. 文書タイプ別ハンドラ(全タイプ実装)
 
-各 `planner/doctype/*.rs` の初期スコープ。`DESIGN.md`「想定する文書タイプと生成 UI」に対応。
+各 `planner/doctype/*.rs` の初期スコープ。生成 UI は常に**「その文書を読む目的(job-to-be-done)」から逆算**する。読むときの苦痛を特定し、それを解く操作可能な affordance を出す。散文系(小説・契約)は rules が効きにくく LLM 依存が高い/構造的な文書(生産指示書・手順書)は rules で大半を抽出できる、という軸も設計判断に効く。
+
+### 9.1 開発文書
+
+`DESIGN.md`「想定する文書タイプと生成 UI」に対応。
 
 | タイプ | rules で出せる UI | LLM が要る UI |
 |--------|------------------|--------------|
@@ -461,6 +516,62 @@ export function Render({ node }: { node: UiNode }) {
 | ログ調査メモ | log severity grouping / error focus | error cluster / hypotheses / next check points |
 | Changelog | version timeline / セクション分類 | breaking changes 抽出 / migration guide 生成 |
 | Git log | commit/branch view / refactor・feat・fix 分類(rules 一次) | 意図別グルーピング / 関連コミットクラスタ |
+
+### 9.2 非開発ドメイン
+
+「普通の Markdown を目的別 UI に」という思想は開発文書に限らない。読む苦痛 → 生成 UI で整理する。
+
+**小説・物語**(散文中心・LLM 依存が高い / markdown 構造は乏しい)
+
+| 読む苦痛 | 生成 UI | 使うコンポーネント |
+|---|---|---|
+| 人物を見失う | 登場人物パネル(名前抽出＋初出ジャンプ＋一言要約) | `CharacterRoster` |
+| 関係が複雑 | 相関図(共起・明示関係からエッジ) | `DependencyGraph` |
+| 時系列が混乱(回想・並行) | 物語タイムライン(章/場面＋時間標識、回想検出) | `Timeline` |
+| 視点が切替わる | POV トラッカー(場面ごとの視点人物) | `Timeline`/`DataTable` |
+| 伏線が気になる | 未回収の問いパネル(※断定せず候補・要確認、判断は読者) | `OpenQuestionsPanel` |
+| 独自世界観 | 用語集(造語＋初出定義) | `Glossary` |
+
+> 小説固有の課題: **ネタバレ境界**。「既読位置より先を要約・生成に出さない」制御が要る(§9.3 reading-position aware)。開発文書には無い新要件。
+
+**生産指示書・製造指示書**(構造的・rules がよく効く)
+
+| 読む苦痛 | 生成 UI | 使うコンポーネント |
+|---|---|---|
+| 指示要点が散在 | 指示サマリカード(品番/品名/数量/納期/ライン/ロット) | `ConfigViewer` |
+| 部材が多い | BOM/部材テーブル(品目・数量・仕様、不足ハイライト、sort/filter) | `DataTable` |
+| 工程順・設備割当 | 工程フロー(順序＋設備＋標準時間＋担当、流れ図) | `SequenceView`/`DependencyGraph` |
+| 品質基準 | 検査チェックリスト(検査項目・規格値・判定基準) | `Checklist` |
+| 公差が数値の羅列 | 公差メーター(上下限を視覚バー、規格中心からの位置) | `ToleranceMeter`(+`Quantity`) |
+| 安全 | 安全/注意 callout(保護具・危険工程の警告表示のみ) | `Callout` |
+| 前後工程・ロット追跡 | トレーサビリティリンク(前工程/後工程/図番/図面参照) | `SourceRangeLink`/`DependencyGraph` |
+
+**手順書・SOP**(IT 運用に限らず / レシピを身近な例に)
+
+| 読む苦痛 | 生成 UI | 使うコンポーネント |
+|---|---|---|
+| どこまでやった | ステップナビ(1 ステップずつ＋進捗＋所要時間) | `StepNavigator` |
+| 準備不足 | 必要物一覧(工具/材料/前提条件を冒頭に) | `DataTable`/`Checklist` |
+| 「もし〜なら」の分岐 | 分岐フロー/決定木 | `Diagram` |
+| 危険操作 | 注意/禁止 callout | `Callout` |
+| 失敗した | ロールバック手順を隣接表示 | `StepNavigator` |
+| (レシピ)人数で分量が変わる | 材料の人数スケーリング(分量が連動再計算) | `ScalableTable`(+`Quantity`) |
+| (レシピ)並行作業 | 工程タイムライン(並列レーン)＋タイマー候補 | `Timeline` |
+
+**その他(同じ枠組みで乗る)**
+
+- 契約書・規程: 定義語＋用語集(`Glossary`)、条項アウトライン(`Outline`)、当事者×義務/権利(`ObligationMatrix`)、期限・金額抽出(`Quantity`)、参照条項ジャンプ(`SourceRangeLink`)、曖昧条項フラグ(`RiskPanel`)、改定 diff。
+- 論文・技術記事: 要約、図表インデックス、引用・参考文献リンク、主張→根拠マップ、数式索引。
+- FAQ/ナレッジ: Q&A アコーディオン＋検索＋カテゴリ＋関連リンク(`Tabs`/`Search`)。
+- 旅行しおり/イベント進行表: タイムライン、場所、持ち物チェックリスト、連絡先カード。
+
+### 9.3 横断要件(文書タイプ非依存)
+
+上記の棚卸しから、文書タイプを増やしても registry が爆発しないこと、および共通で必要な仕組みが 3 点見えた。
+
+1. **2 層 registry**(§5.1 反映済み): 生成 UI の大半は汎用コア12種(`Timeline`/`DataTable`/`Checklist`/`Callout`/`DependencyGraph`/`Diagram` 等)の**再構成**で表現できる。ドメイン固有で新規に要るのは数個だけ — `CharacterRoster` / `ToleranceMeter` / `StepNavigator` / `ScalableTable` / `ObligationMatrix` / `Glossary`。
+2. **reading-position aware(ネタバレ制御)** — 小説発。「既読位置より先の内容を要約・生成 UI に含めない」。`NodeMeta.visibility: Visibility::UntilRead { reveal_after_line }`(§4.1)で表現し、renderer は現在の既読位置に応じて描画を抑止する。
+3. **数値の operable 化** — 生産・レシピ・健康記録発。「数値＋単位＋制約(公差/許容/中心/スケーラブル)」を専用の `Quantity` 型(§4.1)で扱い、公差メーター・材料スケーリング・チャートが共通利用する。「読む」を「使える」に変える affordance の核。
 
 ---
 
@@ -486,7 +597,13 @@ export function Render({ node }: { node: UiNode }) {
 - `RulesGenerator` → 続いて `ClaudeGenerator`(`feature = "llm"`)。
 - `cache` 実装 + #16 差分再生成と統合。
 - 文書タイプは §9 の rules 列から着手 → 技術設計書 / README を最初の縦に、順次全タイプ。
+- コア12種 registry を先に固め、ドメインプリミティブ(§9.3-1)と横断要件(reading-position / `Quantity`)は各ドメイン着手時に追加。
 - **成果物**: 動く Generative UI(まず技術設計書・README、その後 ADR/議事録/手順書/ログ/changelog/gitlog)。
+
+### Layer 3.5 — 非開発ドメイン(§9.2)
+- コア registry が固まった後、ドメインプリミティブ(`CharacterRoster`/`ToleranceMeter`/`StepNavigator`/`ScalableTable`/`ObligationMatrix`/`Glossary`)を追加。
+- 生産指示書・手順書(構造的で rules が効く)を先行、小説・契約(散文で LLM 依存)を後続。
+- ネタバレ制御(`Visibility::UntilRead`)と `Quantity` operable UI をこの段で実装。
 
 ### Layer 4 — Repository-aware viewer
 - #14 の worktree スキャン基盤の上に、README↔実ファイル対応 / docs-code 整合 / Cargo.toml・package.json 参照 / ADR↔git history / TODO↔issue。
