@@ -197,7 +197,7 @@ pub struct OutlineNode {
 impl BlockTree {
     /// Parses `src` (with the shared GFM options) into a `BlockTree`.
     pub fn parse(src: &str) -> Self {
-        Self::parse_with_options(src, crate::gfm::parser_options())
+        Self::parse_with_options(src, mdpeek_gfm::parser_options())
     }
 
     /// Parses `src` with explicit `pulldown_cmark` options.

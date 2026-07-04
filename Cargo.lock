@@ -728,29 +728,20 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
- "axum",
  "clap",
  "clap-cargo",
- "emojis",
- "futures",
- "notify",
- "notify-debouncer-mini",
- "owo-colors",
+ "mdpeek-gfm",
+ "mdpeek-render-term",
+ "mdpeek-server",
+ "mdpeek-watcher",
  "predicates",
  "pulldown-cmark",
- "pulldown-cmark-escape",
- "regex",
  "serde",
  "tempfile",
  "terminal_size",
- "thiserror",
- "tokio",
- "tokio-stream",
  "toml",
  "tracing",
  "tracing-subscriber",
- "two-face",
- "walkdir",
 ]
 
 [[package]]
@@ -767,6 +758,69 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "mdpeek-gfm"
+version = "0.0.0"
+dependencies = [
+ "emojis",
+ "pulldown-cmark",
+ "regex",
+]
+
+[[package]]
+name = "mdpeek-parser"
+version = "0.0.0"
+dependencies = [
+ "mdpeek-gfm",
+ "pulldown-cmark",
+ "serde",
+]
+
+[[package]]
+name = "mdpeek-render-html"
+version = "0.0.0"
+dependencies = [
+ "pulldown-cmark",
+ "pulldown-cmark-escape",
+ "tracing",
+]
+
+[[package]]
+name = "mdpeek-render-term"
+version = "0.0.0"
+dependencies = [
+ "emojis",
+ "mdpeek-gfm",
+ "owo-colors",
+ "pulldown-cmark",
+ "two-face",
+]
+
+[[package]]
+name = "mdpeek-server"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "futures",
+ "mdpeek-gfm",
+ "mdpeek-render-html",
+ "mdpeek-watcher",
+ "pulldown-cmark",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "mdpeek-watcher"
+version = "0.0.0"
+dependencies = [
+ "notify",
+ "notify-debouncer-mini",
+ "tracing",
+]
 
 [[package]]
 name = "memchr"

@@ -1,0 +1,17 @@
+[package]
+name = "mdpeek-render-term"
+version = "0.0.0"
+edition = "2024"
+authors = ["tkcd <goriponikeike55@gmail.com>"]
+repository = "https://github.com/takeshid/markdown-peek"
+license-file = "../../LICENSE"
+description = "Terminal (ANSI) emitter for markdown-peek with syntax highlighting and themes"
+
+[dependencies]
+emojis = "0.6"
+owo-colors = "4.2"
+pulldown-cmark = "0.13"
+two-face = "0.5.1"
+
+[dev-dependencies]
+mdpeek-gfm = { path = "../mdpeek-gfm" }

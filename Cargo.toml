@@ -1,3 +1,17 @@
+# The repo root is both the `mdpeek` binary package and the workspace root.
+# Keeping the binary package here means release.yml's version check
+# (`grep '^version' Cargo.toml`) and `cargo install --path .` keep working
+# even though the libraries are split into fine-grained member crates.
+[workspace]
+members = [
+    "crates/mdpeek-gfm",
+    "crates/mdpeek-parser",
+    "crates/mdpeek-render-html",
+    "crates/mdpeek-render-term",
+    "crates/mdpeek-watcher",
+    "crates/mdpeek-server",
+]
+
 [package]
 name = "markdown-peek"
 version = "0.0.0"
@@ -10,28 +24,19 @@ readme = "README.md"
 description = "Markdown previewer in browser and terminal"
 
 [dependencies]
+mdpeek-gfm = { path = "crates/mdpeek-gfm" }
+mdpeek-render-term = { path = "crates/mdpeek-render-term" }
+mdpeek-server = { path = "crates/mdpeek-server" }
+mdpeek-watcher = { path = "crates/mdpeek-watcher" }
 anyhow = "1"
-axum = { version = "0.8", features = ["ws", "macros"] }
 clap = { version = "4", features = ["derive"] }
 clap-cargo = "0.18.3"
-emojis = "0.6"
-futures = "0.3"
-notify = "8"
-notify-debouncer-mini = "0.7"
-owo-colors = "4.2"
-pulldown-cmark = { version = "0.13", features = ["serde"] }
-pulldown-cmark-escape = "0.11"
-regex = "1"
-thiserror = "2.0"
+pulldown-cmark = "0.13"
 terminal_size = "0.4"
-tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
 toml = "0.9"
-two-face = "0.5.1"
+serde = { version = "1.0.228", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-walkdir = "2.5"
-serde = { version = "1.0.228", features = ["derive"] }
 
 [[bin]]
 name = "mdpeek"
