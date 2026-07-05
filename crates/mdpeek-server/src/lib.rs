@@ -289,6 +289,24 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
 /// may spawn a subprocess).
 async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
     let file_path = { state.file_path.read().unwrap().to_path_buf() };
+
+    // Describe the backend so the terminal shows what generation will run.
+    let backend_desc = match state.llm.as_ref() {
+        Some(b) => {
+            let model = b.model.as_deref().unwrap_or("default");
+            match b.effort {
+                Some(e) => format!("LLM {:?} (model={model}, effort={e:?})", b.provider),
+                None => format!("LLM {:?} (model={model})", b.provider),
+            }
+        }
+        None => "rules (offline)".to_string(),
+    };
+    info!(
+        "gui: generating UI for '{}' [{}]",
+        file_path.display(),
+        backend_desc
+    );
+
     let markdown = match tokio::fs::read_to_string(&file_path).await {
         Ok(content) => content,
         Err(e) => {
@@ -301,6 +319,7 @@ async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
         }
     };
 
+    let started = std::time::Instant::now();
     let llm = (*state.llm).clone();
     let md_for_task = markdown.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -315,22 +334,49 @@ async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
 
     match result {
         Ok(Ok(entry)) => {
+            info!(
+                "gui: generated {} node(s) for '{}' in {} ms [{}]",
+                entry.ui_ir.len(),
+                file_path.display(),
+                started.elapsed().as_millis(),
+                node_kind_summary(&entry.ui_ir),
+            );
             Json(serde_json::json!({ "nodes": entry.ui_ir, "markdown": markdown })).into_response()
         }
         Ok(Err(e)) => {
-            error!("gui: generation failed: {e}");
+            error!("gui: generation failed for '{}': {e}", file_path.display());
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
             )
                 .into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => {
+            error!("gui: generation task panicked for '{}': {e}", file_path.display());
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
     }
+}
+
+/// Compact "kind×count" summary of generated nodes for the request log.
+fn node_kind_summary(nodes: &[mdpeek_gui::ir::UiNode]) -> String {
+    let mut counts: Vec<(&'static str, usize)> = Vec::new();
+    for n in nodes {
+        let kind = n.kind();
+        match counts.iter_mut().find(|(k, _)| *k == kind) {
+            Some((_, c)) => *c += 1,
+            None => counts.push((kind, 1)),
+        }
+    }
+    counts
+        .iter()
+        .map(|(k, c)| format!("{k}×{c}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Render markdown source into a `(body HTML, raw front matter)` pair. Shared by
