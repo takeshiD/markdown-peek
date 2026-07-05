@@ -9,6 +9,8 @@ Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watche
 - [License](#license)
 
 # Features
+
+### Available now
 - ⚡ Fast — a single binary with all assets embedded
 - 🔄 Live, in-place updates — only the blocks you changed re-render (no full reload), your scroll position is kept, and changed blocks are briefly highlighted
 - 🌐 Browser preview with a repository/worktree file explorer, outline + fuzzy heading search, a front matter panel, and light/dark themes
@@ -16,6 +18,17 @@ Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watche
 - 🖥️ Interactive terminal viewer (TUI) — scrolling, wrapping, vim-style search, and live updates without flicker
 - 📝 GitHub Flavored Markdown (GFM); GitLab Flavored Markdown (GLFM) planned
 - ⚙️ Easy to configure via TOML (XDG)
+
+### Planned (roadmap)
+mdpeek is growing from a strong markdown viewer into a tool that understands your
+documents and renders a UI tailored to each. Upcoming layers:
+
+- 🧠 **Semantic view** — a document model with document-type detection and a side panel of outline / TODOs / risks / open questions.
+- 🎛️ **Generated UI** — a UI generated per document type (design doc, README, ADR, meeting notes, runbook, changelog, …), first by rules and then by Claude (LLM).
+- 📚 **Non-developer document types** — domain widgets for novels, contracts, and manufacturing/procedure docs (character roster, tolerance meter, step navigator, obligation matrix, glossary), with spoiler control.
+- 🔗 **Repository-aware checks** — README ↔ code links, docs/code consistency, ADR ↔ git history, and TODO ↔ issue cross-references.
+- 🧩 **Editor & tooling integration** — an IR-aware TUI renderer, a Neovim plugin, and GitHub preview integration.
+
 
 # Quick start
 
@@ -42,17 +55,17 @@ mdpeek term --no-watch  # render once and exit (also the default when piped)
 ```
 
 ### Terminal viewer keybindings
-| Key | Action |
-|-----|--------|
-| `q` / `Ctrl-c` | quit |
-| `j` / `k`, `↓` / `↑` | scroll one line |
-| `Ctrl-d` / `Ctrl-u` | half page down / up |
-| `PgDn` / `PgUp` | page down / up |
-| `g` / `G` | jump to top / bottom |
-| `/` | search |
-| `n` / `N` | next / previous match |
-| `Esc` | clear search |
-| `?` | toggle the keybindings help |
+| Key                  | Action                      |
+| -----                | --------                    |
+| `q` / `Ctrl-c`       | quit                        |
+| `j` / `k`, `↓` / `↑` | scroll one line             |
+| `Ctrl-d` / `Ctrl-u`  | half page down / up         |
+| `PgDn` / `PgUp`      | page down / up              |
+| `g` / `G`            | jump to top / bottom        |
+| `/`                  | search                      |
+| `n` / `N`            | next / previous match       |
+| `Esc`                | clear search                |
+| `?`                  | toggle the keybindings help |
 
 # Installation
 ## `cargo`
