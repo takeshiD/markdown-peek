@@ -1,0 +1,283 @@
+{
+  "nodes": [
+    {
+      "kind": "SemanticOutline",
+      "confidence": 0.95,
+      "origin": "rules",
+      "visibility": "always",
+      "groups": [
+        {
+          "label": "Overview",
+          "items": [
+            {
+              "title": "Overview",
+              "reason": "Overview",
+              "sourceRange": {
+                "start_line": 8,
+                "start_column": 1,
+                "end_line": 9,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Design",
+          "items": [
+            {
+              "title": "Payment Service Design",
+              "reason": "Design",
+              "sourceRange": {
+                "start_line": 6,
+                "start_column": 1,
+                "end_line": 7,
+                "end_column": 1
+              }
+            },
+            {
+              "title": "Architecture",
+              "reason": "Design",
+              "sourceRange": {
+                "start_line": 13,
+                "start_column": 1,
+                "end_line": 14,
+                "end_column": 1
+              }
+            },
+            {
+              "title": "Data Model",
+              "reason": "Design",
+              "sourceRange": {
+                "start_line": 25,
+                "start_column": 1,
+                "end_line": 26,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Usage",
+          "items": [
+            {
+              "title": "Configuration",
+              "reason": "Usage",
+              "sourceRange": {
+                "start_line": 33,
+                "start_column": 1,
+                "end_line": 34,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Risks",
+          "items": [
+            {
+              "title": "Risks",
+              "reason": "Risks",
+              "sourceRange": {
+                "start_line": 51,
+                "start_column": 1,
+                "end_line": 52,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Open Questions",
+          "items": [
+            {
+              "title": "Open Questions",
+              "reason": "Open Questions",
+              "sourceRange": {
+                "start_line": 57,
+                "start_column": 1,
+                "end_line": 58,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Other",
+          "items": [
+            {
+              "title": "API",
+              "reason": "Other",
+              "sourceRange": {
+                "start_line": 42,
+                "start_column": 1,
+                "end_line": 43,
+                "end_column": 1
+              }
+            },
+            {
+              "title": "TODO",
+              "reason": "Other",
+              "sourceRange": {
+                "start_line": 63,
+                "start_column": 1,
+                "end_line": 64,
+                "end_column": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "ActionItems",
+      "confidence": 0.95,
+      "origin": "rules",
+      "visibility": "always",
+      "items": [
+        {
+          "task": "Draft the ledger schema",
+          "status": "done",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 65,
+            "start_column": 1,
+            "end_line": 66,
+            "end_column": 1
+          }
+        },
+        {
+          "task": "Add idempotency keys to the charge endpoint",
+          "status": "todo",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 66,
+            "start_column": 1,
+            "end_line": 67,
+            "end_column": 1
+          }
+        },
+        {
+          "task": "Load-test the bank adapter",
+          "status": "todo",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 67,
+            "start_column": 1,
+            "end_line": 69,
+            "end_column": 1
+          }
+        },
+        {
+          "task": "revisit retry_max once we have bank SLA numbers",
+          "status": "todo",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 69,
+            "start_column": 1,
+            "end_line": 70,
+            "end_column": 1
+          }
+        }
+      ]
+    },
+    {
+      "kind": "OpenQuestions",
+      "confidence": 0.95,
+      "origin": "rules",
+      "visibility": "always",
+      "questions": [
+        {
+          "question": "Should refunds live in this service or a separate one?",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 59,
+            "start_column": 1,
+            "end_line": 60,
+            "end_column": 1
+          }
+        },
+        {
+          "question": "Which currencies must we support at launch?",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 61,
+            "start_column": 1,
+            "end_line": 62,
+            "end_column": 1
+          }
+        }
+      ]
+    },
+    {
+      "kind": "RiskPanel",
+      "confidence": 0.95,
+      "origin": "rules",
+      "visibility": "always",
+      "risks": [
+        {
+          "title": "Double-charging on network retry could corrupt the ledger.",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 53,
+            "start_column": 1,
+            "end_line": 54,
+            "end_column": 1
+          }
+        },
+        {
+          "title": "Bank timeouts may leave a charge in an unknown state.",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 55,
+            "start_column": 1,
+            "end_line": 56,
+            "end_column": 1
+          }
+        }
+      ]
+    },
+    {
+      "kind": "Glossary",
+      "confidence": 0.95,
+      "origin": "rules",
+      "visibility": "always",
+      "terms": [
+        {
+          "term": "API",
+          "confidence": "low",
+          "sourceRange": {
+            "start_line": 22,
+            "start_column": 1,
+            "end_line": 24,
+            "end_column": 1
+          }
+        },
+        {
+          "term": "SLA",
+          "confidence": "low",
+          "sourceRange": {
+            "start_line": 69,
+            "start_column": 1,
+            "end_line": 70,
+            "end_column": 1
+          }
+        },
+        {
+          "term": "TODO",
+          "confidence": "low",
+          "sourceRange": {
+            "start_line": 63,
+            "start_column": 1,
+            "end_line": 64,
+            "end_column": 1
+          }
+        }
+      ]
+    }
+  ],
+  "markdown": "---\ntitle: Payment Service\ntype: designdoc\n---\n\n# Payment Service Design\n\n## Overview\n\nThe payment service charges customers and reconciles ledger entries. This\ndocument captures the architecture, data model, risks and open questions.\n\n## Architecture\n\n```mermaid\ngraph TD\n    API --> Charger\n    Charger --> Ledger\n    Charger --> Bank\n```\n\nThe API layer validates requests, the Charger talks to the bank, and the Ledger\nrecords every movement.\n\n## Data Model\n\n| Field   | Type    | Status   |\n|---------|---------|----------|\n| id      | uuid    | stable   |\n| amount  | decimal | stable   |\n| state   | enum    | proposed |\n\n## Configuration\n\n```toml\n[payment]\ncurrency = \"JPY\"\nretry_max = 3\ntimeout_ms = 2000\n```\n\n## API\n\n```http\nPOST /v1/charges\nContent-Type: application/json\n\n{ \"amount\": 1200, \"currency\": \"JPY\" }\n```\n\n## Risks\n\nDouble-charging on network retry could corrupt the ledger.\n\nBank timeouts may leave a charge in an unknown state.\n\n## Open Questions\n\nShould refunds live in this service or a separate one?\n\nWhich currencies must we support at launch?\n\n## TODO\n\n- [x] Draft the ledger schema\n- [ ] Add idempotency keys to the charge endpoint\n- [ ] Load-test the bank adapter\n\n<!-- TODO: revisit retry_max once we have bank SLA numbers -->\n\nSee the [ledger spec](https://example.com/ledger) for details.\n"
+}

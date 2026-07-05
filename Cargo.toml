@@ -7,6 +7,7 @@ members = [
     "crates/mdpeek-gfm",
     "crates/mdpeek-parser",
     "crates/mdpeek-analyzer",
+    "crates/mdpeek-gui",
     "crates/mdpeek-render-html",
     "crates/mdpeek-render-term",
     "crates/mdpeek-watcher",
@@ -27,6 +28,7 @@ description = "Markdown previewer in browser and terminal"
 [dependencies]
 mdpeek-analyzer = { path = "crates/mdpeek-analyzer" }
 mdpeek-gfm = { path = "crates/mdpeek-gfm" }
+mdpeek-gui = { path = "crates/mdpeek-gui" }
 mdpeek-render-term = { path = "crates/mdpeek-render-term" }
 mdpeek-server = { path = "crates/mdpeek-server" }
 mdpeek-watcher = { path = "crates/mdpeek-watcher" }
@@ -42,6 +44,17 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ratatui = "0.30.2"
 crossterm = "0.29.0"
 ansi-to-tui = "8.0.1"
+
+[features]
+# `llm` is on by default so the `anthropic_api` backend (Messages API over HTTP)
+# works out of the box. For a lean, fully offline build (no reqwest/tokio/TLS),
+# build with `--no-default-features` — rules + the claude_code/codex CLI backends
+# still work there.
+default = ["llm"]
+# Layer 3 Anthropic-API backend: forwards to the generator in mdpeek-gui
+# (+ mdpeek-server so it can drive it). CLI backends (claude_code/codex) need no
+# feature. Requires network + ANTHROPIC_API_KEY at runtime; falls back to rules.
+llm = ["mdpeek-gui/llm", "mdpeek-server/llm"]
 
 [[bin]]
 name = "mdpeek"

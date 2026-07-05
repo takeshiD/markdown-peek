@@ -31,20 +31,50 @@ theme = "glow"
 pager = "less -R"
 
 [llm]
-# Generated-UI generation policy: choose between rules-based and LLM-based
-# inference. Read at startup and consulted by the generator.
+# Generated-UI (Layer 3) generation settings: the rules-vs-LLM policy plus the
+# LLM backend selection. Read at startup and consulted by the generator.
 
 # Whether the LLM may be used at all. When false, generation is strictly
-# rules-based regardless of `strategy`. (Even when true, mdpeek degrades to
-# rules-only automatically if no API key is available.)
+# rules-based regardless of `strategy`. `mdpeek gen --llm` overrides this for a
+# single run. (Even when enabled, mdpeek degrades to rules automatically if the
+# chosen backend is unavailable.)
 enabled = false
 
 # Which source wins when both rules and the LLM could produce a result:
-#   "rules_first" - deterministic rules first; only ask the LLM for
-#                   low-confidence results (reproducible, offline-friendly).
-#   "llm_first"   - prefer the LLM; fall back to rules when it is unavailable.
-strategy = "rules_first"
+#   "llm_first"   - prefer the LLM for reading lenses; fall back to the
+#                   deterministic planner when the LLM is unavailable (default).
+#   "rules_first" - deterministic planner first; reproducible / offline-friendly.
+# When the LLM is enabled the generator is LLM-first: the LLM produces the lenses
+# and the rules planner is the fallback.
+strategy = "llm_first"
 
 # Under "rules_first", a rules result below this confidence (0.0-1.0) is
 # escalated to the LLM. Defaults to 0.6 when omitted.
 confidence_threshold = 0.6
+
+# LLM backend to drive when the LLM is used:
+#   "anthropic_api" - call the Anthropic API over HTTP. Requires building with
+#                     `--features llm` and an ANTHROPIC_API_KEY in the env.
+#   "claude_code"   - shell out to the `claude` CLI (Claude Code). No extra
+#                     build features; needs `claude` installed + authenticated.
+#   "codex"         - shell out to the `codex` CLI (OpenAI Codex). No extra
+#                     build features; needs `codex` installed + authenticated.
+provider = "claude_code"
+
+# Model id passed to the backend (backend-specific). Omit for the backend's
+# default. Examples:
+#   anthropic_api: "claude-sonnet-5", "claude-opus-4-8"
+#   claude_code:   "claude-sonnet-5"   (passed as `claude --model`)
+#   codex:         "gpt-5-codex"        (passed as `codex --model`)
+model = "claude-sonnet-5"
+
+# Reasoning effort: "low" | "medium" | "high". Mapped per backend:
+#   codex        -> `-c model_reasoning_effort="<effort>"`
+#   claude_code  -> thinking keyword appended to the prompt (medium=think,
+#                   high=ultrathink; low adds nothing)
+#   anthropic_api-> `output_config.effort` on the Messages API (needs a model
+#                   that supports effort, e.g. sonnet/opus — not Haiku 4.5)
+effort = "medium"
+
+# Override for a single run from the CLI, without editing this file:
+#   mdpeek gen doc.md --llm --provider codex --model gpt-5-codex --effort high

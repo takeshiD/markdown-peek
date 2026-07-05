@@ -27,20 +27,52 @@ fn main() -> Result<()> {
     // Layer 3's generator will consult it. Server mode is the generative-UI path,
     // so it is where the policy takes effect.
     let generation = config.generation_config();
+    // The `/api/gui` LLM backend: only when `[llm] enabled = true`; otherwise the
+    // server generates rules-only (offline, no key needed).
+    let gui_llm = config.llm_enabled().then(|| config.llm_backend_config());
     match mode {
         Mode::Serve {
             file,
             host,
             port,
             theme,
-        } => handle_serve(file, host, port, theme, generation),
+        } => handle_serve(file, host, port, theme, generation, gui_llm),
         Mode::Term {
             file,
             watch,
             theme,
             pager,
         } => handle_term(file, watch, theme, pager),
+        Mode::Gen {
+            file,
+            no_cache,
+            llm,
+        } => handle_gen(file, no_cache, llm)?,
     }
+    Ok(())
+}
+
+/// Generate Generative-UI IR (Layer 3) for `root` and print the JSON to stdout.
+/// The cache lives under `.cache/mdpeek/` in the current directory. When `llm`
+/// is set, the configured LLM backend is used (with a rules fallback).
+fn handle_gen(
+    root: PathBuf,
+    no_cache: bool,
+    llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
+) -> Result<()> {
+    if !root.is_file() {
+        anyhow::bail!("'{}' is not a file.", root.display());
+    }
+    let markdown = std::fs::read_to_string(&root)?;
+    let cache_root = if no_cache {
+        None
+    } else {
+        Some(std::path::Path::new("."))
+    };
+    // Filename sharpens Layer 2 document-type inference (e.g. README.md).
+    let filename = root.file_name().and_then(|n| n.to_str());
+    let json = mdpeek_gui::generate_json(&markdown, filename, cache_root, llm.as_ref())?;
+    println!("{json}");
     Ok(())
 }
 
@@ -50,6 +82,7 @@ fn handle_serve(
     port: String,
     theme: BrowserTheme,
     generation: GenerationConfig,
+    gui_llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
 ) {
     init_tracing();
     tracing::info!(
@@ -71,7 +104,7 @@ fn handle_serve(
     // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
     // picks a valid active file, so we hand off even when `root` doesn't exist
     // (e.g. the default README.md is absent) rather than bailing out here.
-    serve(root, host, port, theme);
+    serve(root, host, port, theme, gui_llm);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {

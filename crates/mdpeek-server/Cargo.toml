@@ -9,6 +9,7 @@ description = "Axum web server with WebSocket live-reload for markdown-peek"
 
 [dependencies]
 mdpeek-gfm = { path = "../mdpeek-gfm" }
+mdpeek-gui = { path = "../mdpeek-gui" }
 mdpeek-parser = { path = "../mdpeek-parser" }
 mdpeek-render-html = { path = "../mdpeek-render-html" }
 mdpeek-watcher = { path = "../mdpeek-watcher" }
@@ -23,3 +24,8 @@ tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }
 walkdir = "2"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
+
+[features]
+default = []
+# Forwards to mdpeek-gui's Anthropic-API backend for `/api/gui` LLM generation.
+llm = ["mdpeek-gui/llm"]

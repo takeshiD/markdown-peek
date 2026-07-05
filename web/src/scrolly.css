@@ -1,0 +1,257 @@
+/* Generative Scrollytelling — reader-paced guided reading (design §5).
+ *
+ * Scoped like panel.css: tokens on the panel, `scrolly-*` component classes, and
+ * document dimming only applies under `body.mdpeek-scrolly-open` so it never
+ * touches the normal reading view. */
+
+#mdpeek-scrolly-panel {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --panel: #f6f8fa;
+  --accent: #0969da;
+
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 380px;
+  max-width: 92vw;
+  height: 100vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border-left: 1px solid var(--border);
+  box-shadow: -2px 0 8px rgba(31, 35, 40, 0.08);
+  transform: translateX(100%);
+  transition: transform 0.18s ease;
+  z-index: 60;
+  font-size: 14px;
+  line-height: 1.55;
+}
+body.mdpeek-scrolly-open #mdpeek-scrolly-panel { transform: translateX(0); }
+
+/* Give the centred article room so the panel doesn't cover it on wide screens. */
+@media (min-width: 1200px) {
+  body.mdpeek-scrolly-open .markdown-body { margin-right: 380px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  #mdpeek-scrolly-panel {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --border: #30363d;
+    --panel: #161b22;
+    --accent: #2f81f7;
+  }
+}
+:root[data-theme="dark"] #mdpeek-scrolly-panel {
+  --bg: #0d1117;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --border: #30363d;
+  --panel: #161b22;
+  --accent: #2f81f7;
+}
+:root[data-theme="light"] #mdpeek-scrolly-panel {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --panel: #f6f8fa;
+  --accent: #0969da;
+}
+
+.scrolly-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.scrolly-head__title { font-size: 13px; font-weight: 600; }
+.scrolly-lang {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.scrolly-origin {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.scrolly-origin--llm { color: var(--accent); border-color: var(--accent); }
+.scrolly-close {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.scrolly-close:hover { color: var(--fg); background: var(--panel); }
+
+.scrolly-body { padding: 14px; }
+
+.scrolly-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.scrolly-block__label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.scrolly-current {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.scrolly-text { margin: 0; white-space: pre-wrap; }
+
+.scrolly-progress { margin-bottom: 12px; }
+.scrolly-progress__text { font-size: 11px; color: var(--muted); }
+.scrolly-progress__track {
+  margin-top: 4px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.scrolly-progress__fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.scrolly-nav { display: flex; gap: 8px; }
+.scrolly-navbtn {
+  flex: 1;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.scrolly-navbtn:hover:not(:disabled) { background: var(--panel); }
+.scrolly-navbtn:disabled { opacity: 0.4; cursor: default; }
+
+/* Attention cueing on the document itself: dim everything, spotlight the
+ * section the reader has scrolled to (Mayer signalling). */
+body.mdpeek-scrolly-open .markdown-body > * {
+  opacity: 0.3;
+  filter: grayscale(0.4);
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+body.mdpeek-scrolly-open .markdown-body > .mdpeek-scrolly-focus {
+  opacity: 1;
+  filter: none;
+}
+/* A quiet accent rail beside the focused heading. */
+body.mdpeek-scrolly-open .markdown-body > .mdpeek-scrolly-focus:is(h1, h2, h3) {
+  border-left: 3px solid var(--accent, #0969da);
+  padding-left: 12px;
+  margin-left: -15px;
+}
+
+/* Inline generation/answer spinner. */
+.scrolly-loading { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.scrolly-loading__label { font-style: italic; }
+.scrolly-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: scrolly-spin 0.7s linear infinite;
+}
+@keyframes scrolly-spin { to { transform: rotate(360deg); } }
+
+/* Q&A */
+.scrolly-chat { margin-top: 4px; }
+.scrolly-chatlog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.scrolly-bubble {
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-width: 90%;
+}
+.scrolly-bubble--user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+}
+.scrolly-bubble--assistant {
+  align-self: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.scrolly-bubble--error { color: var(--accent); border-color: currentColor; }
+.scrolly-chatform { display: flex; gap: 6px; }
+.scrolly-chatinput {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.scrolly-chatinput:disabled { opacity: 0.6; }
+.scrolly-chatsend {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.scrolly-chatsend:disabled { opacity: 0.5; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.mdpeek-scrolly-open .markdown-body > *,
+  #mdpeek-scrolly-panel,
+  .scrolly-progress__fill {
+    transition: none;
+  }
+  .scrolly-spinner { animation-duration: 2s; }
+}
