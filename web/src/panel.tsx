@@ -27,19 +27,47 @@ function jump(_range: SourceRange) {
   /* no-op for now; kept so components render their SourceRangeLink affordance */
 }
 
+/** Close the panel and reset the toolbar toggle's pressed state. */
+function closePanel() {
+  document.body.classList.remove(OPEN_CLASS);
+  document.getElementById(TOGGLE_ID)?.setAttribute("aria-pressed", "false");
+}
+
+/** Panel chrome: a sticky header with a title + close button, wrapping content. */
+function Island({ children }: { children: preact.ComponentChildren }) {
+  return (
+    <>
+      <div class="gui-island__head">
+        <span class="gui-island__title">✨ Generated UI</span>
+        <button class="gui-island__close" type="button" aria-label="Close generated UI" onClick={closePanel}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div class="gui-island__body">{children}</div>
+    </>
+  );
+}
+
 async function loadInto(panel: HTMLElement) {
-  render(<p class="gui-status">Generating UI…</p>, panel);
+  render(<Island><p class="gui-status">Generating UI…</p></Island>, panel);
   try {
     const res = await fetch("/api/gui");
     if (!res.ok) throw new Error(`/api/gui returned ${res.status}`);
     const data: GuiResponse = await res.json();
-    if (!data.nodes || data.nodes.length === 0) {
-      render(<p class="gui-status">No generated components for this document.</p>, panel);
-      return;
-    }
-    render(<RenderList nodes={data.nodes} onJump={jump} />, panel);
+    const body =
+      !data.nodes || data.nodes.length === 0 ? (
+        <p class="gui-status">No generated components for this document.</p>
+      ) : (
+        <RenderList nodes={data.nodes} onJump={jump} />
+      );
+    render(<Island>{body}</Island>, panel);
   } catch (e) {
-    render(<p class="gui-status gui-status--error">Failed to generate UI: {String(e)}</p>, panel);
+    render(
+      <Island>
+        <p class="gui-status gui-status--error">Failed to generate UI: {String(e)}</p>
+      </Island>,
+      panel,
+    );
   }
 }
 
@@ -56,6 +84,13 @@ function init() {
     toggle.setAttribute("aria-pressed", String(open));
     // Re-fetch on every open so switching files (explorer) shows fresh output.
     if (open) loadInto(panel);
+  });
+
+  // Escape closes the panel when it's open.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.body.classList.contains(OPEN_CLASS)) {
+      closePanel();
+    }
   });
 }
 
