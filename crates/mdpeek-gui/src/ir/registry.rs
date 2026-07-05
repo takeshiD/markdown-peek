@@ -19,6 +19,12 @@ pub const CORE_KINDS: &[&str] = &[
     "DependencyGraph",
     "LogTimeline",
     "CommitGraph",
+    // reading lenses (design doc §8)
+    "SemanticOutline",
+    "SummaryCards",
+    "DecisionLog",
+    "ActionItems",
+    "OpenQuestions",
 ];
 
 /// Domain primitives: added per-domain (design §5.1 outer layer / §9.3).

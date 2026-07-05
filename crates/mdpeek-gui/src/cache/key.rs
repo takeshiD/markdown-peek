@@ -7,7 +7,9 @@
 use sha2::{Digest, Sha256};
 
 /// Bump when `ir::node` types change shape — invalidates all cached entries.
-pub const SCHEMA_VERSION: u32 = 1;
+/// v2: reading-lens redesign (design §8) — dropped body-reprint nodes, added
+/// SemanticOutline / SummaryCards / DecisionLog / ActionItems / OpenQuestions.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Normalize markdown before hashing so cosmetic churn (CRLF, trailing spaces)
 /// doesn't needlessly bust the cache.

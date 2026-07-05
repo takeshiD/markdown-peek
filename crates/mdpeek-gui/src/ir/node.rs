@@ -78,6 +78,31 @@ pub enum Severity {
     Error,
 }
 
+/// Per-item extraction confidence (design doc §14.3). `high` = stated verbatim,
+/// `medium` = strongly implied, `low` = inferred with weak support. Renderers
+/// badge medium/low so the reader keeps judgement (design §31.10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Confidence {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+impl Confidence {
+    /// Map a 0.0–1.0 score to a level (`>=0.8` high, `>=0.5` medium, else low).
+    pub fn from_score(score: f32) -> Self {
+        if score >= 0.8 {
+            Confidence::High
+        } else if score >= 0.5 {
+            Confidence::Medium
+        } else {
+            Confidence::Low
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ColumnType {
@@ -114,6 +139,13 @@ pub enum UiNode {
     LogTimeline(LogTimelineNode),
     CommitGraph(CommitGraphNode),
 
+    // --- reading lenses (design doc §8: derived reading aids, not body reprint) ---
+    SemanticOutline(SemanticOutlineNode),
+    SummaryCards(SummaryCardsNode),
+    DecisionLog(DecisionLogNode),
+    ActionItems(ActionItemsNode),
+    OpenQuestions(OpenQuestionsNode),
+
     // --- domain primitives (design §5.1 outer layer / §9.3) ---
     Glossary(GlossaryNode),
     CharacterRoster(CharacterRosterNode),
@@ -139,6 +171,11 @@ impl UiNode {
             UiNode::DependencyGraph(_) => "DependencyGraph",
             UiNode::LogTimeline(_) => "LogTimeline",
             UiNode::CommitGraph(_) => "CommitGraph",
+            UiNode::SemanticOutline(_) => "SemanticOutline",
+            UiNode::SummaryCards(_) => "SummaryCards",
+            UiNode::DecisionLog(_) => "DecisionLog",
+            UiNode::ActionItems(_) => "ActionItems",
+            UiNode::OpenQuestions(_) => "OpenQuestions",
             UiNode::Glossary(_) => "Glossary",
             UiNode::CharacterRoster(_) => "CharacterRoster",
             UiNode::StepNavigator(_) => "StepNavigator",
@@ -162,6 +199,11 @@ impl UiNode {
             UiNode::DependencyGraph(n) => &n.meta,
             UiNode::LogTimeline(n) => &n.meta,
             UiNode::CommitGraph(n) => &n.meta,
+            UiNode::SemanticOutline(n) => &n.meta,
+            UiNode::SummaryCards(n) => &n.meta,
+            UiNode::DecisionLog(n) => &n.meta,
+            UiNode::ActionItems(n) => &n.meta,
+            UiNode::OpenQuestions(n) => &n.meta,
             UiNode::Glossary(n) => &n.meta,
             UiNode::CharacterRoster(n) => &n.meta,
             UiNode::StepNavigator(n) => &n.meta,
@@ -185,6 +227,11 @@ impl UiNode {
             UiNode::DependencyGraph(n) => &mut n.meta,
             UiNode::LogTimeline(n) => &mut n.meta,
             UiNode::CommitGraph(n) => &mut n.meta,
+            UiNode::SemanticOutline(n) => &mut n.meta,
+            UiNode::SummaryCards(n) => &mut n.meta,
+            UiNode::DecisionLog(n) => &mut n.meta,
+            UiNode::ActionItems(n) => &mut n.meta,
+            UiNode::OpenQuestions(n) => &mut n.meta,
             UiNode::Glossary(n) => &mut n.meta,
             UiNode::CharacterRoster(n) => &mut n.meta,
             UiNode::StepNavigator(n) => &mut n.meta,
@@ -280,18 +327,39 @@ pub struct CalloutNode {
     pub body: String,
 }
 
+/// Risk / Assumption panel (design doc §8.9).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RiskPanelNode {
     #[serde(flatten)]
     pub meta: NodeMeta,
     pub risks: Vec<RiskItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assumptions: Vec<Assumption>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RiskItem {
     pub title: String,
     pub severity: Severity,
+    /// Longer description / note (kept as `note` for wire compatibility).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub likelihood: Option<Severity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mitigation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<Confidence>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+/// An assumption whose failure would invalidate part of the design (§8.9).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Assumption {
+    pub statement: String,
+    #[serde(rename = "impactIfFalse", skip_serializing_if = "Option::is_none")]
+    pub impact_if_false: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<Confidence>,
     #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
     pub source_range: Option<SourceRange>,
 }
@@ -389,10 +457,19 @@ pub struct GlossaryNode {
     pub meta: NodeMeta,
     pub terms: Vec<GlossaryTerm>,
 }
+/// A glossary entry (design doc §8.7). `definition` is what the document states;
+/// `inferred_definition` is an LLM gloss when the doc doesn't define the term.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlossaryTerm {
     pub term: String,
-    pub definition: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+    #[serde(rename = "inferredDefinition", skip_serializing_if = "Option::is_none")]
+    pub inferred_definition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<Confidence>,
     #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
     pub source_range: Option<SourceRange>,
 }
@@ -467,6 +544,134 @@ pub struct ObligationMatrixNode {
 pub struct Obligation {
     pub party: String,
     pub duty: String,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+
+// ---------------------------------------------------------------------------
+// Reading lenses (design doc §8) — derived reading aids, not body reprints.
+// ---------------------------------------------------------------------------
+
+/// Semantic outline (§8.1): sections grouped by meaning, not raw heading depth.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SemanticOutlineNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    pub groups: Vec<OutlineGroup>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutlineGroup {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub items: Vec<OutlineItem>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutlineItem {
+    pub title: String,
+    /// Why this section belongs to this group (kept short).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+
+/// Summary cards (§8.2): per-section key points. LLM-generated.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SummaryCardsNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    pub cards: Vec<SummaryCard>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SummaryCard {
+    pub title: String,
+    pub summary: String,
+    #[serde(rename = "keyPoints", default, skip_serializing_if = "Vec::is_empty")]
+    pub key_points: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<Confidence>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+
+/// Decision log (§8.5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecisionLogNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    pub decisions: Vec<Decision>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionStatus {
+    Decided,
+    Proposed,
+    Rejected,
+    Superseded,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Decision {
+    pub title: String,
+    pub decision: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact: Option<String>,
+    pub status: DecisionStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<Confidence>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+
+/// Action items (§8.6): tasks with assignee / due / status.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionItemsNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    pub items: Vec<ActionItem>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionStatus {
+    Todo,
+    Doing,
+    Done,
+    Blocked,
+    Unknown,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionItem {
+    pub task: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+    #[serde(rename = "dueDate", skip_serializing_if = "Option::is_none")]
+    pub due_date: Option<String>,
+    pub status: ActionStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<Confidence>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+
+/// Open questions (§8.8): unresolved items to track.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenQuestionsNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    pub questions: Vec<OpenQuestion>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenQuestion {
+    pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    pub severity: Severity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<Confidence>,
     #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
     pub source_range: Option<SourceRange>,
 }

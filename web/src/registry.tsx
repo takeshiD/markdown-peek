@@ -25,6 +25,12 @@ const coreRegistry: Partial<Record<UiNodeKind, NodeComponent>> = {
   DependencyGraph: C.DependencyGraph,
   LogTimeline: C.LogTimeline,
   CommitGraph: C.CommitGraph,
+  // reading lenses (design §8)
+  SemanticOutline: C.SemanticOutline,
+  SummaryCards: C.SummaryCards,
+  DecisionLog: C.DecisionLog,
+  ActionItems: C.ActionItems,
+  OpenQuestions: C.OpenQuestions,
 };
 
 const domainRegistry: Partial<Record<UiNodeKind, NodeComponent>> = {

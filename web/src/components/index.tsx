@@ -171,15 +171,137 @@ export function ConfigViewer({ node, onJump }: NodeProps<Extract<UiNode, { kind:
   );
 }
 
+function ConfBadge({ c }: { c?: import("../ir").Confidence }) {
+  if (!c || c === "high") return null;
+  return <span class={`gui-conf gui-conf--${c}`}>{c}</span>;
+}
+
 export function RiskPanel({ node, onJump }: NodeProps<Extract<UiNode, { kind: "RiskPanel" }>>) {
   return (
-    <Panel title="Risks" meta={node}>
+    <Panel title="Risks & Assumptions" meta={node}>
       <ul class="gui-risklist">
         {node.risks.map((r, i) => (
           <li key={i} class={sevClass(r.severity)}>
             <strong>{r.title}</strong>
+            <ConfBadge c={r.confidence} />
             {r.note && <span> — {r.note}</span>}
+            {r.mitigation && <div class="gui-sub">Mitigation: {r.mitigation}</div>}
             <SourceLink range={r.sourceRange} onJump={onJump} />
+          </li>
+        ))}
+      </ul>
+      {node.assumptions && node.assumptions.length > 0 && (
+        <ul class="gui-risklist gui-assumptions">
+          {node.assumptions.map((a, i) => (
+            <li key={i}>
+              <span class="gui-tag">assumption</span> {a.statement}
+              <ConfBadge c={a.confidence} />
+              {a.impactIfFalse && <div class="gui-sub">If false: {a.impactIfFalse}</div>}
+              <SourceLink range={a.sourceRange} onJump={onJump} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+// --- reading lenses (design §8) ------------------------------------------
+
+export function SemanticOutline({ node, onJump }: NodeProps<Extract<UiNode, { kind: "SemanticOutline" }>>) {
+  return (
+    <Panel title="Semantic Outline" meta={node}>
+      {node.groups.map((g, i) => (
+        <div key={i} class="gui-outgroup">
+          <h4>{g.label}</h4>
+          {g.description && <p class="gui-sub">{g.description}</p>}
+          <ul class="gui-outline">
+            {g.items.map((it, j) => (
+              <li key={j}>
+                <button class="gui-linkish" onClick={() => it.sourceRange && onJump?.(it.sourceRange)}>
+                  {it.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+export function SummaryCards({ node, onJump }: NodeProps<Extract<UiNode, { kind: "SummaryCards" }>>) {
+  return (
+    <Panel title="Summary" meta={node}>
+      {node.cards.map((c, i) => (
+        <div key={i} class="gui-card">
+          <div class="gui-card__head">
+            <strong>{c.title}</strong>
+            <ConfBadge c={c.confidence} />
+            <SourceLink range={c.sourceRange} onJump={onJump} />
+          </div>
+          <p>{c.summary}</p>
+          {c.keyPoints && c.keyPoints.length > 0 && (
+            <ul>{c.keyPoints.map((k, j) => <li key={j}>{k}</li>)}</ul>
+          )}
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+export function DecisionLog({ node, onJump }: NodeProps<Extract<UiNode, { kind: "DecisionLog" }>>) {
+  return (
+    <Panel title="Decisions" meta={node}>
+      {node.decisions.map((d, i) => (
+        <div key={i} class="gui-card">
+          <div class="gui-card__head">
+            <strong>{d.title}</strong>
+            <span class={`gui-status gui-status--${d.status}`}>{d.status}</span>
+            <ConfBadge c={d.confidence} />
+            <SourceLink range={d.sourceRange} onJump={onJump} />
+          </div>
+          {d.reason && <div class="gui-sub">Reason: {d.reason}</div>}
+          {d.alternatives && d.alternatives.length > 0 && (
+            <div class="gui-sub">Alternatives: {d.alternatives.join(", ")}</div>
+          )}
+          {d.impact && <div class="gui-sub">Impact: {d.impact}</div>}
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+export function ActionItems({ node, onJump }: NodeProps<Extract<UiNode, { kind: "ActionItems" }>>) {
+  const done = node.items.filter((i) => i.status === "done").length;
+  return (
+    <Panel title={`Action Items (${done}/${node.items.length})`} meta={node}>
+      <ul class="gui-checklist">
+        {node.items.map((it, i) => (
+          <li key={i} class={it.status === "done" ? "is-checked" : ""}>
+            <input type="checkbox" checked={it.status === "done"} readonly />
+            <span>{it.task}</span>
+            {it.assignee && <span class="gui-tag">{it.assignee}</span>}
+            {it.dueDate && <span class="gui-tag">{it.dueDate}</span>}
+            <ConfBadge c={it.confidence} />
+            <SourceLink range={it.sourceRange} onJump={onJump} />
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+export function OpenQuestions({ node, onJump }: NodeProps<Extract<UiNode, { kind: "OpenQuestions" }>>) {
+  return (
+    <Panel title="Open Questions" meta={node}>
+      <ul class="gui-risklist">
+        {node.questions.map((q, i) => (
+          <li key={i} class={sevClass(q.severity)}>
+            <strong>{q.question}</strong>
+            <ConfBadge c={q.confidence} />
+            {q.context && <div class="gui-sub">{q.context}</div>}
+            <SourceLink range={q.sourceRange} onJump={onJump} />
           </li>
         ))}
       </ul>
@@ -275,9 +397,14 @@ export function Glossary({ node, onJump }: NodeProps<Extract<UiNode, { kind: "Gl
         {node.terms.map((t, i) => (
           <div key={i}>
             <dt>
-              {t.term} <SourceLink range={t.sourceRange} onJump={onJump} />
+              {t.term}
+              {t.aliases && t.aliases.length > 0 && <span class="gui-sub"> ({t.aliases.join(", ")})</span>}
+              <SourceLink range={t.sourceRange} onJump={onJump} />
             </dt>
-            <dd>{t.definition}</dd>
+            <dd>
+              {t.definition ?? t.inferredDefinition ?? <em class="gui-sub">defined elsewhere / not defined in this document</em>}
+              {!t.definition && t.inferredDefinition && <ConfBadge c={t.confidence ?? "low"} />}
+            </dd>
           </div>
         ))}
       </dl>

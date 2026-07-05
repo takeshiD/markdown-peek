@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 
 use crate::cache::{CacheStore, GuiCacheEntry, content_hash};
 use crate::generator::llm::LlmBackendConfig;
-use crate::generator::{GenInput, Generator, RulesGenerator};
+use crate::generator::GenInput;
 use crate::ir::{LineIndex, UiNode, validate_nodes};
 
 /// Generate validated UI IR for `markdown`. `filename` (when known) sharpens
@@ -33,33 +33,28 @@ pub fn generate(
     filename: Option<&str>,
     cache_root: Option<&Path>,
 ) -> Result<GuiCacheEntry> {
-    let generator = RulesGenerator;
-    let model_id = generator.model_id();
+    let model_id = "rules";
 
     // Cache hit? (Key includes the filename since it affects doctype/output.)
     if let Some(root) = cache_root
-        && let Some(entry) = CacheStore::new(root).get(markdown, &model_id, filename)
+        && let Some(entry) = CacheStore::new(root).get(markdown, model_id, filename)
     {
         return Ok(entry);
     }
 
-    // 1. Structural nodes (task lists / tables / diagrams / config / callouts).
-    let mut nodes: Vec<UiNode> = generator
-        .generate(&GenInput::new(markdown))
-        .context("rules generation failed")?;
-
-    // 2. Layer 2 semantic analysis → document-type-aware nodes (risks, open
-    //    questions, review checklist, timeline).
+    // Layer 2 semantic analysis → reading lenses (design §8). Body content
+    // (tables / code / diagrams) is NOT reprinted here — it stays in the
+    // Markdown Body (§7.2). This is the deterministic fallback for LLM-first.
     let analysis = mdpeek_analyzer::analyze(markdown, filename);
-    nodes.extend(planner::plan(&analysis));
+    let mut nodes: Vec<UiNode> = planner::plan(&analysis);
     let doc_type = format!("{:?}", analysis.model.doc_type.value);
 
-    // 3. Validate everything (the security boundary).
+    // Validate everything (the security boundary).
     let total_lines = LineIndex::new(markdown).line_count();
     validate_nodes(&mut nodes, total_lines).context("generated IR failed validation")?;
 
-    let hash = content_hash(markdown, &model_id, filename);
-    let entry = GuiCacheEntry::new(doc_type, nodes, model_id, hash);
+    let hash = content_hash(markdown, model_id, filename);
+    let entry = GuiCacheEntry::new(doc_type, nodes, model_id.to_string(), hash);
 
     // Best-effort persist; a cache write failure must not fail the request.
     if let Some(root) = cache_root {
@@ -154,10 +149,21 @@ mod tests {
     }
 
     #[test]
-    fn produces_valid_json() {
-        let md = "| a | b |\n|---|---|\n| 1 | 2 |\n";
+    fn produces_valid_json_lenses() {
+        // Task list → ActionItems lens (not a body reprint).
+        let md = "## Tasks\n\n- [ ] do it\n";
         let json = generate_json(md, None, None, None).unwrap();
-        assert!(json.contains("DataTable"));
+        assert!(json.contains("ActionItems"), "{json}");
+    }
+
+    #[test]
+    fn no_body_reprint_nodes() {
+        // Tables / code / diagrams must NOT surface as lenses (they stay in the
+        // Markdown Body, design §7.2).
+        let md = "| a | b |\n|---|---|\n| 1 | 2 |\n\n```json\n{}\n```\n";
+        let json = generate_json(md, None, None, None).unwrap();
+        assert!(!json.contains("DataTable"), "{json}");
+        assert!(!json.contains("ConfigViewer"), "{json}");
     }
 
     #[test]

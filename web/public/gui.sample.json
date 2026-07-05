@@ -1,191 +1,283 @@
 {
   "nodes": [
     {
-      "kind": "Checklist",
-      "sourceRange": {
-        "start_line": 9,
-        "start_column": 1,
-        "end_line": 15,
-        "end_column": 1
-      },
+      "kind": "SemanticOutline",
+      "confidence": 0.95,
+      "origin": "rules",
+      "visibility": "always",
+      "groups": [
+        {
+          "label": "Overview",
+          "items": [
+            {
+              "title": "Overview",
+              "reason": "Overview",
+              "sourceRange": {
+                "start_line": 8,
+                "start_column": 1,
+                "end_line": 9,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Design",
+          "items": [
+            {
+              "title": "Payment Service Design",
+              "reason": "Design",
+              "sourceRange": {
+                "start_line": 6,
+                "start_column": 1,
+                "end_line": 7,
+                "end_column": 1
+              }
+            },
+            {
+              "title": "Architecture",
+              "reason": "Design",
+              "sourceRange": {
+                "start_line": 13,
+                "start_column": 1,
+                "end_line": 14,
+                "end_column": 1
+              }
+            },
+            {
+              "title": "Data Model",
+              "reason": "Design",
+              "sourceRange": {
+                "start_line": 25,
+                "start_column": 1,
+                "end_line": 26,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Usage",
+          "items": [
+            {
+              "title": "Configuration",
+              "reason": "Usage",
+              "sourceRange": {
+                "start_line": 33,
+                "start_column": 1,
+                "end_line": 34,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Risks",
+          "items": [
+            {
+              "title": "Risks",
+              "reason": "Risks",
+              "sourceRange": {
+                "start_line": 51,
+                "start_column": 1,
+                "end_line": 52,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Open Questions",
+          "items": [
+            {
+              "title": "Open Questions",
+              "reason": "Open Questions",
+              "sourceRange": {
+                "start_line": 57,
+                "start_column": 1,
+                "end_line": 58,
+                "end_column": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "Other",
+          "items": [
+            {
+              "title": "API",
+              "reason": "Other",
+              "sourceRange": {
+                "start_line": 42,
+                "start_column": 1,
+                "end_line": 43,
+                "end_column": 1
+              }
+            },
+            {
+              "title": "TODO",
+              "reason": "Other",
+              "sourceRange": {
+                "start_line": 63,
+                "start_column": 1,
+                "end_line": 64,
+                "end_column": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "ActionItems",
+      "confidence": 0.95,
       "origin": "rules",
       "visibility": "always",
       "items": [
         {
-          "title": "Task1",
-          "checked": false,
-          "category": "TaskList",
+          "task": "Draft the ledger schema",
+          "status": "done",
+          "confidence": "high",
           "sourceRange": {
-            "start_line": 9,
+            "start_line": 65,
             "start_column": 1,
-            "end_line": 10,
+            "end_line": 66,
             "end_column": 1
           }
         },
         {
-          "title": "detail task1.1",
-          "checked": false,
-          "category": "TaskList",
+          "task": "Add idempotency keys to the charge endpoint",
+          "status": "todo",
+          "confidence": "high",
           "sourceRange": {
-            "start_line": 11,
-            "start_column": 3,
-            "end_line": 12,
-            "end_column": 1
-          }
-        },
-        {
-          "title": "detail task1.2",
-          "checked": false,
-          "category": "TaskList",
-          "sourceRange": {
-            "start_line": 12,
-            "start_column": 3,
-            "end_line": 13,
-            "end_column": 1
-          }
-        },
-        {
-          "title": "Task2",
-          "checked": false,
-          "category": "TaskList",
-          "sourceRange": {
-            "start_line": 10,
+            "start_line": 66,
             "start_column": 1,
-            "end_line": 13,
+            "end_line": 67,
             "end_column": 1
           }
         },
         {
-          "title": "Task3",
-          "checked": false,
-          "category": "TaskList",
+          "task": "Load-test the bank adapter",
+          "status": "todo",
+          "confidence": "high",
           "sourceRange": {
-            "start_line": 13,
+            "start_line": 67,
             "start_column": 1,
-            "end_line": 15,
+            "end_line": 69,
+            "end_column": 1
+          }
+        },
+        {
+          "task": "revisit retry_max once we have bank SLA numbers",
+          "status": "todo",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 69,
+            "start_column": 1,
+            "end_line": 70,
             "end_column": 1
           }
         }
       ]
     },
     {
-      "kind": "DataTable",
-      "sourceRange": {
-        "start_line": 2,
-        "start_column": 1,
-        "end_line": 7,
-        "end_column": 1
-      },
+      "kind": "OpenQuestions",
+      "confidence": 0.95,
       "origin": "rules",
       "visibility": "always",
-      "columns": [
+      "questions": [
         {
-          "key": "level",
-          "label": "Level"
+          "question": "Should refunds live in this service or a separate one?",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 59,
+            "start_column": 1,
+            "end_line": 60,
+            "end_column": 1
+          }
         },
         {
-          "key": "description",
-          "label": "Description"
-        }
-      ],
-      "rows": [
-        {
-          "description": "Gold Gym",
-          "level": "S Tier"
-        },
-        {
-          "description": "Anytime Fitness",
-          "level": "A Tier"
-        },
-        {
-          "description": "Jexer",
-          "level": "B Tier"
+          "question": "Which currencies must we support at launch?",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 61,
+            "start_column": 1,
+            "end_line": 62,
+            "end_column": 1
+          }
         }
       ]
     },
     {
-      "kind": "Callout",
-      "sourceRange": {
-        "start_line": 82,
-        "start_column": 1,
-        "end_line": 84,
-        "end_column": 1
-      },
+      "kind": "RiskPanel",
+      "confidence": 0.95,
       "origin": "rules",
       "visibility": "always",
-      "severity": "info",
-      "title": "Note",
-      "body": "Useful information that users should know, even when skimming content."
+      "risks": [
+        {
+          "title": "Double-charging on network retry could corrupt the ledger.",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 53,
+            "start_column": 1,
+            "end_line": 54,
+            "end_column": 1
+          }
+        },
+        {
+          "title": "Bank timeouts may leave a charge in an unknown state.",
+          "severity": "warning",
+          "confidence": "high",
+          "sourceRange": {
+            "start_line": 55,
+            "start_column": 1,
+            "end_line": 56,
+            "end_column": 1
+          }
+        }
+      ]
     },
     {
-      "kind": "Callout",
-      "sourceRange": {
-        "start_line": 85,
-        "start_column": 1,
-        "end_line": 87,
-        "end_column": 1
-      },
+      "kind": "Glossary",
+      "confidence": 0.95,
       "origin": "rules",
       "visibility": "always",
-      "severity": "info",
-      "title": "Tip",
-      "body": "Helpful advice for doing things better or more easily."
-    },
-    {
-      "kind": "Callout",
-      "sourceRange": {
-        "start_line": 88,
-        "start_column": 1,
-        "end_line": 90,
-        "end_column": 1
-      },
-      "origin": "rules",
-      "visibility": "always",
-      "severity": "error",
-      "title": "Important",
-      "body": "Key information users need to know to achieve their goal."
-    },
-    {
-      "kind": "Callout",
-      "sourceRange": {
-        "start_line": 91,
-        "start_column": 1,
-        "end_line": 93,
-        "end_column": 1
-      },
-      "origin": "rules",
-      "visibility": "always",
-      "severity": "warning",
-      "title": "Warning",
-      "body": "Urgent info that needs immediate user attention to avoid problems."
-    },
-    {
-      "kind": "Callout",
-      "sourceRange": {
-        "start_line": 94,
-        "start_column": 1,
-        "end_line": 96,
-        "end_column": 1
-      },
-      "origin": "rules",
-      "visibility": "always",
-      "severity": "warning",
-      "title": "Caution",
-      "body": "Advises about risks or negative outcomes of certain actions."
-    },
-    {
-      "kind": "Diagram",
-      "sourceRange": {
-        "start_line": 136,
-        "start_column": 1,
-        "end_line": 140,
-        "end_column": 4
-      },
-      "origin": "rules",
-      "visibility": "always",
-      "format": "mermaid",
-      "code": "graph TD\n    A-->B\n    B-->C"
+      "terms": [
+        {
+          "term": "API",
+          "confidence": "low",
+          "sourceRange": {
+            "start_line": 22,
+            "start_column": 1,
+            "end_line": 24,
+            "end_column": 1
+          }
+        },
+        {
+          "term": "SLA",
+          "confidence": "low",
+          "sourceRange": {
+            "start_line": 69,
+            "start_column": 1,
+            "end_line": 70,
+            "end_column": 1
+          }
+        },
+        {
+          "term": "TODO",
+          "confidence": "low",
+          "sourceRange": {
+            "start_line": 63,
+            "start_column": 1,
+            "end_line": 64,
+            "end_column": 1
+          }
+        }
+      ]
     }
   ],
-  "markdown": "# Table\n| Level  | Description     |\n|--------|-----------------|\n| S Tier | Gold Gym        |\n| A Tier | Anytime Fitness |\n| B Tier | Jexer           |\n\n# TaskList\n- [ ] Task1\n- [ ] Task2\n    - [ ] detail task1.1\n    - [ ] detail task1.2\n- [ ] Task3\n\n# Strike through\n~~Hi~~ Hello, ~there~ world!\n\nThis ~~has a\n\nnew paragraph~~.\n\nThis will ~~~not~~~ strike.\n\n\n# Fenced Code\n```\n<\n>\n```\n\n```rust\nfn main() {\n    println!(\"hello world!\");\n}\n```\n\n# AutoLink\nwww.commonmark.org\n\nVisit www.commonmark.org/help for more information.\n\n\nVisit www.commonmark.org.\n\nVisit www.commonmark.org/a.b.\n\nwww.google.com/search?q=Markup+(business)\n\nwww.google.com/search?q=Markup+(business)))\n\n(www.google.com/search?q=Markup+(business))\n\n(www.google.com/search?q=Markup+(business)\n\n# In Page Link\n## Example headings\n\n### Sample Section\n\n### This'll be a _Helpful_ Section About the Greek Letter Θ!\nA heading containing characters not allowed in fragments, UTF-8 characters, two consecutive spaces between the first and second words, and formatting.\n\n### This heading is not unique in the file\n\nTEXT 1\n\n### This heading is not unique in the file\n\nTEXT 2\n\n## Links to the example headings above\n\nLink to the sample section: [Link Text](#sample-section).\n\nLink to the helpful section: [Link Text](#thisll-be-a-helpful-section-about-the-greek-letter-Θ).\n\nLink to the first non-unique section: [Link Text](#this-heading-is-not-unique-in-the-file).\n\nLink to the second non-unique section: [Link Text](#this-heading-is-not-unique-in-the-file-1).\n\n# Alert\n> [!NOTE]\n> Useful information that users should know, even when skimming content.\n\n> [!TIP]\n> Helpful advice for doing things better or more easily.\n\n> [!IMPORTANT]\n> Key information users need to know to achieve their goal.\n\n> [!WARNING]\n> Urgent info that needs immediate user attention to avoid problems.\n\n> [!CAUTION]\n> Advises about risks or negative outcomes of certain actions.\n\n# Color model\n#0969DA\n\n`rgb(9, 105, 218)`\n\n`hsl(212, 92%, 45%)`\n\n# Emoji\n\n@octocat :+1: This PR looks great - it's ready to merge! :shipit:\n\n# Footnote\nHere is a simple footnote[^1].\n\nA footnote can also have multiple lines[^2].\n\n[^1]: My reference.\n[^2]: To add line breaks within a footnote, add 2 spaces to the end of a line.  \nThis is a second line.\n\n# MathJax\n## Inline Math\nthis sentence is uses `$` delimiters to show math inline: $\\sqrt{3x-1}+{1+x}^2$\n\nThis sentence uses $\\` and \\`$ delimiters to show math inline: $`\\sqrt{3x-1}+(1+x)^2`$\n\n\n## Block Math\n**The Cauchy-Schwarz Inequality**\\\n$$\\left( \\sum_{k=1}^n a_k b_k \\right)^2 \\leq \\left( \\sum_{k=1}^n a_k^2 \\right) \\left( \\sum_{k=1}^n b_k^2 \\right)$$\n\n\n**The Cauchy-Schwarz Inequality**\n```math\n\\left( \\sum_{k=1}^n a_k b_k \\right)^2 \\leq \\left( \\sum_{k=1}^n a_k^2 \\right) \\left( \\sum_{k=1}^n b_k^2 \\right)\n```\n\n# Mermaid\n\n```mermaid\ngraph TD\n    A-->B\n    B-->C\n```\n"
+  "markdown": "---\ntitle: Payment Service\ntype: designdoc\n---\n\n# Payment Service Design\n\n## Overview\n\nThe payment service charges customers and reconciles ledger entries. This\ndocument captures the architecture, data model, risks and open questions.\n\n## Architecture\n\n```mermaid\ngraph TD\n    API --> Charger\n    Charger --> Ledger\n    Charger --> Bank\n```\n\nThe API layer validates requests, the Charger talks to the bank, and the Ledger\nrecords every movement.\n\n## Data Model\n\n| Field   | Type    | Status   |\n|---------|---------|----------|\n| id      | uuid    | stable   |\n| amount  | decimal | stable   |\n| state   | enum    | proposed |\n\n## Configuration\n\n```toml\n[payment]\ncurrency = \"JPY\"\nretry_max = 3\ntimeout_ms = 2000\n```\n\n## API\n\n```http\nPOST /v1/charges\nContent-Type: application/json\n\n{ \"amount\": 1200, \"currency\": \"JPY\" }\n```\n\n## Risks\n\nDouble-charging on network retry could corrupt the ledger.\n\nBank timeouts may leave a charge in an unknown state.\n\n## Open Questions\n\nShould refunds live in this service or a separate one?\n\nWhich currencies must we support at launch?\n\n## TODO\n\n- [x] Draft the ledger schema\n- [ ] Add idempotency keys to the charge endpoint\n- [ ] Load-test the bank adapter\n\n<!-- TODO: revisit retry_max once we have bank SLA numbers -->\n\nSee the [ledger spec](https://example.com/ledger) for details.\n"
 }

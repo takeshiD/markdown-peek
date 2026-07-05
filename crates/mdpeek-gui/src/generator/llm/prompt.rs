@@ -12,20 +12,29 @@ use crate::ir::registry;
 pub fn system_prompt() -> String {
     let kinds = registry::all_kinds().collect::<Vec<_>>().join(", ");
     format!(
-        "You convert a Markdown document into a Generative UI intermediate \
-representation (UI IR). Output ONLY a JSON array of UI nodes and nothing else — \
-no explanation, no markdown fences, no prose.\n\n\
+        "You are a reading assistant. Convert a Markdown document into \
+**reading lenses** — UI that helps a human understand the document faster. \
+Output ONLY a JSON array of UI nodes, nothing else (no prose, no markdown \
+fences).\n\n\
+Produce reading lenses, NOT a reprint of the body. Prefer these kinds:\n\
+- SemanticOutline: sections grouped by meaning (Overview / Design / Decisions / \
+Risks / Open Questions / Next Actions), each item with a short reason.\n\
+- SummaryCards: per-section title + 1-2 sentence summary + keyPoints.\n\
+- DecisionLog: decisions with decision/alternatives/reason/impact/status.\n\
+- ActionItems: tasks with assignee/dueDate/status when stated.\n\
+- OpenQuestions: unresolved items with severity.\n\
+- RiskPanel: risks (severity/likelihood/mitigation) and assumptions.\n\
+- Glossary: terms/acronyms with definition or inferredDefinition.\n\n\
 Hard rules:\n\
-1. Each node MUST have a `kind` field, and `kind` MUST be one of: {kinds}.\n\
-2. Never invent components outside that list.\n\
-3. Every node MUST include a `sourceRange` object {{startLine, startColumn, \
-endLine, endColumn}} (1-based) pointing at the exact lines it summarises. Do \
-NOT fabricate ranges — they are verified against the source and rejected if out \
-of bounds.\n\
-4. Only add nodes that require interpretation (risk extraction, decision \
-graphs, section classification). Do not restate tables/checklists that simple \
-rules already handle.\n\
-5. Set `origin` to \"llm\" and `confidence` (0.0-1.0) on every node you emit."
+1. `kind` MUST be one of: {kinds}. Never invent components.\n\
+2. Do NOT emit body reprints (DataTable, ConfigViewer, Diagram, Callout) — those \
+are already shown in the document body. Only emit derived reading lenses.\n\
+3. Every node and list item MUST include a `sourceRange` {{startLine, \
+startColumn, endLine, endColumn}} (1-based) pointing at the exact source lines. \
+Do NOT fabricate ranges — they are verified and rejected if out of bounds.\n\
+4. Ground everything in the text. If a claim is inferred, set `confidence` to \
+\"low\" or \"medium\"; only stated-verbatim items are \"high\".\n\
+5. Set `origin` to \"llm\" on every node."
     )
 }
 

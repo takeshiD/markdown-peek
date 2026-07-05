@@ -12,8 +12,9 @@ fn write_md(dir: &tempfile::TempDir, name: &str, body: &str) -> std::path::PathB
 }
 
 #[test]
-fn gen_emits_ir_for_tasks_and_tables() {
+fn gen_emits_reading_lenses_not_body_reprints() {
     let dir = tempfile::tempdir().unwrap();
+    // Tasks → ActionItems lens; the table stays in the body (no DataTable lens).
     let md = "## Todo\n\n- [ ] first\n- [x] second\n\n| Name | Status |\n|------|--------|\n| a | ok |\n";
     let file = write_md(&dir, "doc.md", md);
 
@@ -24,16 +25,17 @@ fn gen_emits_ir_for_tasks_and_tables() {
         .arg("--no-cache")
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"kind\": \"Checklist\""))
-        .stdout(predicate::str::contains("\"kind\": \"DataTable\""))
-        .stdout(predicate::str::contains("sourceRange"));
+        .stdout(predicate::str::contains("\"kind\": \"ActionItems\""))
+        .stdout(predicate::str::contains("sourceRange"))
+        .stdout(predicate::str::contains("DataTable").not());
 }
 
 #[test]
 fn gen_writes_cache_file() {
     let dir = tempfile::tempdir().unwrap();
-    let md = "> [!WARNING]\n> danger\n";
-    let file = write_md(&dir, "warn.md", md);
+    // A risk section → RiskPanel lens.
+    let md = "# Design\n\n## Risks\n\nThe cache may go stale.\n";
+    let file = write_md(&dir, "design.md", md);
 
     // Run inside the temp dir so `.cache/mdpeek` is created there.
     Command::cargo_bin("mdpeek")
@@ -43,7 +45,7 @@ fn gen_writes_cache_file() {
         .arg(&file)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Callout"));
+        .stdout(predicate::str::contains("RiskPanel"));
 
     let cache_dir = dir.path().join(".cache").join("mdpeek");
     let entries: Vec<_> = std::fs::read_dir(&cache_dir).unwrap().collect();
@@ -56,7 +58,7 @@ fn gen_llm_falls_back_to_rules_when_backend_unavailable() {
     // `build()` errors and generation must fall back to deterministic rules
     // rather than failing the command.
     let dir = tempfile::tempdir().unwrap();
-    let md = "- [ ] task a\n- [x] task b\n";
+    let md = "## Tasks\n\n- [ ] task a\n- [x] task b\n";
     let file = write_md(&dir, "tasks.md", md);
 
     Command::cargo_bin("mdpeek")
@@ -69,7 +71,7 @@ fn gen_llm_falls_back_to_rules_when_backend_unavailable() {
         .arg("anthropic_api")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Checklist"));
+        .stdout(predicate::str::contains("ActionItems"));
 }
 
 #[test]

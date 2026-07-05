@@ -13,7 +13,6 @@
 use anyhow::{Context, Result};
 
 use super::prompt;
-use crate::generator::rules::RulesGenerator;
 use crate::generator::traits::{GenInput, Generator};
 use crate::ir::{LineIndex, UiNode, validate_json};
 
@@ -40,9 +39,10 @@ impl AnthropicApiGenerator {
     /// to rules when no API key is set. Async because the server drives it
     /// inside tokio (design §7).
     pub async fn generate_async(&self, input: &GenInput<'_>) -> Result<Vec<UiNode>> {
-        let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") else {
-            return RulesGenerator.generate(input);
-        };
+        // No key → error out so the pipeline falls back to the rules planner
+        // (which produces reading lenses, not body reprints).
+        let api_key = std::env::var("ANTHROPIC_API_KEY")
+            .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY not set"))?;
 
         let total_lines = LineIndex::new(input.markdown).line_count();
 

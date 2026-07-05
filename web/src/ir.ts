@@ -18,6 +18,8 @@ export type Visibility = "always" | { reveal_after_line: number };
 
 export type Severity = "info" | "warning" | "error";
 
+export type Confidence = "low" | "medium" | "high";
+
 export type ColumnType = "text" | "number" | "status" | "link" | "code";
 
 export interface Column {
@@ -62,6 +64,62 @@ export interface RiskItem {
   title: string;
   severity: Severity;
   note?: string;
+  likelihood?: Severity;
+  mitigation?: string;
+  confidence?: Confidence;
+  sourceRange?: SourceRange;
+}
+
+export interface Assumption {
+  statement: string;
+  impactIfFalse?: string;
+  confidence?: Confidence;
+  sourceRange?: SourceRange;
+}
+
+// --- reading lens item types (design §8) ---
+export interface OutlineItemT {
+  title: string;
+  reason?: string;
+  sourceRange?: SourceRange;
+}
+export interface OutlineGroup {
+  label: string;
+  description?: string;
+  items: OutlineItemT[];
+}
+export interface SummaryCard {
+  title: string;
+  summary: string;
+  keyPoints?: string[];
+  confidence?: Confidence;
+  sourceRange?: SourceRange;
+}
+export type DecisionStatus = "decided" | "proposed" | "rejected" | "superseded";
+export interface DecisionT {
+  title: string;
+  decision: string;
+  alternatives?: string[];
+  reason?: string;
+  impact?: string;
+  status: DecisionStatus;
+  confidence?: Confidence;
+  sourceRange?: SourceRange;
+}
+export type ActionStatus = "todo" | "doing" | "done" | "blocked" | "unknown";
+export interface ActionItemT {
+  task: string;
+  assignee?: string;
+  dueDate?: string;
+  status: ActionStatus;
+  confidence?: Confidence;
+  sourceRange?: SourceRange;
+}
+export interface OpenQuestionT {
+  question: string;
+  context?: string;
+  severity: Severity;
+  confidence?: Confidence;
   sourceRange?: SourceRange;
 }
 
@@ -95,7 +153,10 @@ export interface Commit {
 
 export interface GlossaryTerm {
   term: string;
-  definition: string;
+  aliases?: string[];
+  definition?: string;
+  inferredDefinition?: string;
+  confidence?: Confidence;
   sourceRange?: SourceRange;
 }
 
@@ -133,7 +194,12 @@ export type UiNode = NodeMeta &
     | { kind: "DataTable"; columns: Column[]; rows: Record<string, unknown>[] }
     | { kind: "Diagram"; format: "mermaid"; code: string; title?: string }
     | { kind: "Callout"; severity: Severity; title?: string; body: string }
-    | { kind: "RiskPanel"; risks: RiskItem[] }
+    | { kind: "RiskPanel"; risks: RiskItem[]; assumptions?: Assumption[] }
+    | { kind: "SemanticOutline"; groups: OutlineGroup[] }
+    | { kind: "SummaryCards"; cards: SummaryCard[] }
+    | { kind: "DecisionLog"; decisions: DecisionT[] }
+    | { kind: "ActionItems"; items: ActionItemT[] }
+    | { kind: "OpenQuestions"; questions: OpenQuestionT[] }
     | { kind: "ApiExplorer"; endpoints: ApiEndpoint[] }
     | { kind: "ConfigViewer"; format: "json" | "yaml" | "toml" | "env"; content: string; title?: string }
     | { kind: "DependencyGraph"; nodes: GraphNode[]; edges: GraphEdge[] }
