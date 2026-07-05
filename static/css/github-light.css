@@ -1320,18 +1320,23 @@
   #mdpeek-frontmatter-panel { display: none; }
 }
 
-/* Theme toggle button */
-#mdpeek-theme-toggle {
+/* Floating toolbar (top-right): theme / auto-scroll / contents toggles */
+#mdpeek-toolbar {
   position: fixed;
   top: 16px;
   right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+}
+#mdpeek-toolbar button {
   width: 36px;
   height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  font-size: 18px;
   line-height: 1;
   cursor: pointer;
   background-color: #ffffff;
@@ -1339,9 +1344,23 @@
   border: 1px solid #d1d9e0;
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(31, 35, 40, 0.12);
-  z-index: 60;
 }
-#mdpeek-theme-toggle:hover { background-color: #f6f8fa; }
-#mdpeek-theme-toggle svg { width: 18px; height: 18px; display: block; }
+#mdpeek-toolbar button:hover { background-color: #f6f8fa; }
+#mdpeek-toolbar button svg { width: 18px; height: 18px; display: block; }
+#mdpeek-toolbar button.mdpeek-active {
+  background-color: #ddf4ff;
+  border-color: #54aeff;
+  color: #0969da;
+}
+
+/* Changed-block highlight for live updates (#16) */
+@keyframes mdpeek-flash-light {
+  from { background-color: rgba(255, 212, 59, 0.5); }
+  to { background-color: transparent; }
+}
+.mdpeek-changed {
+  animation: mdpeek-flash-light 1.6s ease-out;
+  border-radius: 4px;
+}
 
 html, body { background-color: #ffffff; }

@@ -13,7 +13,7 @@ use axum::{
 use core::fmt;
 use futures::{SinkExt, StreamExt};
 use pulldown_cmark::Parser;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -49,30 +49,40 @@ impl fmt::Display for Theme {
 
 pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
     let (tx, _) = broadcast::channel::<Message>(16);
-    let tx_reload = tx.clone();
-    let watch_path_clone = watch_path.clone();
-    let server = std::thread::spawn(move || run_server(watch_path, tx_reload, host, port, theme));
-    let _: () = notify_on_change(watch_path_clone, move || {
-        debug!("Callback Start");
-        let result = tx.send(Message::text("reload"));
-        debug!("Callback End!: {:#?}", result);
+    let file_path = Arc::new(RwLock::new(watch_path.clone()));
+    let theme = Arc::new(RwLock::new(theme));
+    let state = AppState {
+        tx: tx.clone(),
+        file_path: Arc::clone(&file_path),
+        theme: Arc::clone(&theme),
+    };
+    let server = std::thread::spawn(move || run_server(state, host, port));
+    // On each change, re-render the active file and push a block-diff update
+    // (issue #16): the client patches the changed blocks in place and keeps its
+    // scroll position instead of doing a full `window.location.reload()`.
+    let cb_tx = tx.clone();
+    let _: () = notify_on_change(watch_path, move || {
+        let path = file_path.read().unwrap().to_path_buf();
+        match std::fs::read_to_string(&path) {
+            Ok(content) => {
+                let (body, frontmatter) = render_markdown(&content);
+                let msg = serde_json::json!({
+                    "type": "update",
+                    "html": body,
+                    "frontmatter": frontmatter.unwrap_or_default(),
+                })
+                .to_string();
+                let result = cb_tx.send(Message::text(msg));
+                debug!("Pushed live update: {:#?}", result);
+            }
+            Err(e) => error!("Failed to read '{}' on change: {e}", path.display()),
+        }
     });
     let _ = server.join();
 }
 
 #[tokio::main()]
-async fn run_server(
-    file_path: impl AsRef<Path>,
-    tx_reload: broadcast::Sender<Message>,
-    host: String,
-    port: String,
-    theme: Theme,
-) -> Result<()> {
-    let state = AppState {
-        tx: tx_reload,
-        file_path: Arc::new(RwLock::new(file_path.as_ref().to_path_buf())),
-        theme: Arc::new(RwLock::new(theme)),
-    };
+async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
     let app = Router::new()
         .route("/", get(file_handler))
         .route("/ws", get(websocket_handler))
@@ -121,27 +131,19 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
             return Html(error_html);
         }
     };
-    let parser = Parser::new_ext(&markdown_content, mdpeek_gfm::parser_options());
-    let parser = mdpeek_gfm::transform(parser);
-    let parser = parser.inspect(|event| {
-        debug!("{:#?}", event);
-    });
-    let mut emitter = HtmlEmitter::new(parser);
-    let html_body = emitter.run();
+    let (html_body, frontmatter) = render_markdown(&markdown_content);
 
     // Front matter panel (#19): surface the leading YAML/+++ block, which the
     // renderer otherwise hides. Escaped and stashed in a hidden element for the
     // client to display.
-    let frontmatter_html =
-        match mdpeek_parser::BlockTree::parse(&markdown_content).frontmatter() {
-            Some(fm) if !fm.trim().is_empty() => {
-                format!(
-                    "<div id=\"mdpeek-frontmatter\" hidden>{}</div>",
-                    escape_html_min(fm)
-                )
-            }
-            _ => String::new(),
-        };
+    let frontmatter_html = frontmatter
+        .map(|fm| {
+            format!(
+                "<div id=\"mdpeek-frontmatter\" hidden>{}</div>",
+                escape_html_min(&fm)
+            )
+        })
+        .unwrap_or_default();
 
     let template = include_str!("../../../static/index.html");
     let theme = state.theme.read().unwrap().to_string();
@@ -155,6 +157,22 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
         .replace("{{ content }}", &html_body)
         .replace("{{ frontmatter }}", &frontmatter_html);
     Html(page)
+}
+
+/// Render markdown source into a `(body HTML, raw front matter)` pair. Shared by
+/// the HTTP handler (initial page) and the live-update watch callback (#16) so
+/// both produce identical markup. The front matter is returned raw (unescaped);
+/// each caller escapes it as its transport requires.
+fn render_markdown(content: &str) -> (String, Option<String>) {
+    let parser = Parser::new_ext(content, mdpeek_gfm::parser_options());
+    let parser = mdpeek_gfm::transform(parser);
+    let mut emitter = HtmlEmitter::new(parser);
+    let body = emitter.run();
+    let frontmatter = mdpeek_parser::BlockTree::parse(content)
+        .frontmatter()
+        .filter(|fm| !fm.trim().is_empty())
+        .map(|fm| fm.to_string());
+    (body, frontmatter)
 }
 
 /// Minimal HTML-body escaping (`&`, `<`, `>`) so arbitrary front matter text
@@ -322,5 +340,21 @@ mod tests {
     #[test]
     fn escape_html_min_preserves_newlines() {
         assert_eq!(super::escape_html_min("k: v\nk2: v2"), "k: v\nk2: v2");
+    }
+
+    #[test]
+    fn render_markdown_emits_body_and_frontmatter() {
+        use super::render_markdown;
+        let (body, fm) = render_markdown("---\ntitle: Hi\n---\n\n# Heading\n\ntext\n");
+        assert!(body.contains("<h1"), "body should contain rendered heading");
+        assert_eq!(fm.as_deref(), Some("title: Hi"));
+    }
+
+    #[test]
+    fn render_markdown_without_frontmatter_is_none() {
+        use super::render_markdown;
+        let (body, fm) = render_markdown("# Only heading\n");
+        assert!(body.contains("Only heading"));
+        assert!(fm.is_none());
     }
 }

@@ -26,6 +26,11 @@ function initializeHighlight() {
 
 const MDPEEK_THEME_KEY = "mdpeek-theme";
 
+// Collapse state for the floating panels. Kept in module scope so it survives
+// live DOM updates (#16), which rebuild these panels without a page reload.
+let outlineCollapsed = false;
+let frontmatterCollapsed = false;
+
 // Lucide icons (https://lucide.dev) embedded inline so we don't depend on a CDN.
 const LUCIDE_MOON =
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
@@ -208,6 +213,13 @@ function initScrollSpy(toc) {
 }
 
 function initializeOutline() {
+    // Remove any previous outline so this function can be re-run after a live
+    // update (#16) rebuilds the document body.
+    const existing = document.getElementById("mdpeek-toc");
+    if (existing) {
+        existing.remove();
+    }
+
     const article = document.querySelector(".markdown-body");
     if (!article) {
         return;
@@ -249,25 +261,35 @@ function initializeOutline() {
     });
 
     title.addEventListener("click", function () {
-        toc.classList.toggle("mdpeek-toc-collapsed");
+        outlineCollapsed = toc.classList.toggle("mdpeek-toc-collapsed");
         const caret = title.lastElementChild;
         if (caret) {
-            caret.textContent = toc.classList.contains("mdpeek-toc-collapsed") ? "▸" : "▾";
+            caret.textContent = outlineCollapsed ? "▸" : "▾";
         }
     });
+
+    // Restore collapse state carried over from a previous render.
+    if (outlineCollapsed) {
+        toc.classList.add("mdpeek-toc-collapsed");
+        const caret = title.lastElementChild;
+        if (caret) {
+            caret.textContent = "▸";
+        }
+    }
 
     document.body.appendChild(toc);
     initScrollSpy(toc);
 }
 
-// Render the document's front matter (served in a hidden element) as a
-// collapsible panel.
-function initializeFrontmatter() {
-    const source = document.getElementById("mdpeek-frontmatter");
-    if (!source) {
-        return;
+// Render the document's front matter as a collapsible panel. `rawText` is the
+// plain (unescaped) front matter; an empty/blank value removes the panel. Safe
+// to call repeatedly — live updates (#16) rebuild the panel with fresh text.
+function buildFrontmatterPanel(rawText) {
+    const existing = document.getElementById("mdpeek-frontmatter-panel");
+    if (existing) {
+        existing.remove();
     }
-    const raw = (source.textContent || "").trim();
+    const raw = (rawText || "").trim();
     if (!raw) {
         return;
     }
@@ -279,10 +301,10 @@ function initializeFrontmatter() {
     title.id = "mdpeek-frontmatter-title";
     title.innerHTML = "<span>Front matter</span><span aria-hidden=\"true\">▾</span>";
     title.addEventListener("click", function () {
-        panel.classList.toggle("mdpeek-collapsed");
+        frontmatterCollapsed = panel.classList.toggle("mdpeek-collapsed");
         const caret = title.lastElementChild;
         if (caret) {
-            caret.textContent = panel.classList.contains("mdpeek-collapsed") ? "▸" : "▾";
+            caret.textContent = frontmatterCollapsed ? "▸" : "▾";
         }
     });
 
@@ -291,15 +313,203 @@ function initializeFrontmatter() {
 
     panel.appendChild(title);
     panel.appendChild(pre);
+
+    // Restore collapse state carried over from a previous render.
+    if (frontmatterCollapsed) {
+        panel.classList.add("mdpeek-collapsed");
+        title.lastElementChild.textContent = "▸";
+    }
+
     document.body.appendChild(panel);
 }
 
+// Initial front matter comes from a hidden element the server injects.
+function initializeFrontmatter() {
+    const source = document.getElementById("mdpeek-frontmatter");
+    buildFrontmatterPanel(source ? source.textContent : "");
+}
+
+// ---------------------------------------------------------------------------
+// Live update (#16): patch changed blocks in place instead of full-reloading.
+// ---------------------------------------------------------------------------
+
+const MDPEEK_AUTOSCROLL_KEY = "mdpeek-autoscroll";
+
+// Clean (pre-highlight) HTML of the last rendered body. We diff server HTML
+// against this snapshot rather than the live DOM, whose blocks get mutated by
+// highlight.js / mermaid / MathJax after rendering.
+let lastBodyHTML = "";
+
+function autoScrollEnabled() {
+    return localStorage.getItem(MDPEEK_AUTOSCROLL_KEY) === "1";
+}
+
+function parseFragment(html) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    return tmp;
+}
+
+// Re-run syntax highlighting on freshly inserted blocks only.
+function highlightWithin(nodes) {
+    if (!window.hljs) {
+        return;
+    }
+    nodes.forEach(function (node) {
+        if (!node.querySelectorAll) {
+            return;
+        }
+        node.querySelectorAll("pre code").forEach(function (block) {
+            if (
+                block.classList.contains("language-mermaid") ||
+                block.classList.contains("language-math")
+            ) {
+                return;
+            }
+            window.hljs.highlightElement(block);
+        });
+    });
+}
+
+function mermaidWithin(nodes) {
+    if (!window.mermaid) {
+        return;
+    }
+    const els = [];
+    nodes.forEach(function (node) {
+        if (!node.querySelectorAll) {
+            return;
+        }
+        node.querySelectorAll("code.language-mermaid").forEach(function (el) {
+            els.push(el);
+        });
+    });
+    if (els.length) {
+        try {
+            window.mermaid.run({ nodes: els });
+        } catch (e) {
+            console.log("mermaid update error", e);
+        }
+    }
+}
+
+function typesetWithin(nodes) {
+    if (window.MathJax && typeof window.MathJax.typesetPromise === "function") {
+        window.MathJax.typesetPromise(nodes).catch(function (e) {
+            console.log("MathJax update error", e);
+        });
+    }
+}
+
+// Briefly highlight changed blocks with a fading background.
+function flashChanged(nodes) {
+    nodes.forEach(function (node) {
+        if (!node.classList) {
+            return;
+        }
+        node.classList.remove("mdpeek-changed");
+        // Force reflow so re-adding the class restarts the animation.
+        void node.offsetWidth;
+        node.classList.add("mdpeek-changed");
+        setTimeout(function () {
+            node.classList.remove("mdpeek-changed");
+        }, 1600);
+    });
+}
+
+// Diff the new body against the last clean snapshot and patch only the changed
+// top-level blocks into the live article. Returns the newly inserted nodes.
+function patchArticle(article, newHTML) {
+    const oldClean = Array.from(parseFragment(lastBodyHTML).children).map(function (e) {
+        return e.outerHTML;
+    });
+    const newNodes = Array.from(parseFragment(newHTML).children);
+    const newClean = newNodes.map(function (e) {
+        return e.outerHTML;
+    });
+
+    // If the live block count drifted from our snapshot (unexpected external
+    // mutation), fall back to a full replace to stay correct.
+    if (article.children.length !== oldClean.length) {
+        article.innerHTML = newHTML;
+        return Array.from(article.children);
+    }
+
+    const n = oldClean.length;
+    const m = newClean.length;
+    let a = 0;
+    while (a < n && a < m && oldClean[a] === newClean[a]) {
+        a++;
+    }
+    let bOld = n - 1;
+    let bNew = m - 1;
+    while (bOld >= a && bNew >= a && oldClean[bOld] === newClean[bNew]) {
+        bOld--;
+        bNew--;
+    }
+
+    const live = Array.from(article.children);
+    const ref = live[bOld + 1] || null;
+    for (let i = a; i <= bOld; i++) {
+        article.removeChild(live[i]);
+    }
+    const changed = [];
+    for (let i = a; i <= bNew; i++) {
+        article.insertBefore(newNodes[i], ref);
+        changed.push(newNodes[i]);
+    }
+    return changed;
+}
+
+function applyUpdate(newHTML, frontmatter) {
+    const article = document.querySelector(".markdown-body");
+    if (!article) {
+        return;
+    }
+    const changed = patchArticle(article, newHTML);
+    lastBodyHTML = newHTML;
+
+    highlightWithin(changed);
+    mermaidWithin(changed);
+    typesetWithin(changed);
+    initializeOutline();
+    buildFrontmatterPanel(frontmatter);
+    flashChanged(changed);
+
+    if (changed.length && autoScrollEnabled()) {
+        changed[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+}
+
+// Toolbar toggle for "scroll to first change on update".
+function initializeAutoScrollToggle() {
+    const btn = document.getElementById("mdpeek-autoscroll-toggle");
+    if (!btn) {
+        return;
+    }
+    function sync() {
+        const on = autoScrollEnabled();
+        btn.classList.toggle("mdpeek-active", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    sync();
+    btn.addEventListener("click", function () {
+        localStorage.setItem(MDPEEK_AUTOSCROLL_KEY, autoScrollEnabled() ? "0" : "1");
+        sync();
+    });
+}
+
 (function() {
+    const article = document.querySelector(".markdown-body");
+    // Snapshot the clean server HTML before highlight/mermaid mutate the DOM.
+    lastBodyHTML = article ? article.innerHTML : "";
+
     initializeTheme();
     initializeMermaid();
     initializeHighlight();
     initializeOutline();
     initializeFrontmatter();
+    initializeAutoScrollToggle();
     // initializeMathJax();
 
     var RECONNECT_INTERVAL_MS = 3000;
@@ -319,10 +529,19 @@ function initializeFrontmatter() {
         };
 
         socket.onmessage = function(event) {
-            console.log("WebSocket message: " + event.data);
-            if (event.data === "reload") {
-                socket.close();
-                window.location.reload();
+            var msg;
+            try {
+                msg = JSON.parse(event.data);
+            } catch (e) {
+                // Backwards-compatible full reload for the old "reload" signal.
+                if (event.data === "reload") {
+                    socket.close();
+                    window.location.reload();
+                }
+                return;
+            }
+            if (msg && msg.type === "update") {
+                applyUpdate(msg.html, msg.frontmatter);
             }
         };
 
