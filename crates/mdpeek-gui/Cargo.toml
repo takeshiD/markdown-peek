@@ -8,6 +8,7 @@ license-file = "../../LICENSE"
 description = "Layer 3 Generative-UI core (UI IR + generators + cache) for markdown-peek"
 
 [dependencies]
+mdpeek-analyzer = { path = "../mdpeek-analyzer" }
 mdpeek-gfm = { path = "../mdpeek-gfm" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

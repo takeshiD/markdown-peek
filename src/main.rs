@@ -69,7 +69,9 @@ fn handle_gen(
     } else {
         Some(std::path::Path::new("."))
     };
-    let json = mdpeek_gui::generate_json(&markdown, cache_root, llm.as_ref())?;
+    // Filename sharpens Layer 2 document-type inference (e.g. README.md).
+    let filename = root.file_name().and_then(|n| n.to_str());
+    let json = mdpeek_gui::generate_json(&markdown, filename, cache_root, llm.as_ref())?;
     println!("{json}");
     Ok(())
 }

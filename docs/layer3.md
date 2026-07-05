@@ -17,7 +17,8 @@ to the `parser` / `analyzer` / `model` areas that Layer 1 / 2 own.
 | §1 sourceRange | `src/ir/range.rs` | ✅ `SourceRange` + `LineIndex` (byte offset → line/col) |
 | §3.5 / §8 allowlist | `src/ir/registry.rs` | ✅ 2-layer allowlist (core + domain) |
 | §3.5 validation | `src/ir/validate.rs` | ✅ schema (serde) + allowlist + sourceRange bounds + low-confidence flagging |
-| §3.4 generator | `src/generator/rules.rs` | ✅ `RulesGenerator`: task lists→`Checklist`, tables→`DataTable`, mermaid→`Diagram`, json/yaml/toml/env→`ConfigViewer`, GFM alerts→`Callout` |
+| §3.4 generator | `crates/mdpeek-gui/src/generator/rules.rs` | ✅ `RulesGenerator` (structural): task lists→`Checklist`, tables→`DataTable`, mermaid→`Diagram`, json/yaml/toml/env→`ConfigViewer`, GFM alerts→`Callout` |
+| §3.3 / §9 planner + Layer 2 | `crates/mdpeek-gui/src/planner` | ✅ consumes `mdpeek_analyzer::analyze` (DocumentModel + SemanticPanel); doctype-aware semantic nodes: risks→`RiskPanel`, open questions→`Checklist`, DesignDoc/Readme→missing-section review `Checklist`, Adr/Changelog/Minutes→`Timeline` |
 | §7 LLM | `src/generator/llm/` | ✅ 3 backends: `claude_code` (`claude` CLI) + `codex` (`codex` CLI) in the default build, `anthropic_api` (HTTP) behind `feature = "llm"`; model + effort per backend; validates output; rules fallback |
 | §6 cache | `src/cache/` | ✅ content-hash key (markdown + generator + schema version) + `.cache/mdpeek/*.gui.json` store |
 | §1 pipeline | `src/gui.rs` | ✅ generate → validate → cache facade (rules or LLM) |
@@ -39,10 +40,10 @@ integration) and `cd web && npm run build` (tsc + vite) all pass.
 These Layer 3 items depend on other layers' outputs, so they are left as clean
 integration points:
 
-- **Layer 2 `DocumentModel` / `planner`.** `generator::traits::GenInput` is a
-  lightweight stand-in (raw markdown + `DocType` hint). When Layer 2 lands,
-  `GenInput` becomes a thin adapter over `DocumentModel` — the `Generator`
-  contract (`-> Vec<UiNode>`) and everything downstream are unchanged.
+- **Deeper Layer 2 use.** The planner now consumes `mdpeek_analyzer::analyze`
+  for doctype-aware nodes (risks, open questions, review checklist, timeline).
+  Still to do: block-class-driven `Tabs` (group content by section), ADR
+  decision graphs, and richer per-doctype layouts (§9 tables).
 - **`ts-rs` auto-generation of `ir.ts`.** Needs the workspace split; `ir.ts` is
   hand-kept in lockstep meanwhile.
 - **#16 live diff regeneration.** Depends on the watcher channelization from

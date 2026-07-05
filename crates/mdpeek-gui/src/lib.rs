@@ -14,6 +14,7 @@
 pub mod cache;
 pub mod generator;
 pub mod ir;
+pub mod planner;
 
 use std::path::Path;
 
@@ -24,28 +25,41 @@ use crate::generator::llm::LlmBackendConfig;
 use crate::generator::{GenInput, Generator, RulesGenerator};
 use crate::ir::{LineIndex, UiNode, validate_nodes};
 
-/// Generate validated UI IR for `markdown`, using the on-disk cache under
-/// `cache_root` when provided. Uses the deterministic [`RulesGenerator`].
-pub fn generate(markdown: &str, cache_root: Option<&Path>) -> Result<GuiCacheEntry> {
+/// Generate validated UI IR for `markdown`. `filename` (when known) sharpens
+/// Layer 2's document-type inference. Uses the on-disk cache under `cache_root`
+/// when provided, and the deterministic [`RulesGenerator`] + [`planner`].
+pub fn generate(
+    markdown: &str,
+    filename: Option<&str>,
+    cache_root: Option<&Path>,
+) -> Result<GuiCacheEntry> {
     let generator = RulesGenerator;
     let model_id = generator.model_id();
 
-    // Cache hit?
+    // Cache hit? (Key includes the filename since it affects doctype/output.)
     if let Some(root) = cache_root
-        && let Some(entry) = CacheStore::new(root).get(markdown, &model_id)
+        && let Some(entry) = CacheStore::new(root).get(markdown, &model_id, filename)
     {
         return Ok(entry);
     }
 
-    // Generate → validate (the security boundary).
+    // 1. Structural nodes (task lists / tables / diagrams / config / callouts).
     let mut nodes: Vec<UiNode> = generator
         .generate(&GenInput::new(markdown))
         .context("rules generation failed")?;
+
+    // 2. Layer 2 semantic analysis → document-type-aware nodes (risks, open
+    //    questions, review checklist, timeline).
+    let analysis = mdpeek_analyzer::analyze(markdown, filename);
+    nodes.extend(planner::plan(&analysis));
+    let doc_type = format!("{:?}", analysis.model.doc_type.value);
+
+    // 3. Validate everything (the security boundary).
     let total_lines = LineIndex::new(markdown).line_count();
     validate_nodes(&mut nodes, total_lines).context("generated IR failed validation")?;
 
-    let hash = content_hash(markdown, &model_id);
-    let entry = GuiCacheEntry::new("generic".to_string(), nodes, model_id, hash);
+    let hash = content_hash(markdown, &model_id, filename);
+    let entry = GuiCacheEntry::new(doc_type, nodes, model_id, hash);
 
     // Best-effort persist; a cache write failure must not fail the request.
     if let Some(root) = cache_root {
@@ -61,6 +75,7 @@ pub fn generate(markdown: &str, cache_root: Option<&Path>) -> Result<GuiCacheEnt
 /// cache keyed by the backend's model id.
 pub fn generate_with_llm(
     markdown: &str,
+    filename: Option<&str>,
     cache_root: Option<&Path>,
     backend: &LlmBackendConfig,
 ) -> Result<GuiCacheEntry> {
@@ -68,13 +83,13 @@ pub fn generate_with_llm(
         Ok(g) => g,
         Err(e) => {
             eprintln!("mdpeek: LLM backend unavailable ({e}); using rules");
-            return generate(markdown, cache_root);
+            return generate(markdown, filename, cache_root);
         }
     };
     let model_id = generator.model_id();
 
     if let Some(root) = cache_root
-        && let Some(entry) = CacheStore::new(root).get(markdown, &model_id)
+        && let Some(entry) = CacheStore::new(root).get(markdown, &model_id, filename)
     {
         return Ok(entry);
     }
@@ -88,12 +103,19 @@ pub fn generate_with_llm(
         }
         Err(e) => {
             eprintln!("mdpeek: LLM generation failed ({e}); falling back to rules");
-            return generate(markdown, cache_root);
+            return generate(markdown, filename, cache_root);
         }
     };
 
-    let hash = content_hash(markdown, &model_id);
-    let entry = GuiCacheEntry::new("generic".to_string(), nodes, model_id, hash);
+    let doc_type = format!(
+        "{:?}",
+        mdpeek_analyzer::analyze(markdown, filename)
+            .model
+            .doc_type
+            .value
+    );
+    let hash = content_hash(markdown, &model_id, filename);
+    let entry = GuiCacheEntry::new(doc_type, nodes, model_id, hash);
     if let Some(root) = cache_root {
         let _ = CacheStore::new(root).put(&entry);
     }
@@ -104,12 +126,13 @@ pub fn generate_with_llm(
 /// `backend` is `Some`, uses the configured LLM; otherwise rules only.
 pub fn generate_json(
     markdown: &str,
+    filename: Option<&str>,
     cache_root: Option<&Path>,
     backend: Option<&LlmBackendConfig>,
 ) -> Result<String> {
     let entry = match backend {
-        Some(b) => generate_with_llm(markdown, cache_root, b)?,
-        None => generate(markdown, cache_root)?,
+        Some(b) => generate_with_llm(markdown, filename, cache_root, b)?,
+        None => generate(markdown, filename, cache_root)?,
     };
     serde_json::to_string_pretty(&entry.ui_ir).context("serializing UI IR")
 }
@@ -122,10 +145,10 @@ mod tests {
     fn end_to_end_generates_and_caches() {
         let tmp = tempfile::tempdir().unwrap();
         let md = "## Tasks\n\n- [ ] a\n- [x] b\n\n> [!WARNING]\n> danger\n";
-        let first = generate(md, Some(tmp.path())).unwrap();
+        let first = generate(md, None, Some(tmp.path())).unwrap();
         assert!(!first.ui_ir.is_empty());
         // Second call must hit the cache (same content_hash written to disk).
-        let second = generate(md, Some(tmp.path())).unwrap();
+        let second = generate(md, None, Some(tmp.path())).unwrap();
         assert_eq!(first.content_hash, second.content_hash);
         assert_eq!(first.ui_ir.len(), second.ui_ir.len());
     }
@@ -133,7 +156,25 @@ mod tests {
     #[test]
     fn produces_valid_json() {
         let md = "| a | b |\n|---|---|\n| 1 | 2 |\n";
-        let json = generate_json(md, None, None).unwrap();
+        let json = generate_json(md, None, None, None).unwrap();
         assert!(json.contains("DataTable"));
+    }
+
+    #[test]
+    fn design_doc_adds_semantic_nodes() {
+        // Overview + Architecture + Risks give the analyser enough signal to
+        // classify this as a design doc.
+        let md = "# Design\n\n## Overview\n\nWhat.\n\n## Architecture\n\nHow.\n\n\
+                  ## Risks\n\nMay overheat.\n";
+        let entry = generate(md, Some("DESIGN.md"), None).unwrap();
+        let kinds: Vec<&str> = entry.ui_ir.iter().map(|n| n.kind()).collect();
+        // Layer 2 risk extraction surfaces as a RiskPanel (a kind rules alone
+        // never produced).
+        assert!(kinds.contains(&"RiskPanel"), "kinds: {kinds:?}");
+        assert!(
+            entry.document_type.contains("DesignDoc"),
+            "doc_type was {}",
+            entry.document_type
+        );
     }
 }

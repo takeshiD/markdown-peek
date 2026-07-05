@@ -1418,6 +1418,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "mdpeek-analyzer",
  "mdpeek-gfm",
  "pulldown-cmark",
  "reqwest",

@@ -322,12 +322,20 @@ async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
     let started = std::time::Instant::now();
     let llm = (*state.llm).clone();
     let md_for_task = markdown.clone();
+    // Filename sharpens Layer 2 document-type inference (e.g. README.md).
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::to_string);
     let result = tokio::task::spawn_blocking(move || {
         // Cache under the cwd's `.cache/mdpeek/`, matching `mdpeek gen`.
         let cache_root = Some(Path::new("."));
+        let filename = filename.as_deref();
         match &llm {
-            Some(backend) => mdpeek_gui::generate_with_llm(&md_for_task, cache_root, backend),
-            None => mdpeek_gui::generate(&md_for_task, cache_root),
+            Some(backend) => {
+                mdpeek_gui::generate_with_llm(&md_for_task, filename, cache_root, backend)
+            }
+            None => mdpeek_gui::generate(&md_for_task, filename, cache_root),
         }
     })
     .await;
