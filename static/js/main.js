@@ -678,11 +678,9 @@ function buildSidebar(data) {
 
     const header = document.createElement("div");
     header.id = "mdpeek-sidebar-header";
-    const heading = document.createElement("span");
-    heading.textContent = "Files";
-    header.appendChild(heading);
 
-    // Group-by switch: worktree directory name vs. checked-out branch.
+    // Group-by switch (worktree directory name vs. checked-out branch) sits at
+    // the header's left; the sidebar toggle floats at the top-right.
     const groupToggle = document.createElement("button");
     groupToggle.type = "button";
     groupToggle.id = "mdpeek-groupby-toggle";

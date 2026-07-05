@@ -1372,7 +1372,6 @@
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(31, 35, 40, 0.12);
   z-index: 61;
-  transition: left 0.15s ease;
 }
 #mdpeek-sidebar-toggle:hover { background-color: #f6f8fa; }
 #mdpeek-sidebar-toggle svg { width: 18px; height: 18px; display: block; }
@@ -1419,10 +1418,10 @@ body.mdpeek-sidebar-open #mdpeek-sidebar { display: block; }
 body.mdpeek-sidebar-open { padding-left: 280px; }
 #mdpeek-sidebar-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-weight: 600;
   margin-bottom: 10px;
+  min-height: 28px;
+  padding-right: 40px; /* clear the sidebar toggle floating at the top-right */
 }
 #mdpeek-groupby-toggle {
   font-size: 11px;
@@ -1457,8 +1456,6 @@ body.mdpeek-sidebar-open { padding-left: 280px; }
   background-color: #ddf4ff;
   color: #0969da;
   font-weight: 600;
-  border-left: 3px solid #0969da;
-  padding-left: 3px;
 }
 .mdpeek-file-row { display: flex; align-items: center; }
 .mdpeek-file-row a { flex: 1; min-width: 0; }
