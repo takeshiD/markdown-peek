@@ -72,7 +72,8 @@ model = "claude-sonnet-5"
 #   codex        -> `-c model_reasoning_effort="<effort>"`
 #   claude_code  -> thinking keyword appended to the prompt (medium=think,
 #                   high=ultrathink; low adds nothing)
-#   anthropic_api-> currently advisory only
+#   anthropic_api-> `output_config.effort` on the Messages API (needs a model
+#                   that supports effort, e.g. sonnet/opus — not Haiku 4.5)
 effort = "medium"
 
 # Override for a single run from the CLI, without editing this file:

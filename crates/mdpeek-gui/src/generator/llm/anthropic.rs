@@ -12,7 +12,7 @@
 
 use anyhow::{Context, Result};
 
-use super::prompt;
+use super::{Effort, prompt};
 use crate::generator::traits::{GenInput, Generator};
 use crate::ir::{LineIndex, UiNode, validate_json};
 
@@ -23,16 +23,17 @@ const DEFAULT_MODEL: &str = "claude-sonnet-5";
 
 pub struct AnthropicApiGenerator {
     model: String,
+    effort: Option<Effort>,
 }
 
 impl AnthropicApiGenerator {
-    /// Create with an explicit model, or `None` to use `MDPEEK_LLM_MODEL` /
-    /// the built-in default.
-    pub fn new(model: Option<String>) -> Self {
+    /// Create with an explicit model (or `None` → `MDPEEK_LLM_MODEL` / default)
+    /// and an optional reasoning `effort`.
+    pub fn new(model: Option<String>, effort: Option<Effort>) -> Self {
         let model = model
             .or_else(|| std::env::var("MDPEEK_LLM_MODEL").ok())
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        AnthropicApiGenerator { model }
+        AnthropicApiGenerator { model, effort }
     }
 
     /// Generate UI IR via the Anthropic API, validating the result. Falls back
@@ -46,7 +47,7 @@ impl AnthropicApiGenerator {
 
         let total_lines = LineIndex::new(input.markdown).line_count();
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.model,
             "max_tokens": 4096,
             "system": prompt::system_prompt(),
@@ -55,6 +56,13 @@ impl AnthropicApiGenerator {
                 "content": prompt::user_prompt(input.markdown, &[]),
             }],
         });
+        // Reasoning effort (GA `output_config.effort`, no beta header). Values
+        // low|medium|high map 1:1 from our Effort enum. Supported on Opus 4.5+,
+        // Sonnet 4.6/5; a model without effort support (e.g. Haiku 4.5) returns
+        // a 400, surfaced to the caller and handled by the rules fallback.
+        if let Some(effort) = self.effort {
+            body["output_config"] = serde_json::json!({ "effort": effort.as_str() });
+        }
 
         let client = reqwest::Client::new();
         let resp = client
@@ -93,6 +101,10 @@ impl Generator for AnthropicApiGenerator {
     }
 
     fn model_id(&self) -> String {
-        format!("anthropic-{}", self.model)
+        // effort affects output, so it participates in the cache key.
+        match self.effort {
+            Some(e) => format!("anthropic-{}-{}", self.model, e.as_str()),
+            None => format!("anthropic-{}", self.model),
+        }
     }
 }

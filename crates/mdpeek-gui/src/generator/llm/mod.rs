@@ -120,6 +120,7 @@ impl LlmBackendConfig {
                 {
                     Ok(Box::new(anthropic::AnthropicApiGenerator::new(
                         self.model.clone(),
+                        self.effort,
                     )))
                 }
                 #[cfg(not(feature = "llm"))]
