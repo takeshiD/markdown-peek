@@ -1397,14 +1397,15 @@ body.mdpeek-sidebar-open #mdpeek-sidebar-toggle:hover { background-color: #eaeef
 body.mdpeek-toc-user-visible #mdpeek-toc { display: block; }
 body.mdpeek-toc-user-hidden #mdpeek-toc { display: none; }
 
-/* Explorer sidebar (#14) */
+/* Explorer sidebar (#14): a fixed header row (grouping + toggle, no scrollbar)
+   above a scrolling file list. */
 #mdpeek-sidebar {
   position: fixed;
   top: 0;
   left: 0;
   width: 280px;
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 16px 12px;
   box-sizing: border-box;
   font-size: 13px;
@@ -1413,9 +1414,11 @@ body.mdpeek-toc-user-hidden #mdpeek-toc { display: none; }
   border-right: 1px solid #d1d9e0;
   z-index: 55;
   display: none;
+  flex-direction: column;
 }
-body.mdpeek-sidebar-open #mdpeek-sidebar { display: block; }
+body.mdpeek-sidebar-open #mdpeek-sidebar { display: flex; }
 body.mdpeek-sidebar-open { padding-left: 280px; }
+#mdpeek-sidebar-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 #mdpeek-sidebar-header {
   display: flex;
   align-items: center;

@@ -695,6 +695,10 @@ function buildSidebar(data) {
     header.appendChild(groupToggle);
     aside.appendChild(header);
 
+    // The file list scrolls independently of the header row.
+    const content = document.createElement("div");
+    content.id = "mdpeek-sidebar-content";
+
     tree.groups.forEach(function (group) {
         if (!group.files || !group.files.length) {
             return;
@@ -740,9 +744,10 @@ function buildSidebar(data) {
             ul.appendChild(li);
         });
         section.appendChild(ul);
-        aside.appendChild(section);
+        content.appendChild(section);
     });
 
+    aside.appendChild(content);
     document.body.appendChild(aside);
     updateBreadcrumb();
 }
