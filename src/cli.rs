@@ -23,6 +23,10 @@ pub struct Cli {
     /// Watch for file changes and re-render (term mode only; serve always watches)
     #[arg(short = 'w', long = "watch", global = true)]
     pub watch: bool,
+    /// Disable watch/live mode for `term` (one-shot render). `term` watches by
+    /// default when stdout is a TTY.
+    #[arg(long = "no-watch", global = true)]
+    pub no_watch: bool,
     /// Path to a config file (overrides the default XDG location)
     #[arg(short = 'c', long = "config", value_name = "FILE", global = true)]
     pub config: Option<PathBuf>,
@@ -110,6 +114,16 @@ impl Cli {
         let browser_theme = config.server.theme.unwrap_or(BrowserTheme::Light);
         let pager = config.term.pager.clone();
 
+        // `term` watches (interactive TUI) by default on a TTY; `--no-watch`
+        // forces a one-shot render and `-w` forces watching (e.g. over a pipe).
+        let term_watch = if self.no_watch {
+            false
+        } else if self.watch {
+            true
+        } else {
+            std::io::stdout().is_terminal()
+        };
+
         match self.command {
             Some(Commands::Serve(arg)) => Ok(Mode::Serve {
                 file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
@@ -127,7 +141,7 @@ impl Cli {
             }),
             Some(Commands::Term(arg)) => Ok(Mode::Term {
                 file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
-                watch: self.watch,
+                watch: term_watch,
                 theme: arg.theme.or(config.term.theme).unwrap_or(ThemeChoice::Glow),
                 pager,
             }),
@@ -159,7 +173,7 @@ impl Cli {
                     }),
                     DefaultMode::Term => Ok(Mode::Term {
                         file: root,
-                        watch: self.watch,
+                        watch: term_watch,
                         theme: config.term.theme.unwrap_or(ThemeChoice::Glow),
                         pager,
                     }),

@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod tui;
 
 use crate::cli::{Cli, Mode, ThemeChoice};
 use crate::config::{BrowserTheme, Config};
@@ -46,14 +47,15 @@ fn handle_serve(root: PathBuf, host: String, port: String, theme: BrowserTheme) 
         BrowserTheme::Light => mdpeek_server::Theme::Light,
         BrowserTheme::Dark => mdpeek_server::Theme::Dark,
     };
-    if root.exists() {
-        serve(root, host, port, theme);
-    } else {
-        error!("'{}' is not found.", root.display());
-    }
+    // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
+    // picks a valid active file, so we hand off even when `root` doesn't exist
+    // (e.g. the default README.md is absent) rather than bailing out here.
+    serve(root, host, port, theme);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {
+    use std::io::IsTerminal;
+
     init_tracing();
     if !root.exists() {
         error!("'{}' is not found.", root.display());
@@ -63,6 +65,16 @@ fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<Str
         error!("'{}' is not a file.", root.display());
         return;
     }
+
+    // Interactive live viewer: only when watching AND stdout is a real TTY.
+    // Piped/redirected stdout falls through to the clear+reprint loop below.
+    if watch && std::io::stdout().is_terminal() {
+        if let Err(e) = tui::run_tui(root.clone(), theme) {
+            error!("TUI viewer error: {e}");
+        }
+        return;
+    }
+
     match render_term(&root, theme) {
         Ok(rendered) => {
             if watch {

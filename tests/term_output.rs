@@ -83,9 +83,7 @@ fn term_list_items_present() {
 #[test]
 fn term_code_block_present() {
     let (assert, _tmp) = run_term(sample_markdown());
-    assert
-        .success()
-        .stdout(predicate::str::contains("fn main"));
+    assert.success().stdout(predicate::str::contains("fn main"));
 }
 
 /// テーブルのセル内容（Alice, Bob）が stdout に含まれること
@@ -103,9 +101,9 @@ fn term_table_cells_present() {
 fn term_tasklist_marker_present() {
     let (assert, _tmp) = run_term(sample_markdown());
     // チェック済みは [✓] または [x] として出力される
-    assert.success().stdout(
-        predicate::str::contains("[✓]").or(predicate::str::contains("[x]")),
-    );
+    assert
+        .success()
+        .stdout(predicate::str::contains("[✓]").or(predicate::str::contains("[x]")));
 }
 
 /// 段落テキストが出力に含まれること

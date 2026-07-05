@@ -234,6 +234,21 @@ impl BlockTree {
         self.iter().find(|b| b.id == id)
     }
 
+    /// Returns the raw front matter text (YAML / `+++`) if the document opens
+    /// with a metadata block. The delimiters themselves are not included — this
+    /// is the body captured by `pulldown_cmark`. Used by the viewer's front
+    /// matter panel (#19).
+    pub fn frontmatter(&self) -> Option<&str> {
+        match self.blocks.first() {
+            Some(Block {
+                kind: BlockKind::MetadataBlock,
+                text,
+                ..
+            }) => Some(text.as_str()),
+            _ => None,
+        }
+    }
+
     /// Builds the heading hierarchy (nested by heading level) for outline / TOC
     /// panels. Headings deeper than a preceding shallower heading become its
     /// children; e.g. an `H3` after an `H2` nests under it.
@@ -634,6 +649,21 @@ mod tests {
         let tree = BlockTree::parse(src);
         assert_eq!(tree.blocks[0].kind, BlockKind::MetadataBlock);
         assert!(tree.blocks[0].text.contains("title"));
+    }
+
+    #[test]
+    fn frontmatter_returns_leading_metadata_text() {
+        let src = "---\ntitle: Doc\nauthor: me\n---\n\n# Heading\n";
+        let tree = BlockTree::parse(src);
+        let fm = tree.frontmatter().expect("frontmatter present");
+        assert!(fm.contains("title: Doc"));
+        assert!(fm.contains("author: me"));
+    }
+
+    #[test]
+    fn frontmatter_absent_without_metadata_block() {
+        let tree = BlockTree::parse("# Heading\n\nbody\n");
+        assert!(tree.frontmatter().is_none());
     }
 
     #[test]
