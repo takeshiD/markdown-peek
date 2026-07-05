@@ -559,6 +559,146 @@ function initializeAutoScrollToggle() {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Repository + worktree explorer sidebar (#14).
+// ---------------------------------------------------------------------------
+
+const MDPEEK_SIDEBAR_KEY = "mdpeek-sidebar-open";
+const MDPEEK_GROUPBY_KEY = "mdpeek-tree-groupby"; // "worktree" | "branch"
+
+function sidebarGroupBy() {
+    return localStorage.getItem(MDPEEK_GROUPBY_KEY) === "branch" ? "branch" : "worktree";
+}
+
+function applySidebarVisibility() {
+    const open = localStorage.getItem(MDPEEK_SIDEBAR_KEY) === "1";
+    document.body.classList.toggle("mdpeek-sidebar-open", open);
+    const btn = document.getElementById("mdpeek-sidebar-toggle");
+    if (btn) {
+        btn.classList.toggle("mdpeek-active", open);
+        btn.setAttribute("aria-pressed", open ? "true" : "false");
+    }
+}
+
+function selectFile(path, linkEl) {
+    fetch("/api/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: path }),
+    }).then(function (r) {
+        if (!r.ok) {
+            console.log("select rejected", r.status);
+            return;
+        }
+        // The server pushes a live update over the WebSocket; just move the
+        // active marker here.
+        document.querySelectorAll("#mdpeek-sidebar a.mdpeek-file-active").forEach(function (a) {
+            a.classList.remove("mdpeek-file-active");
+        });
+        if (linkEl) {
+            linkEl.classList.add("mdpeek-file-active");
+        }
+    }).catch(function (e) {
+        console.log("select error", e);
+    });
+}
+
+function buildSidebar(data) {
+    const tree = data && data.tree;
+    const btn = document.getElementById("mdpeek-sidebar-toggle");
+    const hasFiles = tree && tree.groups && tree.groups.some(function (g) {
+        return g.files && g.files.length;
+    });
+    if (!hasFiles) {
+        if (btn) {
+            btn.hidden = true;
+        }
+        return;
+    }
+    if (btn) {
+        btn.hidden = false;
+    }
+
+    const existing = document.getElementById("mdpeek-sidebar");
+    if (existing) {
+        existing.remove();
+    }
+
+    const groupBy = sidebarGroupBy();
+    const aside = document.createElement("aside");
+    aside.id = "mdpeek-sidebar";
+
+    const header = document.createElement("div");
+    header.id = "mdpeek-sidebar-header";
+    const heading = document.createElement("span");
+    heading.textContent = "Files";
+    header.appendChild(heading);
+
+    // Group-by switch: worktree directory name vs. checked-out branch.
+    const groupToggle = document.createElement("button");
+    groupToggle.type = "button";
+    groupToggle.id = "mdpeek-groupby-toggle";
+    groupToggle.textContent = groupBy === "branch" ? "by branch" : "by worktree";
+    groupToggle.title = "Switch grouping (worktree / branch)";
+    groupToggle.addEventListener("click", function () {
+        localStorage.setItem(MDPEEK_GROUPBY_KEY, groupBy === "branch" ? "worktree" : "branch");
+        buildSidebar(data);
+    });
+    header.appendChild(groupToggle);
+    aside.appendChild(header);
+
+    tree.groups.forEach(function (group) {
+        if (!group.files || !group.files.length) {
+            return;
+        }
+        const section = document.createElement("div");
+        section.className = "mdpeek-sidebar-group";
+        const label = document.createElement("div");
+        label.className = "mdpeek-sidebar-group-title";
+        const branchLabel = group.branch || group.name;
+        label.textContent = groupBy === "branch" ? branchLabel : group.name;
+        section.appendChild(label);
+
+        const ul = document.createElement("ul");
+        group.files.forEach(function (file) {
+            const li = document.createElement("li");
+            const a = document.createElement("a");
+            a.href = "#";
+            a.textContent = file.rel;
+            a.title = file.path;
+            if (data.active && file.path === data.active) {
+                a.classList.add("mdpeek-file-active");
+            }
+            a.addEventListener("click", function (event) {
+                event.preventDefault();
+                selectFile(file.path, a);
+            });
+            li.appendChild(a);
+            ul.appendChild(li);
+        });
+        section.appendChild(ul);
+        aside.appendChild(section);
+    });
+
+    document.body.appendChild(aside);
+}
+
+function initializeSidebar() {
+    const btn = document.getElementById("mdpeek-sidebar-toggle");
+    if (btn) {
+        btn.addEventListener("click", function () {
+            const open = localStorage.getItem(MDPEEK_SIDEBAR_KEY) === "1";
+            localStorage.setItem(MDPEEK_SIDEBAR_KEY, open ? "0" : "1");
+            applySidebarVisibility();
+        });
+    }
+    applySidebarVisibility();
+    fetch("/api/tree")
+        .then(function (r) { return r.json(); })
+        .then(function (data) { buildSidebar(data); })
+        .catch(function (e) { console.log("tree fetch failed", e); });
+}
+
 (function() {
     const article = document.querySelector(".markdown-body");
     // Snapshot the clean server HTML before highlight/mermaid mutate the DOM.
@@ -571,6 +711,7 @@ function initializeAutoScrollToggle() {
     initializeFrontmatter();
     initializeTocToggle();
     initializeAutoScrollToggle();
+    initializeSidebar();
     // initializeMathJax();
 
     var RECONNECT_INTERVAL_MS = 3000;

@@ -1,6 +1,8 @@
+mod explorer;
+
 use anyhow::Result;
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     extract::{
         Path as AxumPath, State,
@@ -8,25 +10,34 @@ use axum::{
     },
     http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use core::fmt;
 use futures::{SinkExt, StreamExt};
 use pulldown_cmark::Parser;
-use std::path::PathBuf;
+use serde::Deserialize;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender as StdSender;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use mdpeek_render_html::HtmlEmitter;
-use mdpeek_watcher::notify_on_change;
+use mdpeek_watcher::watch_channel;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct AppState {
     tx: broadcast::Sender<Message>,
     file_path: Arc<RwLock<PathBuf>>,
     theme: Arc<RwLock<Theme>>,
+    /// Canonical roots a selected file must live under (#14 path safety).
+    roots: Arc<Vec<PathBuf>>,
+    /// Directory discovery starts from when (re)building the explorer tree.
+    scan_root: Arc<PathBuf>,
+    /// Tells the watch loop to re-point at a newly selected file.
+    rewatch: StdSender<PathBuf>,
 }
 
 /// Browser colour theme selected for the served page. The caller (the `mdpeek`
@@ -48,37 +59,69 @@ impl fmt::Display for Theme {
 }
 
 pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
+    // Discover the enclosing repo/worktrees from where the user ran mdpeek so
+    // the explorer sidebar (#14) works regardless of the file argument.
+    let scan_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let roots = explorer::allowed_roots(&scan_root);
+    // Pick the initial file: the given one if readable, else the first markdown
+    // discovered under the repo, else fall back to the requested path.
+    let active = explorer::initial_active(&watch_path, &scan_root).unwrap_or(watch_path);
+
     let (tx, _) = broadcast::channel::<Message>(16);
-    let file_path = Arc::new(RwLock::new(watch_path.clone()));
+    let file_path = Arc::new(RwLock::new(active.clone()));
     let theme = Arc::new(RwLock::new(theme));
+    let (rewatch_tx, rewatch_rx) = std::sync::mpsc::channel::<PathBuf>();
     let state = AppState {
         tx: tx.clone(),
         file_path: Arc::clone(&file_path),
         theme: Arc::clone(&theme),
+        roots: Arc::new(roots),
+        scan_root: Arc::new(scan_root),
+        rewatch: rewatch_tx,
     };
     let server = std::thread::spawn(move || run_server(state, host, port));
-    // On each change, re-render the active file and push a block-diff update
-    // (issue #16): the client patches the changed blocks in place and keeps its
-    // scroll position instead of doing a full `window.location.reload()`.
-    let cb_tx = tx.clone();
-    let _: () = notify_on_change(watch_path, move || {
-        let path = file_path.read().unwrap().to_path_buf();
-        match std::fs::read_to_string(&path) {
-            Ok(content) => {
-                let (body, frontmatter) = render_markdown(&content);
-                let msg = serde_json::json!({
-                    "type": "update",
-                    "html": body,
-                    "frontmatter": frontmatter.unwrap_or_default(),
-                })
-                .to_string();
-                let result = cb_tx.send(Message::text(msg));
-                debug!("Pushed live update: {:#?}", result);
+
+    // Watch loop: follow the active file, re-pointing when a selection arrives.
+    // On each change (or selection) re-render and broadcast a block-diff update
+    // (#16) so the client patches in place instead of full-reloading.
+    let (mut handle, rx) = watch_channel();
+    let mut current = active;
+    handle.watch(&current);
+    broadcast_update(&current, &tx);
+    loop {
+        while let Ok(next) = rewatch_rx.try_recv() {
+            if next != current {
+                handle.unwatch(&current);
+                handle.watch(&next);
+                current = next;
             }
-            Err(e) => error!("Failed to read '{}' on change: {e}", path.display()),
+            broadcast_update(&current, &tx);
         }
-    });
+        match rx.recv_timeout(Duration::from_millis(300)) {
+            Ok(()) => broadcast_update(&current, &tx),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
     let _ = server.join();
+}
+
+/// Re-render `path` and broadcast an in-place update to connected clients (#16).
+fn broadcast_update(path: &Path, tx: &broadcast::Sender<Message>) {
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let (body, frontmatter) = render_markdown(&content);
+            let msg = serde_json::json!({
+                "type": "update",
+                "html": body,
+                "frontmatter": frontmatter.unwrap_or_default(),
+            })
+            .to_string();
+            let result = tx.send(Message::text(msg));
+            debug!("Pushed live update for {}: {:#?}", path.display(), result);
+        }
+        Err(e) => error!("Failed to read '{}' on change: {e}", path.display()),
+    }
 }
 
 #[tokio::main()]
@@ -86,6 +129,8 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
     let app = Router::new()
         .route("/", get(file_handler))
         .route("/ws", get(websocket_handler))
+        .route("/api/tree", get(tree_handler))
+        .route("/api/select", post(select_handler))
         .route("/static/{*path}", get(static_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
@@ -189,6 +234,48 @@ fn escape_html_min(s: &str) -> String {
         }
     }
     out
+}
+
+/// `GET /api/tree` — the discovered repo/worktree markdown tree plus the
+/// currently active file, for the explorer sidebar (#14).
+async fn tree_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let tree = explorer::build_tree(state.scan_root.as_ref());
+    let active = state
+        .file_path
+        .read()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    Json(serde_json::json!({ "tree": tree, "active": active }))
+}
+
+#[derive(Deserialize)]
+struct SelectRequest {
+    path: String,
+}
+
+/// `POST /api/select {path}` — switch the active/watched file. The path must
+/// canonicalize to a markdown file under one of the discovered roots, else it is
+/// rejected (directory-traversal guard, #14).
+async fn select_handler(
+    State(state): State<AppState>,
+    Json(req): Json<SelectRequest>,
+) -> impl IntoResponse {
+    match explorer::resolve_within(&state.roots, &req.path) {
+        Some(abs) => {
+            *state.file_path.write().unwrap() = abs.clone();
+            // Re-point the watcher; it re-renders and broadcasts the new file.
+            if state.rewatch.send(abs).is_err() {
+                error!("watch loop is gone; cannot switch file");
+                return StatusCode::INTERNAL_SERVER_ERROR;
+            }
+            StatusCode::OK
+        }
+        None => {
+            warn!("Rejected select for '{}' (outside roots)", req.path);
+            StatusCode::FORBIDDEN
+        }
+    }
 }
 
 struct StaticAsset {

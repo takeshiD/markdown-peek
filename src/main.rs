@@ -47,11 +47,10 @@ fn handle_serve(root: PathBuf, host: String, port: String, theme: BrowserTheme) 
         BrowserTheme::Light => mdpeek_server::Theme::Light,
         BrowserTheme::Dark => mdpeek_server::Theme::Dark,
     };
-    if root.exists() {
-        serve(root, host, port, theme);
-    } else {
-        error!("'{}' is not found.", root.display());
-    }
+    // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
+    // picks a valid active file, so we hand off even when `root` doesn't exist
+    // (e.g. the default README.md is absent) rather than bailing out here.
+    serve(root, host, port, theme);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {
