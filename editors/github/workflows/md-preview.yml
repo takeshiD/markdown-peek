@@ -1,0 +1,72 @@
+# Example workflow: render changed Markdown to an HTML preview on every PR.
+#
+# Copy this file to `.github/workflows/md-preview.yml` to enable it. It builds
+# mdpeek from the repo, renders the PR's changed Markdown files with the
+# `editors/github` composite action, uploads the result as an artifact, and
+# leaves a sticky comment listing the previewed files.
+name: md-preview
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build mdpeek
+        run: cargo build --release --bin mdpeek
+
+      - name: Collect changed Markdown files
+        id: changed
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files=$(git diff --name-only --diff-filter=ACMR "$base" "$head" -- '*.md' | tr '\n' ' ')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "Changed Markdown: ${files:-<none>}"
+
+      - name: Render preview
+        if: steps.changed.outputs.files != ''
+        uses: ./editors/github
+        with:
+          files: ${{ steps.changed.outputs.files }}
+          mdpeek-bin: ${{ github.workspace }}/target/release/mdpeek
+          static-dir: static
+          output-dir: _mdpeek_preview
+
+      - name: Upload preview artifact
+        if: steps.changed.outputs.files != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: mdpeek-preview
+          path: _mdpeek_preview
+
+      - name: Comment with preview info
+        if: steps.changed.outputs.files != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = "${{ steps.changed.outputs.files }}".trim().split(/\s+/);
+            const list = files.map(f => `- \`${f}\``).join("\n");
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const marker = "<!-- mdpeek-preview -->";
+            const body = `${marker}\n### 📄 mdpeek preview\n\nRendered HTML for the changed Markdown files is attached to this run as the **mdpeek-preview** artifact.\n\n${list}\n\n[Download the artifact](${runUrl}) → open \`index.html\`.`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
