@@ -1,4 +1,5 @@
 mod explorer;
+mod scrolly;
 
 use anyhow::Result;
 use axum::{
@@ -209,6 +210,7 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/select", post(select_handler))
         .route("/api/diff", post(diff_handler))
         .route("/api/gui", get(gui_handler))
+        .route("/api/scrolly", get(scrolly_handler))
         .route("/static/{*path}", get(static_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
@@ -361,6 +363,68 @@ async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
         }
         Err(e) => {
             error!("gui: generation task panicked for '{}': {e}", file_path.display());
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `GET /api/scrolly` — Generative Scrollytelling guide for the active file.
+/// Returns a [`scrolly::ScrollyGuide`] (`overview` + per-section `commentary`,
+/// aligned to rendered heading anchors). Generation runs on a blocking thread
+/// (LLM backends may block/spawn); offline-safe via the rules fallback.
+async fn scrolly_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+
+    let markdown = match tokio::fs::read_to_string(&file_path).await {
+        Ok(content) => content,
+        Err(e) => {
+            error!("scrolly: failed to read '{}': {e}", file_path.display());
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let backend_desc = match state.llm.as_ref() {
+        Some(b) => format!("LLM {:?}", b.provider),
+        None => "rules (offline)".to_string(),
+    };
+    info!(
+        "scrolly: guiding '{}' [{}]",
+        file_path.display(),
+        backend_desc
+    );
+
+    let started = std::time::Instant::now();
+    let llm = (*state.llm).clone();
+    let result = tokio::task::spawn_blocking(move || {
+        // Cache under the cwd's `.cache/mdpeek/`, matching `/api/gui`.
+        scrolly::generate(&markdown, llm.as_ref(), Path::new("."))
+    })
+    .await;
+
+    match result {
+        Ok(guide) => {
+            info!(
+                "scrolly: {} section(s) for '{}' in {} ms [origin={}]",
+                guide.sections.len(),
+                file_path.display(),
+                started.elapsed().as_millis(),
+                guide.origin,
+            );
+            Json(guide).into_response()
+        }
+        Err(e) => {
+            error!(
+                "scrolly: generation task panicked for '{}': {e}",
+                file_path.display()
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),

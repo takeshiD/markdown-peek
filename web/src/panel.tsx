@@ -9,6 +9,7 @@
 import { render } from "preact";
 import type { SourceRange } from "./ir";
 import { RenderList } from "./registry";
+import { initScrolly } from "./scrolly";
 import "./panel.css";
 
 const PANEL_ID = "mdpeek-gui-panel";
@@ -96,6 +97,9 @@ function init() {
 
   // Reveal the toggle (server ships it hidden so it never flashes without JS).
   toggle.hidden = false;
+
+  // Sibling mode: reader-paced Generative Scrollytelling (design §5).
+  initScrolly();
 
   toggle.addEventListener("click", () => {
     const open = document.body.classList.toggle(OPEN_CLASS);

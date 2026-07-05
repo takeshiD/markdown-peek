@@ -12,16 +12,19 @@
 //! without changing this facade.
 
 pub mod cache;
+pub mod complete;
 pub mod generator;
 pub mod ir;
 pub mod planner;
+
+pub use complete::complete_text_blocking;
+pub use generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
 use crate::cache::{CacheStore, GuiCacheEntry, content_hash};
-use crate::generator::llm::LlmBackendConfig;
 use crate::generator::GenInput;
 use crate::ir::{LineIndex, UiNode, validate_nodes};
 
