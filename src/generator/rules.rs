@@ -16,7 +16,7 @@ use pulldown_cmark::{
     BlockQuoteKind, CodeBlockKind, Event, Parser, Tag, TagEnd,
 };
 
-use crate::gfm::parser_options;
+use mdpeek_gfm::parser_options;
 use crate::ir::node::*;
 use crate::ir::range::{LineIndex, SourceRange};
 

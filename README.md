@@ -1,5 +1,5 @@
 # Markdown Peek
-Markdown Peek (`mdpeek`) is a lightweight CLI tool that watches a markdown file and renders it either in your browser (live preview) or directly in the terminal.
+Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watches your markdown and renders it live — either in your browser or in an interactive terminal viewer.
 
 - [Features](#features)
 - [Quick Start](#quick-start)
@@ -9,28 +9,63 @@ Markdown Peek (`mdpeek`) is a lightweight CLI tool that watches a markdown file 
 - [License](#license)
 
 # Features
-- ⚡ Fast
-- 🔄 Live Reload
-- ⚙️ Easy Configure
-- 🌐🖥️ Preview in Browser or in Terminal
-- 📝 Supported Github Flavored Markdown(GFM), GitLab Flavored Markdown(GLFM)
+
+### Available now
+- ⚡ Fast — a single binary with all assets embedded
+- 🔄 Live, in-place updates — only the blocks you changed re-render (no full reload), your scroll position is kept, and changed blocks are briefly highlighted
+- 🌐 Browser preview with a repository/worktree file explorer, outline + fuzzy heading search, a front matter panel, and light/dark themes
+- 🔍 Two-file diff — source or rendered, unified or side-by-side, including the same file across worktrees/branches
+- 🖥️ Interactive terminal viewer (TUI) — scrolling, wrapping, vim-style search, and live updates without flicker
+- 📝 GitHub Flavored Markdown (GFM); GitLab Flavored Markdown (GLFM) planned
+- ⚙️ Easy to configure via TOML (XDG)
+
+### Planned (roadmap)
+mdpeek is growing from a strong markdown viewer into a tool that understands your
+documents and renders a UI tailored to each. Upcoming layers:
+
+- 🧠 **Semantic view** — a document model with document-type detection and a side panel of outline / TODOs / risks / open questions.
+- 🎛️ **Generated UI** — a UI generated per document type (design doc, README, ADR, meeting notes, runbook, changelog, …), first by rules and then by Claude (LLM).
+- 📚 **Non-developer document types** — domain widgets for novels, contracts, and manufacturing/procedure docs (character roster, tolerance meter, step navigator, obligation matrix, glossary), with spoiler control.
+- 🔗 **Repository-aware checks** — README ↔ code links, docs/code consistency, ADR ↔ git history, and TODO ↔ issue cross-references.
+- 🧩 **Editor & tooling integration** — an IR-aware TUI renderer, a Neovim plugin, and GitHub preview integration.
+
 
 # Quick start
 
-## Preview on your browser
-`mdpeek` detects `README.md` on default and previews markdown on browser.
+## Preview in your browser
+Run `mdpeek` with no arguments. It discovers the markdown in your current git repository (and any linked worktrees) and opens a browser preview with a file-explorer sidebar:
 ```sh
 mdpeek
- INFO mdpeek::watcher: Watching: "README.md"
  INFO mdpeek::server: Listening on http://127.0.0.1:3030
 ```
+Or point it at a single file: `mdpeek serve path/to/file.md`.
 
-## Preview on your terminal
-`mdpeek` detects `README.md` on default.
-If you want preview on termianl, using `term` subcommand.
+The preview updates **in place** as you edit — only the blocks that changed re-render (your scroll position is kept) and they are briefly highlighted. From the sidebar you can:
+- switch between files across worktrees/branches (toggle grouping by worktree or branch),
+- open a **two-file diff** with the ⇄ compare buttons — source or rendered, unified or side-by-side,
+- toggle the outline (with fuzzy heading search), the color theme, and auto-scroll-to-change.
+
+A breadcrumb shows which worktree/branch the open file belongs to.
+
+## Preview in your terminal
+Use the `term` subcommand. On a TTY it opens an interactive full-screen viewer that live-updates as the file changes:
 ```sh
-mdpeek term
+mdpeek term             # interactive viewer (watches by default on a TTY)
+mdpeek term --no-watch  # render once and exit (also the default when piped)
 ```
+
+### Terminal viewer keybindings
+| Key                  | Action                      |
+| -----                | --------                    |
+| `q` / `Ctrl-c`       | quit                        |
+| `j` / `k`, `↓` / `↑` | scroll one line             |
+| `Ctrl-d` / `Ctrl-u`  | half page down / up         |
+| `PgDn` / `PgUp`      | page down / up              |
+| `g` / `G`            | jump to top / bottom        |
+| `/`                  | search                      |
+| `n` / `N`            | next / previous match       |
+| `Esc`                | clear search                |
+| `?`                  | toggle the keybindings help |
 
 # Installation
 ## `cargo`
@@ -108,6 +143,15 @@ pager = "less -R"
 
 
 # Status
+## Viewer
+- [x] Live in-place updates with changed-block highlighting
+- [x] Repository + worktree file explorer sidebar (group by worktree / branch)
+- [x] Breadcrumb showing the active file's worktree/branch
+- [x] Outline panel with fuzzy heading search
+- [x] Front matter panel
+- [x] Two-file diff (source / rendered, unified / split; across worktrees)
+- [x] Interactive terminal viewer (scroll, wrap, vim-style search, live update)
+
 ## [GFM](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
 - [x] [Table](https://github.github.com/gfm/#tables-extension-)
 - [x] [TaskList](https://github.github.com/gfm/#task-list-items-extension-)
@@ -149,5 +193,4 @@ pager = "less -R"
 
 # License
 MIT License.
-See [LICENSE](LICENSE).
-
+[LICENSE](LICENSE).
