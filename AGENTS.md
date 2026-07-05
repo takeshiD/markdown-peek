@@ -1,8 +1,8 @@
-# Generative UI Markdown Viewer — アーキテクチャ設計書 (v0 draft)
+# Generative UI Markdown Viewer — アーキテクチャ設計書 (v0.2)
 
 > このドキュメントは [`DESIGN.md`](DESIGN.md) の構想を、現行の Rust 実装 (`pulldown-cmark` + `axum` + TUI) の上に**実装可能な形**へ落とし込んだ設計書のたたき台です。`DESIGN.md` = *what / why*、本書 = *how* という役割分担です。
 >
-> 一緒にブラッシュアップする前提の v0 です。未確定点は各所の **⚠ 論点** で明示しています。
+> 論点 A–L は **2026-07-05 に決定済み**(§0.1)。以降の記述はその決定を反映しています。
 
 ## 0. 確定した基本方針
 
@@ -16,6 +16,25 @@
 
 `DESIGN.md` の「重要な設計思想」10項目は不変の制約として本書全体に効かせる(特に *Markdown 本文は変更しない* / *LLM は UI IR だけを生成* / *renderer は決定論的* / *全 UI は sourceRange に紐づく* / *任意コード実行禁止*)。
 
+### 0.1 論点 A–L の決定 (2026-07-05)
+
+| 論点 | 決定 | 要旨 |
+|------|------|------|
+| **A** SSR と Preact の同居 | **全面 Preact** | web の SSR HTML 描画(`HtmlEmitter`)は廃止。本文ペインも生成 UI ペインも Preact が描画し、描画系統を1つに統一。SourceRangeLink/ライブハイライトが同一コンポーネントツリー内で解決できる。 |
+| **B** workspace 化の時期 | **今すぐ** | Layer 1 の段階で `mdpeek-core` を含む workspace へ再編する(後回しにしない)。 |
+| **C** `web/dist` の扱い | **コミット + CI 鮮度チェック** | ビルド成果物を in-tree コミットして `include_bytes!`。CI で再ビルド→`git diff --exit-code web/dist` により stale を検出。`cargo install` は JS ツールチェイン不要のまま。 |
+| **D** ノードのメタ表現 | **入れ子 `meta`** | 共通メタ(source_range/confidence/origin/visibility)を各ノードの `meta: NodeMeta` に**入れ子**で持つ(`#[serde(flatten)]` は使わない)。serde × 内部タグ enum × `ts-rs` の相性問題を回避。 |
+| **E** 生成物の永続化 | **保存しない** | 生成 UI IR をディスクにキャッシュ/コミットしない。実行中プロセスの**メモリ内再利用のみ**。恒久キャッシュ(`.gui.json`)・sidecar・`--emit-gui` は採用しない。 |
+| **F** LLM 呼び出しの位置 | **両方** | rules-first で即描画 → LLM 依存ノードは server 内 async でプログレッシブに後追い(#16 と統合)。加えて `mdpeek gen` を**一回きりの明示エクスポート**(stdout/指定ファイル)として提供。E に従い管理キャッシュは作らない。 |
+| **G** 本文ペインの描画方式 | **server が HTML 断片、Preact が挿入** | mdpeek-core が `BlockTree` を HTML 断片へエミット(現 `html.rs` の GFM 変換を web でも活用=二重実装しない)。Preact は断片を挿入し、`data-block-id` 単位で差分/ハイライト/イベントを管理。自前生成 HTML のみ信頼(§8)。 |
+| **H** アセット埋め込み | **全部 embed(CDN 廃止)** | Mermaid/hljs に加え MathJax も embed(現 index.html の CDN 依存を解消)。数式は軽量な **KaTeX 置換**も検討。単一バイナリ・CSP 維持に整合。 |
+| **I** WS ライブ更新プロトコル | **差分メッセージ** | `{ type, blockId \| nodeId, payload }` 形で**変わったブロック/ノードだけ**送る(full reload しない)。#16。 |
+| **J** LLM モデル/機構 | **config で指定** | provider/model を `config.toml` の `[llm]` セクションで設定(既定モデル + `structured output`/`tool use` の機構も設定可能に)。 |
+| **K** confidence 閾値 | **定数 default + config** | LLM を呼ぶ/低信頼バッジのしきい値は既定 **0.6**、`[llm] confidence_threshold` で上書き可。 |
+| **L** E の運用方針 | **許容(標準化しない)** | 永続化しない(E)結果、`serve` 再起動ごとに LLM を再実行することを**許容する**。`mdpeek gen` は任意手段にとどめ、標準ワークフローとして強制しない。rules-first の即描画があるため実用上問題ないと判断。 |
+
+> **E と F の整合**: 恒久キャッシュを持たない(E)ため、`serve` 再起動や別プロセスでは LLM を再実行する。これは *rules-first(LLM 依存ノードだけ生成)* と *同一プロセス内メモリ再利用* で吸収する、というトレードオフを受け入れる。`mdpeek gen` はユーザーが出力先を指定する一回きりのエクスポートであり、自動管理される cache ではない。
+
 ---
 
 ## 1. 全体アーキテクチャ
@@ -25,10 +44,10 @@
 ```
         ┌──────────────────────── Rust core (mdpeek-core) ───────────────────────┐
         │                                                                        │
-document.md ─▶ parser ─▶ model ─▶ analyzer ─▶ planner ─▶ generator ─▶ ir(validate) ─▶ cache
-        │      (pulldown  (block   (rules +   (semantic   (rules/     (schema +      (hash)   │
+document.md ─▶ parser ─▶ model ─▶ analyzer ─▶ planner ─▶ generator ─▶ ir(validate)
+        │      (pulldown  (block   (rules +   (semantic   (rules/     (schema +              │
         │       -cmark     tree +   LLM)       model →     LLM →       sourceRange            │
-        │       OffsetIter offsets)            UI plan)    UI IR)      検証)                   │
+        │       OffsetIter offsets)            UI plan)    UI IR)      検証。永続 cache なし E)│
         └──────────────────────────────────────────┬───────────────────────────┘
                                                     │  UI IR (JSON, serde)
                         ┌───────────────────────────┼───────────────────────────┐
@@ -42,7 +61,7 @@ document.md ─▶ parser ─▶ model ─▶ analyzer ─▶ planner ─▶ gen
 
 - **web と TUI で解析を二重実装しない**。両 renderer は同じ IR JSON を食べる。
 - **セキュリティ境界が 1 か所に集約**する(LLM 出力 → schema validation → sourceRange 検証 が Rust core だけに存在)。
-- **キャッシュ・差分再生成**を core に閉じ込められる(#16 のライブ更新と統合)。
+- **差分再生成(メモリ内)**を core に閉じ込められる(#16 のライブ更新と統合。永続キャッシュは持たない=論点 E)。
 - TS 型は Rust 型から**自動生成**(`ts-rs`)し、二重定義を防ぐ。`DESIGN.md` の TS 型定義は「wire format の仕様」として採用するが、正本は Rust。
 
 ### 1.2 現行コードとの接続
@@ -50,13 +69,13 @@ document.md ─▶ parser ─▶ model ─▶ analyzer ─▶ planner ─▶ gen
 | 現行 | 本設計での位置づけ |
 |------|------------------|
 | `src/gfm.rs` (`parser_options`, `transform`) | `mdpeek-core::parser` にそのまま移設。Layer 1 として維持。 |
-| `src/emitter/html.rs` | Layer 1(素の HTML)経路として存続。Generative UI は**別レイヤー**として上に重ねる(共存)。 |
-| `src/emitter/term.rs` | 同上(TUI Layer 1 描画)。 |
-| `src/server.rs` (`file_path`/`theme` が `Arc<RwLock>`) | IR / ファイル選択 API を足す土台として再利用。 |
-| `src/watcher.rs` (単一パス blocking) | チャネル化しキャッシュ無効化トリガに接続(#12/#16 と共通)。 |
-| `static/js/main.js` (素の JS) | Layer 1 の enhancer として存続。Generated UI ペインだけ Preact island に置換。 |
+| `src/emitter/html.rs` | **BlockTree→HTML 断片エミッタとして存続**(論点 G)。ページ全体テンプレ注入は廃止(論点 A)。server はブロック単位の HTML 断片を返し、Preact が挿入して差分/ハイライトを管理する。GFM 変換を TS へ二重実装しない。 |
+| `src/emitter/term.rs` | TUI Layer 1 描画として存続(TUI は Preact 化しない)。 |
+| `src/server.rs` (`file_path`/`theme` が `Arc<RwLock>`) | `BlockTree`/IR を JSON で配る API を足す土台として再利用。HTML テンプレ注入は Preact 配信へ置換。 |
+| `src/watcher.rs` (単一パス blocking) | チャネル化し再生成トリガに接続(#12/#16 と共通)。 |
+| `static/js/main.js` (素の JS) | Preact 全面移行に伴い**撤去**。テーマ切替 / mermaid / hljs / TOC / WS は Preact 側へ移す。 |
 
-> **⚠ 論点 A**: 既存の `HtmlEmitter` 経路(Layer 1)と Preact 経路(Layer 3)を **同一ページで共存**させるか、`--generative` で切替えるか。推奨は「Content ペイン=既存 SSR HTML、右の Generated UI ペイン=Preact island」の**共存**。
+> **✅ 論点 A(決定)**: **全面 Preact**。web の SSR HTML 描画は廃止し、本文ペインも生成 UI ペインも Preact が描画する。本文ペインは `BlockTree` から Preact のマークダウンレンダラで描画し、各ブロックに `data-block-id` を付与。SourceRangeLink とライブハイライトを**同一コンポーネントツリー内**で解決する。TUI(ratatui)は対象外で、term emitter を使い続ける。
 
 ---
 
@@ -114,11 +133,8 @@ markdown-peek/
 │   │   │   │   ├── range.rs        # SourceRange
 │   │   │   │   ├── validate.rs     # schema + sourceRange 検証
 │   │   │   │   └── registry.rs     # 許可コンポーネント名の allowlist
-│   │   │   ├── cache/              # 生成 UI キャッシュ
-│   │   │   │   ├── mod.rs
-│   │   │   │   ├── key.rs          # content hash + model/version
-│   │   │   │   └── store.rs        # .cache/<hash>.gui.json
 │   │   │   └── security/           # command safety, link/image policy
+│   │   │       # 注: 永続 cache モジュールは持たない(論点 E)。生成物はメモリ内のみ。
 │   │   │       ├── mod.rs
 │   │   │       ├── command.rs      # 危険コマンド検出
 │   │   │       └── policy.rs       # 外部リンク/画像ポリシー
@@ -137,7 +153,7 @@ markdown-peek/
 │   ├── vite.config.ts
 │   ├── src/
 │   │   ├── main.tsx
-│   │   ├── ir.ts                   # ← ts-rs 生成(gitignore or commit)
+│   │   ├── ir.ts                   # ← ts-rs 生成(コミットする)
 │   │   ├── registry.ts             # componentRegistry
 │   │   ├── layout/                 # SplitPane, Outline, Tabs...
 │   │   ├── components/             # UiNode 描画コンポーネント群(§5)
@@ -148,9 +164,9 @@ markdown-peek/
     └── architecture.md             # 本書
 ```
 
-> **⚠ 論点 B**: workspace 化は現在のリリース CI (`release.yml`) とバイナリ名 `mdpeek` に影響する。crate 分割は Layer 2 着手時にまとめて行い、Layer 1 (#12–#16) は現構成のまま進める、という段取りを推奨。
+> **✅ 論点 B(決定)**: **今すぐ workspace 化**する。Layer 1 の段階で `mdpeek-core`(lib)を抜き出し、バイナリ `mdpeek` がそれに依存する形へ再編する(細かい server/tui/cli 分割は必要に応じて後続)。`release.yml`・バイナリ名 `mdpeek` の追従を同時に行う。
 >
-> **⚠ 論点 C**: `web/dist` を **リポジトリにコミット**して `include_bytes!` するか、ビルド時に生成するか。単一バイナリ配布・`cargo install` 一発を守るなら、`build.rs` で `npm build` を叩くのは重い。**dist をコミット**(生成物 in-tree)が現実的。
+> **✅ 論点 C(決定)**: `web/dist` を **リポジトリにコミット**して `include_bytes!` で埋め込む。`cargo install` は JS ツールチェイン不要のまま。**CI で web を再ビルドし `git diff --exit-code web/dist` を回して stale コミットを検出**する(`build.rs` で `npm build` はしない)。
 
 ---
 
@@ -209,17 +225,18 @@ pub trait Generator {
 - `RulesGenerator`: 決定論的に埋められるノード(DataTable, Checklist, Timeline(構造的), Callout, Diagram(既存 mermaid), ConfigViewer)を生成。**オフライン既定**。
 - `ClaudeGenerator`(`feature = "llm"`): rules で埋まらない/低信頼のノードだけを LLM に投げ、**UI IR(JSON)だけ**を返させる。§7。
 - generator は **rules で全部埋まれば LLM を呼ばない**(コスト・再現性)。
+- **rules-first + async progressive(論点 F)**: `serve` はまず rules 出力を即返し、LLM 依存ノードは server 内 async で後追い生成 → 到着次第 WS で push(#16 と統合)。生成物は永続化せず(論点 E)、同一プロセス内のメモリでのみ再利用する。
 
 ### 3.5 validate — schema + sourceRange 検証
 
 - serde でのデシリアライズ(型が合わない IR は reject)。
 - `registry.rs` の allowlist に無い `kind` は reject(`DESIGN.md`: 未知 component は reject)。
 - **sourceRange 検証**: すべての `sourceRange` が実ドキュメントの範囲内で、かつ対応 Block と矛盾しないこと。捏造レンジは reject(hallucination 検出)。
-- `confidence` が閾値未満のノードは `low_confidence` フラグ付きで通す(renderer が明示表示)。
+- `confidence` が閾値未満のノードは `low_confidence` フラグ付きで通す(renderer が明示表示)。閾値は既定 **0.6**、`[llm] confidence_threshold` で上書き可(論点 K)。
 
-### 3.6 cache — 生成 UI キャッシュ
+### 3.6 生成物の非永続方針
 
-§6。
+論点 E により、生成 UI IR はディスクに保存しない。詳細は §6。
 
 ---
 
@@ -311,8 +328,7 @@ pub struct Quantity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabsNode {
-    #[serde(flatten)]
-    pub meta: NodeMeta,
+    pub meta: NodeMeta,   // 入れ子(flatten しない = 論点 D)
     pub tabs: Vec<Tab>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,8 +336,7 @@ pub struct Tab { pub title: String, pub children: Vec<UiNode> }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChecklistNode {
-    #[serde(flatten)]
-    pub meta: NodeMeta,
+    pub meta: NodeMeta,   // 入れ子(flatten しない = 論点 D)
     pub items: Vec<ChecklistItem>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,8 +349,7 @@ pub struct ChecklistItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataTableNode {
-    #[serde(flatten)]
-    pub meta: NodeMeta,
+    pub meta: NodeMeta,   // 入れ子(flatten しない = 論点 D)
     pub columns: Vec<Column>,
     pub rows: Vec<serde_json::Map<String, serde_json::Value>>,
 }
@@ -356,7 +370,7 @@ pub enum Severity { Info, Warning, Error }
 // および各ドメインプリミティブ Node も同様に定義。
 ```
 
-> **⚠ 論点 D**: `NodeMeta` を全ノードに `#[serde(flatten)]` で持たせるか、`DESIGN.md` のように各ノードが個別に `sourceRange` を持つか。共通メタ(confidence/origin を必ず載せたい)を考えると flatten 推奨。TS 生成との相性は要検証。
+> **✅ 論点 D(決定)**: 共通メタは各ノードの **入れ子 `meta: NodeMeta`** として持つ(`#[serde(flatten)]` は使わない)。wire 形は `{"kind":"Tabs","meta":{…},"tabs":[…]}`。serde × 内部タグ enum(`tag="kind"`) × `ts-rs` の相性問題を避けつつ、全ノードがメタを一様に持つ(renderer のバッジ/ネタバレ/ジャンプ処理が一様化)。
 
 ### 4.2 semantic model(`model/`)
 
@@ -388,23 +402,22 @@ pub struct ClassifiedBlock {
 }
 ```
 
-### 4.3 キャッシュエントリ(`cache/`)
+### 4.3 生成結果の保持(非永続)
 
-`DESIGN.md`「キャッシュすべき内容」をそのまま:
+論点 E により、生成 UI IR は**ディスクに永続化しない**。実行中プロセスがメモリ内にのみ保持する軽量な状態:
 
 ```rust
-#[derive(Serialize, Deserialize)]
-pub struct GuiCacheEntry {
-    pub document_type: DocumentType,
-    pub block_classification: Vec<ClassifiedBlockLite>,
-    pub ui_ir: Vec<UiNode>,
-    pub source_ranges: Vec<SourceRange>,   // 検証済みレンジ一覧
-    pub confidence: f32,                   // 全体信頼度
-    pub model: String,                     // "rules" | "claude-…"
-    pub generated_at: String,              // RFC3339
-    pub content_hash: String,              // 入力の hash(= ファイル名の一部)
+/// serve プロセスがファイルごとに保持する in-memory 状態(永続化しない)。
+pub struct DocGenState {
+    pub content_hash: u64,             // 現在の本文 hash(変更検知用)
+    pub ui_ir: Vec<UiNode>,            // 生成済み UI IR(rules + LLM 後追い分)
+    pub block_index: BlockIndex,       // BlockId -> ノード対応(差分再生成用)
+    pub model: &'static str,           // "rules" | "claude-…"
 }
 ```
+
+- プロセス終了で破棄。再起動時は rules 出力から再構築し、LLM 依存分は再生成(§7)。
+- `mdpeek gen` はこの状態をユーザー指定先へ**一回きり書き出す**エクスポートであって、自動管理される cache ではない(§6)。
 
 ---
 
@@ -412,7 +425,7 @@ pub struct GuiCacheEntry {
 
 ### 5.1 Web (Preact)
 
-`web/src/registry.ts` が `UiNode.kind` → Preact コンポーネントの写像を持つ。`DESIGN.md` の `componentRegistry` をそのまま実装。
+web は**全面 Preact**(論点 A)。本文ペインは、mdpeek-core が返す **`BlockTree`→HTML 断片**(論点 G)を Preact が挿入(`data-block-id` 単位で差分/ハイライト管理)。生成 UI ペインは `UiNode.kind` → コンポーネントの写像(`registry.ts`)。`DESIGN.md` の `componentRegistry` をそのまま実装。
 
 ```ts
 import type { UiNode } from "./ir";           // ts-rs 生成
@@ -437,8 +450,8 @@ export function Render({ node }: { node: UiNode }) {
 
 - **2 層 registry**: `coreRegistry`(汎用12種)＋`domainRegistry`(ドメインプリミティブ)。文書タイプが増えてもコアは不変で、ドメイン層に数個足すだけで済む(§9.3 の発見)。未知 `kind` は描画しない。
 - **信頼度表示**: `confidence` が低い / `origin === "llm"` のノードには「生成・要確認」バッジを出す(`DESIGN.md` 思想 8, 判断は人間)。
-- **SourceRangeLink**: 各ノードから原文へジャンプ(Content ペインの該当行へスクロール&ハイライト)。`sourceRange` 必須の根拠表示。
-- **ライブ更新 (#16 と統合)**: `@preact/signals` で IR を signal 化。WS で届いた**変更ノードだけ**差し替え、`origin`/変更フラグからハイライトアニメーション。full reload しない。
+- **SourceRangeLink**: 各ノードから原文へジャンプ。本文ペインも Preact 描画なので、`data-block-id` 付きの同一コンポーネントツリー内でスクロール&ハイライトを解決(全面 Preact の利点)。`sourceRange` 必須の根拠表示。
+- **ライブ更新 (#16 と統合)**: `@preact/signals` で BlockTree/IR を signal 化。WS は差分メッセージ `{ type, blockId | nodeId, payload }`(論点 I)で**変更ブロック/ノードだけ**送り、該当だけ差し替えて `origin`/変更フラグからハイライトアニメーション。full reload しない(素の JS 版 `main.js` の全リロードは廃止)。
 
 想定コンポーネント一覧は `DESIGN.md` §「想定 UI コンポーネント」を registry の実装対象とする(基本 / 文書理解 / コード・設定 / 図・構造 / 表・データ / ログ・調査 / Git)。
 
@@ -450,37 +463,33 @@ export function Render({ node }: { node: UiNode }) {
 
 ### 5.3 レイアウト(3 ペイン)
 
-`DESIGN.md`「複数ビュー表示」の 3 ペイン(Outline / Content / Generated UI)。Content は Layer 1 の既存 HTML、Generated UI が Preact island(論点 A の共存案)。
+`DESIGN.md`「複数ビュー表示」の 3 ペイン(Outline / Content / Generated UI)。**3 ペインとも Preact が管理**(論点 A: 全面 Preact)。Content ペインは mdpeek-core が返す `BlockTree`→HTML 断片(論点 G)を Preact が挿入し、各ブロックの `data-block-id` で SourceRangeLink とライブハイライトを同一ツリー内で解決する。
 
 ---
 
-## 6. キャッシュ設計
+## 6. 生成物の非永続方針(論点 E)
 
-```
-.cache/mdpeek/<content-hash>.gui.json     # 既定(リポジトリ内 .gitignore 推奨)
-```
+生成 UI IR は**ディスクに一切永続化しない**。恒久キャッシュ(`.cache/*.gui.json`)・sidecar(`document.md.gui.json`)・`--emit-gui` は採用しない。
 
-- **鍵** = `hash(正規化 Markdown 本文) + generator 種別 + prompt/schema version`。本文が変わればミス、generator や schema を上げてもミス。
-- **無効化**: watcher (#12/#16 でチャネル化) の変更イベントで該当ハッシュを破棄 → 再生成。
-- **差分再生成**: `sourceRange` 単位で「変わった Block を含むノードだけ」再生成し、他はキャッシュ流用(LLM コスト削減 + #16 のライブ更新に直結)。
-- **sidecar 形式** (`document.md.gui.json`) も選べるが、既定は `.cache/` 集約。
-
-> **⚠ 論点 E**: LLM 生成物をリポジトリにコミット可能にする(レビュー・再現)か、常にローカルキャッシュに留めるか。既定は `.gitignore`、`--emit-gui document.md.gui.json` で明示エクスポート、が無難。
+- **メモリ内のみ**: `serve` プロセスがファイルごとに `DocGenState`(§4.3)を保持。プロセス終了で破棄。
+- **差分再生成(メモリ内)**: watcher (#12/#16 でチャネル化) の変更イベントで、変わった Block を含むノードだけ再生成し、残りはメモリ内の既存ノードを流用。これで #16 のライブ更新を支える(ディスクは介さない)。
+- **トレードオフ**: `serve` 再起動・別プロセスでは LLM を再実行する。これを *rules-first(LLM 依存ノードだけ生成)* と *同一プロセス内メモリ再利用* で吸収する(§0.1 の E–F 整合)。
+- **明示エクスポート**: `mdpeek gen <file>` はユーザー指定先(stdout / 指定ファイル)へ**一回きり書き出す**。自動管理される cache ではなく、CI/バッチ/共有用の手動出力。
 
 ---
 
 ## 7. LLM 連携設計 (`generator/llm/`)
 
 - **trait**: `Analyzer`(分類・抽出)と `Generator`(IR 生成)を分離。どちらも rules 実装が既定、LLM 実装は `feature = "llm"`。
-- **provider**: Anthropic Claude(最新の Claude モデル)を既定 adapter に。`ANTHROPIC_API_KEY` 未設定なら自動で rules-only にフォールバック(オフラインで壊れない)。
+- **provider/model(論点 J)**: Anthropic Claude を既定 adapter に。**provider・model・機構(`structured output` / `tool use`)・`confidence_threshold` は `config.toml` の `[llm]` セクションで設定**(config.rs に `[llm]` を追加)。`ANTHROPIC_API_KEY` 未設定なら自動で rules-only にフォールバック(オフラインで壊れない)。
 - **入出力契約**:
   - 入力: 文書モデルの必要部分 + 「この plan のこのノードを埋めよ」という指示 + **UI IR の JSON schema**。
   - 出力: **UI IR(JSON)のみ**。React/HTML/JS/任意テキストは一切受け付けない(§8, `DESIGN.md` 思想 3・9)。
   - Claude の **tool use / structured output** で schema を強制し、パース失敗はリトライ→最終的に rules フォールバック。
 - **sourceRange 強制**: 生成ノードには必ず対象 Block の range を持たせるようプロンプト設計し、validate で実レンジと突合(捏造は reject)。
-- **コスト制御**: rules で埋まる分は投げない / キャッシュ命中は投げない / 差分ノードだけ投げる。
+- **コスト制御**: rules で埋まる分は投げない / メモリ内に既存ノードがあれば投げない / 変更 Block を含む差分ノードだけ投げる(永続キャッシュは持たない=論点 E)。
 
-> **⚠ 論点 F**: LLM 呼び出しは server プロセス内(Rust)から直接か、`mdpeek` とは別の生成ステップ(`mdpeek gen document.md`)に分けるか。ライブ用途を考えると server 内 async 呼び出し(tokio)推奨だが、レイテンシとキー管理の観点で CLI 事前生成も併用したい。
+> **✅ 論点 F(決定)**: **両方**。主経路は **server 内 async**(rules-first で即描画 → LLM 依存ノードをプログレッシブに後追いし WS で push、#16 と統合)。加えて **`mdpeek gen <file>`** を一回きりの明示エクスポート(stdout/指定ファイル)として提供(CI/バッチ/事前生成用)。`ANTHROPIC_API_KEY` 未設定や `--llm` 無効時は rules-only に degrade。論点 E に従い、いずれも恒久キャッシュは作らない。
 
 ---
 
@@ -493,7 +502,8 @@ export function Render({ node }: { node: UiNode }) {
 - **bash/コードブロックは自動実行しない**。`CommandSafetyPanel` は preview + 危険度表示のみ(`security/command.rs` が `rm -rf` / `curl | sh` 等を検出)。
 - **外部リンク・remote image** は policy 管理(既定は展開せず明示許可)。
 - **Mermaid / 埋め込み HTML は sandbox**(iframe sandbox or DOMPurify 相当)。
-- Preact 採用で attack surface が増えるため、CSP を維持し、IR→DOM 生成は `dangerouslySetInnerHTML` を使わず**テキストノードとして描画**する(コードは `<pre>` にエスケープ挿入)。
+- **信頼境界(論点 G)**: 本文ペインに挿入する HTML は **mdpeek-core が生成した断片に限り信頼**(既存 `html.rs` はエスケープ済み)。**LLM/IR 由来の値は生 HTML として挿入しない** — `dangerouslySetInnerHTML` は使わず**テキストノードとして描画**(コードは `<pre>` にエスケープ挿入)。原文由来のリンク/画像は §外部ポリシーに従う。
+- **全アセット embed(論点 H)**: Mermaid/hljs/MathJax(または KaTeX)を含め外部 CDN を使わず self-contained。CSP を厳格に維持できる(外部ホストへの接続を全遮断)。
 - confidence が低い生成結果は UI 上で明示。
 
 ---
@@ -583,7 +593,8 @@ export function Render({ node }: { node: UiNode }) {
 - 既存: GFM / highlight / mermaid / math / footnotes / task list / table / theme。
 - **#12** term ライブ更新 TUI / **#13** TOC トグル / **#14** repo+worktree エクスプローラ / **#15** diff / **#16** ライブ更新差分ハイライト。
 - 追加(本設計の前提整備): **parser を `into_offset_iter` 化して SourceRange 取得**(全レイヤーの土台)。fuzzy search / backlinks / outline パネル。
-- **成果物**: workspace 化(論点 B に従い Layer 2 直前でも可)、`mdpeek-core::parser::BlockTree`。
+- **workspace 化を今すぐ実施(論点 B)**: `mdpeek-core`(lib)を抜き出し、バイナリ `mdpeek` を依存させる。`release.yml` を追従。
+- **成果物**: `mdpeek-core` workspace、`mdpeek-core::parser::BlockTree`。
 
 ### Layer 2 — Semantic viewer(rules 中心)
 - `analyzer`(doctype/block_class/code/table/tasks)+ `model` を rules で実装。
@@ -594,8 +605,8 @@ export function Render({ node }: { node: UiNode }) {
 ### Layer 3 — Generated UI(IR + renderer + LLM)
 - `ir` 型定義 + validate + registry allowlist。
 - `web/` Preact 導入、component registry、3 ペインレイアウト。
-- `RulesGenerator` → 続いて `ClaudeGenerator`(`feature = "llm"`)。
-- `cache` 実装 + #16 差分再生成と統合。
+- `RulesGenerator` → 続いて `ClaudeGenerator`(`feature = "llm"`, server 内 async + `mdpeek gen`=論点 F)。
+- 生成物は非永続(論点 E)。#16 差分再生成は **メモリ内 `DocGenState`** で行い、ディスクキャッシュは作らない。
 - 文書タイプは §9 の rules 列から着手 → 技術設計書 / README を最初の縦に、順次全タイプ。
 - コア12種 registry を先に固め、ドメインプリミティブ(§9.3-1)と横断要件(reading-position / `Quantity`)は各ドメイン着手時に追加。
 - **成果物**: 動く Generative UI(まず技術設計書・README、その後 ADR/議事録/手順書/ログ/changelog/gitlog)。
@@ -620,11 +631,17 @@ SourceRange parser ──┬─▶ Layer2 analyzer ──▶ Layer3 IR/generator
 
 ---
 
-## 11. 次アクション(このドラフトの磨き込み)
+## 11. 次アクション
 
-1. **論点 A–F** の合意(特に A: Layer1/Layer3 共存方式、C: dist コミット、F: LLM 呼び出し位置)。
-2. Layer 2 の新 issue 3 本(SourceRange parser / DocumentModel+rules analyzer / semantic サイドパネル)を切るか。
-3. UI IR の第一版スキーマを技術設計書・README の 2 タイプに絞って確定 → `ts-rs` 生成の PoC。
-4. workspace 化のタイミング(論点 B)。
+論点 A–L は決定済み(§0.1)。残作業:
 
-> フィードバック歓迎。合意した論点は本書に反映し、Layer 2 の issue に落とします。
+1. **issue の整合**: #20(workspace 化)を Layer 1 へ移動(論点 B)。#26 のスコープから恒久キャッシュを外し「RulesGenerator + メモリ内差分再生成」に(論点 E)。#25 に「本文は core の HTML 断片を Preact が挿入(論点 A/G)」「素の `main.js` 撤去」「アセット全 embed(論点 H)」を追記。#27 に `mdpeek gen` + `[llm]` config(論点 F/J/K)を追記。
+2. **config `[llm]` セクション**: `config.rs` に provider/model/機構/`confidence_threshold`(既定 0.6)を追加(論点 J/K)。
+3. **UI IR 第一版**: 技術設計書・README の 2 タイプに絞って `UiNode`/`NodeMeta`(入れ子 meta=論点 D)を確定 → `ts-rs` 生成の PoC。
+4. **描画/ライブ更新の PoC**: core の `BlockTree`→HTML 断片エミッタ(論点 G)+ Preact 挿入 + WS 差分メッセージ `{type,blockId|nodeId,payload}`(論点 I)の骨組み。
+5. **アセット embed**: MathJax の embed 化 or KaTeX 置換(論点 H)。
+6. **CI**: `web/dist` の鮮度チェックジョブ(論点 C)。
+
+> **letter を振らない実装時決定**: watcher API・`serve` 無引数詳細・diff 方式 #15・プロダクト名・TUI 生成UI 範囲は各実装 issue で決める。
+>
+> 決定は §0.1 に記録。以降の設計変更もここに追記していく。
