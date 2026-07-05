@@ -5,6 +5,7 @@ mod tui;
 use crate::cli::{Cli, Mode, ThemeChoice};
 use crate::config::{BrowserTheme, Config};
 use anyhow::Result;
+use mdpeek_analyzer::GenerationConfig;
 use mdpeek_render_term::{TerminalEmitter, Theme};
 use mdpeek_server::serve;
 use mdpeek_watcher::notify_on_change;
@@ -22,13 +23,17 @@ fn main() -> Result<()> {
         None => Config::load(),
     };
     let mode = cmd.resolve_mode(&config)?;
+    // Generation policy (rules-first vs LLM-first) is read from config at startup;
+    // Layer 3's generator will consult it. Server mode is the generative-UI path,
+    // so it is where the policy takes effect.
+    let generation = config.generation_config();
     match mode {
         Mode::Serve {
             file,
             host,
             port,
             theme,
-        } => handle_serve(file, host, port, theme),
+        } => handle_serve(file, host, port, theme, generation),
         Mode::Term {
             file,
             watch,
@@ -39,8 +44,24 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn handle_serve(root: PathBuf, host: String, port: String, theme: BrowserTheme) {
+fn handle_serve(
+    root: PathBuf,
+    host: String,
+    port: String,
+    theme: BrowserTheme,
+    generation: GenerationConfig,
+) {
     init_tracing();
+    tracing::info!(
+        "generation policy: {:?} (llm {}, confidence_threshold {})",
+        generation.strategy,
+        if generation.is_rules_only() {
+            "disabled — rules only"
+        } else {
+            "enabled"
+        },
+        generation.confidence_threshold,
+    );
     // Map the binary's config theme onto the server crate's own theme so the
     // server stays independent of the binary's config types.
     let theme = match theme {

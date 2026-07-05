@@ -10,6 +10,8 @@
 //! ```
 
 use crate::cli::ThemeChoice;
+use mdpeek_analyzer::generation::DEFAULT_CONFIDENCE_THRESHOLD;
+use mdpeek_analyzer::{GenerationConfig, GenerationStrategy};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -23,6 +25,9 @@ pub struct Config {
     pub server: ServerConfig,
     /// Terminal previewer (`term`) settings.
     pub term: TermConfig,
+    /// Generative-UI / LLM settings (rules-first vs LLM-first). Consumed by the
+    /// generator (Layer 3); read here at startup.
+    pub llm: LlmConfig,
 }
 
 /// `[server]` section: browser previewer defaults.
@@ -46,6 +51,24 @@ pub struct TermConfig {
     /// Pager command used for long output. An empty string disables paging and
     /// prints directly to stdout. When unset, `$PAGER` (or `less -R`) is used.
     pub pager: Option<String>,
+}
+
+/// `[llm]` section: how generated UI chooses between deterministic rules and
+/// the LLM. This is read from `config.toml` at application startup; the actual
+/// generator (Layer 3) consults the resolved [`GenerationConfig`].
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LlmConfig {
+    /// Whether the LLM may be used at all. When `false` the pipeline is strictly
+    /// rules-only regardless of `strategy`. (Layer 3 also degrades to rules-only
+    /// automatically when no API key is present.)
+    pub enabled: bool,
+    /// `"rules_first"` (default) or `"llm_first"` — which source wins when both
+    /// rules and the LLM could produce a result.
+    pub strategy: GenerationStrategy,
+    /// Confidence below which a rules result is escalated to the LLM under
+    /// `rules_first`. Defaults to 0.6 when unset.
+    pub confidence_threshold: Option<f32>,
 }
 
 /// Mode selected when no subcommand is given.
@@ -86,6 +109,19 @@ impl Config {
             return Self::default();
         }
         Self::load_from(path)
+    }
+
+    /// Resolve the effective generation policy (rules-first vs LLM-first) from
+    /// the `[llm]` config, applying built-in defaults for unset fields.
+    pub fn generation_config(&self) -> GenerationConfig {
+        GenerationConfig {
+            llm_enabled: self.llm.enabled,
+            strategy: self.llm.strategy,
+            confidence_threshold: self
+                .llm
+                .confidence_threshold
+                .unwrap_or(DEFAULT_CONFIDENCE_THRESHOLD),
+        }
     }
 
     fn load_from(path: &Path) -> Self {
@@ -167,6 +203,52 @@ mod tests {
     fn empty_pager_disables_paging() {
         let config: Config = toml::from_str("[term]\npager = \"\"").unwrap();
         assert_eq!(config.term.pager.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn llm_defaults_to_rules_first_disabled() {
+        let config: Config = toml::from_str("").unwrap();
+        let policy = config.generation_config();
+        assert!(policy.is_rules_only());
+        assert_eq!(policy.strategy, GenerationStrategy::RulesFirst);
+        assert!((policy.confidence_threshold - DEFAULT_CONFIDENCE_THRESHOLD).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn llm_first_strategy_parses() {
+        let toml = r#"
+            [llm]
+            enabled = true
+            strategy = "llm_first"
+            confidence_threshold = 0.8
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let policy = config.generation_config();
+        assert!(!policy.is_rules_only());
+        assert_eq!(policy.strategy, GenerationStrategy::LlmFirst);
+        assert!((policy.confidence_threshold - 0.8).abs() < f32::EPSILON);
+        // llm_first + enabled → always consult the LLM.
+        assert!(policy.should_use_llm(0.99));
+    }
+
+    #[test]
+    fn rules_first_is_the_explicit_alternative() {
+        let toml = r#"
+            [llm]
+            enabled = true
+            strategy = "rules_first"
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let policy = config.generation_config();
+        assert_eq!(policy.strategy, GenerationStrategy::RulesFirst);
+        // rules_first → only escalate low-confidence nodes.
+        assert!(policy.should_use_llm(0.2));
+        assert!(!policy.should_use_llm(0.95));
+    }
+
+    #[test]
+    fn llm_unknown_key_is_rejected() {
+        assert!(toml::from_str::<Config>("[llm]\nbogus = 1").is_err());
     }
 
     #[test]
