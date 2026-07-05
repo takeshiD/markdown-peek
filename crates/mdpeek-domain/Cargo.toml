@@ -1,0 +1,20 @@
+# Layer 3.5 — 非開発ドメイン (§9.2, §10) のドメインプリミティブ実装。
+#
+# 干渉回避のため、このクレートは *あえて* ルートの workspace には登録していない
+# (Layer 2 が Cargo.toml を workspace 化するため、ここを触ると衝突する)。
+# 単体ビルド:  cargo build  --manifest-path crates/mdpeek-domain/Cargo.toml
+# 単体テスト:  cargo test   --manifest-path crates/mdpeek-domain/Cargo.toml
+#
+# 統合時 (Layer 3 マージ後) の手順は crates/mdpeek-domain/README.md を参照。
+[package]
+name = "mdpeek-domain"
+version = "0.0.0"
+edition = "2024"
+description = "Layer 3.5: non-dev domain UI primitives (Glossary/CharacterRoster/StepNavigator/ToleranceMeter/ScalableTable/ObligationMatrix) + rules generators"
+license-file = "../../LICENSE"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.148"
+# Layer 1/2 の BlockTree が入るまでの軽量パーサ用。統合時は BlockTree に置換予定。
+pulldown-cmark = { version = "0.13", features = ["serde"] }
