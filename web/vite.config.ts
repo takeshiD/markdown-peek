@@ -14,8 +14,23 @@ export default defineConfig({
     },
   },
   build: {
+    // Build the Generated-UI island as a self-contained IIFE with stable file
+    // names, so mdpeek-server can embed it via include_bytes! (論点 C). The
+    // standalone dev harness (index.html → main.tsx) still runs via `vite dev`.
+    lib: {
+      entry: "src/panel.tsx",
+      formats: ["iife"],
+      name: "MdpeekGui",
+      fileName: () => "mdpeek-gui.js",
+    },
     outDir: "dist",
     emptyOutDir: true,
     target: "es2020",
+    rollupOptions: {
+      output: {
+        // Stable CSS name for include_bytes! (default lib output is style.css).
+        assetFileNames: "mdpeek-gui.[ext]",
+      },
+    },
   },
 });

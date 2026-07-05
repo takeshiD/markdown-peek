@@ -7,6 +7,10 @@ PLAN.md
 .claude
 # Generative-UI cache (Layer 3, design §6): regenerated on demand.
 .cache
-# Web frontend (Layer 3): deps + build output are reproducible via `npm run build`.
+# Web frontend (Layer 3): node_modules is reproducible via `npm install`.
 web/node_modules
-web/dist
+# The built Generated-UI island is committed so mdpeek-server can embed it with
+# include_bytes! (design 論点 C). Ignore everything else vite emits into dist/.
+web/dist/*
+!web/dist/mdpeek-gui.js
+!web/dist/mdpeek-gui.css

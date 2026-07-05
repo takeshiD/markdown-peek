@@ -10,7 +10,7 @@
 //! ```
 
 use crate::cli::ThemeChoice;
-use crate::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
+use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 use mdpeek_analyzer::generation::DEFAULT_CONFIDENCE_THRESHOLD;
 use mdpeek_analyzer::{GenerationConfig, GenerationStrategy};
 use serde::Deserialize;

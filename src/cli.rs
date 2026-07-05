@@ -1,5 +1,5 @@
 use crate::config::{BrowserTheme, Config, DefaultMode};
-use crate::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
+use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;

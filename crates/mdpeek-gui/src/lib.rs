@@ -1,10 +1,19 @@
-//! Generative-UI pipeline facade (design doc §1): document → generator →
-//! validate → cache → UI IR. This is the single entry point the CLI (`gen`
-//! subcommand) and, later, the server (`/api/gui`) call.
+//! Layer 3 — Generative UI core (design doc §2 `mdpeek-core`).
 //!
-//! Flow (design §1 pipeline): parse+generate (`RulesGenerator`) → `validate`
-//! (schema + allowlist + sourceRange) → `cache`. LLM generation plugs in at the
-//! generator step behind `feature = "llm"` without changing this facade.
+//! Owns the UI IR, generators, cache and the pipeline facade so that the CLI
+//! (`mdpeek gen`) and the server (`/api/gui`) share one implementation:
+//!
+//! - [`ir`]        — `UiNode` wire format + validation + registry allowlist.
+//! - [`generator`] — rules + LLM backends (claude_code / codex / anthropic_api).
+//! - [`cache`]     — content-hash keyed `.cache/mdpeek/*.gui.json`.
+//!
+//! Pipeline (design §1): parse+generate → `validate` (schema + allowlist +
+//! sourceRange) → `cache`. LLM generation plugs in at the generator step
+//! without changing this facade.
+
+pub mod cache;
+pub mod generator;
+pub mod ir;
 
 use std::path::Path;
 

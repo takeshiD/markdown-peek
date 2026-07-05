@@ -10,6 +10,8 @@
     <link id="mdpeek-hljs-light" rel="stylesheet" href="/static/js/highlight/github.min.css">
     <link id="mdpeek-hljs-dark" rel="stylesheet" href="/static/js/highlight/github-dark.min.css" disabled>
     <link rel="icon" type="image/svg+xml" href="/static/icons/github-mark.svg">
+    <!-- Layer 3 Generated-UI island (co-existence pane). -->
+    <link rel="stylesheet" href="/static/gui/mdpeek-gui.css">
     <style>
         /* Unify the whole UI (TOC, file sidebar, toolbar, front-matter panel)
            onto the main content font. Those chrome elements live outside
@@ -54,12 +56,16 @@
         <button id="mdpeek-theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
         <button id="mdpeek-autoscroll-toggle" type="button" aria-label="Toggle auto-scroll to changes" aria-pressed="false" title="Auto-scroll to changes"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate-fixed"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button id="mdpeek-toc-toggle" type="button" aria-label="Toggle table of contents" aria-pressed="false" title="Toggle contents" hidden><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-list"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></button>
+        <button id="mdpeek-gui-toggle" type="button" aria-label="Toggle generated UI" aria-pressed="false" title="Generated UI" hidden><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg></button>
     </div>
     <article class="markdown-body {{theme}}">
         {{ content }}
     </article>
     <!-- Raw front matter (YAML/+++) for the viewer's front matter panel; empty when absent. -->
     {{ frontmatter }}
+    <!-- Layer 3 Generated-UI island mount point (populated on first toggle). -->
+    <aside id="mdpeek-gui-panel" aria-label="Generated UI"></aside>
+    <script type="module" src="/static/gui/mdpeek-gui.js"></script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@4.0.0/tex-mml-chtml.js"></script>
     <!-- TODO: currently mathjax is used from cdn but I wanna emebeded mathjax.js into index.html. -->
     <script type="text/javascript" src="/static/js/mermaid/mermaid.min.js"></script>

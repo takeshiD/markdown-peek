@@ -24,6 +24,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+use mdpeek_gui::generator::llm::LlmBackendConfig;
 use mdpeek_render_html::HtmlEmitter;
 use mdpeek_watcher::watch_channel;
 
@@ -38,6 +39,9 @@ struct AppState {
     scan_root: Arc<PathBuf>,
     /// Tells the watch loop to re-point at a newly selected file or diff pair.
     rewatch: StdSender<WatchTarget>,
+    /// Layer 3 Generative-UI backend for `/api/gui`. `None` = rules-only
+    /// (offline default); `Some` = the LLM backend resolved from `[llm]` config.
+    llm: Arc<Option<LlmBackendConfig>>,
 }
 
 /// What the server watches and re-renders on change: a single file (normal
@@ -89,7 +93,13 @@ impl fmt::Display for Theme {
     }
 }
 
-pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
+pub fn serve(
+    watch_path: PathBuf,
+    host: String,
+    port: String,
+    theme: Theme,
+    llm: Option<LlmBackendConfig>,
+) {
     // Discover the enclosing repo/worktrees from where the user ran mdpeek so
     // the explorer sidebar (#14) works regardless of the file argument.
     let scan_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -109,6 +119,7 @@ pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
         roots: Arc::new(roots),
         scan_root: Arc::new(scan_root),
         rewatch: rewatch_tx,
+        llm: Arc::new(llm),
     };
     let server = std::thread::spawn(move || run_server(state, host, port));
 
@@ -197,6 +208,7 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/tree", get(tree_handler))
         .route("/api/select", post(select_handler))
         .route("/api/diff", post(diff_handler))
+        .route("/api/gui", get(gui_handler))
         .route("/static/{*path}", get(static_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
@@ -268,6 +280,57 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
         .replace("{{ content }}", &html_body)
         .replace("{{ frontmatter }}", &frontmatter_html);
     Html(page)
+}
+
+/// `GET /api/gui` — Layer 3 Generative UI for the currently active file.
+/// Returns `{ nodes, markdown }`: validated UI IR (rules by default, or the
+/// configured LLM backend) plus the source, which the Preact island renders in
+/// the Generated UI pane. Generation runs on a blocking thread (LLM backends
+/// may spawn a subprocess).
+async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let markdown = match tokio::fs::read_to_string(&file_path).await {
+        Ok(content) => content,
+        Err(e) => {
+            error!("gui: failed to read '{}': {e}", file_path.display());
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let llm = (*state.llm).clone();
+    let md_for_task = markdown.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        // Cache under the cwd's `.cache/mdpeek/`, matching `mdpeek gen`.
+        let cache_root = Some(Path::new("."));
+        match &llm {
+            Some(backend) => mdpeek_gui::generate_with_llm(&md_for_task, cache_root, backend),
+            None => mdpeek_gui::generate(&md_for_task, cache_root),
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(entry)) => {
+            Json(serde_json::json!({ "nodes": entry.ui_ir, "markdown": markdown })).into_response()
+        }
+        Ok(Err(e)) => {
+            error!("gui: generation failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 /// Render markdown source into a `(body HTML, raw front matter)` pair. Shared by
@@ -622,6 +685,15 @@ struct StaticAsset {
 
 fn embedded_static_asset(path: &str) -> Option<StaticAsset> {
     match path.trim_start_matches('/') {
+        // Layer 3 Generated-UI island (built from web/, design 論点 C).
+        "gui/mdpeek-gui.js" => Some(StaticAsset {
+            bytes: include_bytes!("../../../web/dist/mdpeek-gui.js"),
+            content_type: "application/javascript; charset=utf-8",
+        }),
+        "gui/mdpeek-gui.css" => Some(StaticAsset {
+            bytes: include_bytes!("../../../web/dist/mdpeek-gui.css"),
+            content_type: "text/css; charset=utf-8",
+        }),
         "css/github-dark.css" => Some(StaticAsset {
             bytes: include_bytes!("../../../static/css/github-dark.css"),
             content_type: "text/css; charset=utf-8",

@@ -1,9 +1,5 @@
-mod cache;
 mod cli;
 mod config;
-mod generator;
-mod gui;
-mod ir;
 mod tui;
 
 use crate::cli::{Cli, Mode, ThemeChoice};
@@ -31,13 +27,16 @@ fn main() -> Result<()> {
     // Layer 3's generator will consult it. Server mode is the generative-UI path,
     // so it is where the policy takes effect.
     let generation = config.generation_config();
+    // The `/api/gui` LLM backend: only when `[llm] enabled = true`; otherwise the
+    // server generates rules-only (offline, no key needed).
+    let gui_llm = config.llm_enabled().then(|| config.llm_backend_config());
     match mode {
         Mode::Serve {
             file,
             host,
             port,
             theme,
-        } => handle_serve(file, host, port, theme, generation),
+        } => handle_serve(file, host, port, theme, generation, gui_llm),
         Mode::Term {
             file,
             watch,
@@ -59,7 +58,7 @@ fn main() -> Result<()> {
 fn handle_gen(
     root: PathBuf,
     no_cache: bool,
-    llm: Option<crate::generator::llm::LlmBackendConfig>,
+    llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
 ) -> Result<()> {
     if !root.is_file() {
         anyhow::bail!("'{}' is not a file.", root.display());
@@ -70,7 +69,7 @@ fn handle_gen(
     } else {
         Some(std::path::Path::new("."))
     };
-    let json = gui::generate_json(&markdown, cache_root, llm.as_ref())?;
+    let json = mdpeek_gui::generate_json(&markdown, cache_root, llm.as_ref())?;
     println!("{json}");
     Ok(())
 }
@@ -81,6 +80,7 @@ fn handle_serve(
     port: String,
     theme: BrowserTheme,
     generation: GenerationConfig,
+    gui_llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
 ) {
     init_tracing();
     tracing::info!(
@@ -102,7 +102,7 @@ fn handle_serve(
     // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
     // picks a valid active file, so we hand off even when `root` doesn't exist
     // (e.g. the default README.md is absent) rather than bailing out here.
-    serve(root, host, port, theme);
+    serve(root, host, port, theme, gui_llm);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {

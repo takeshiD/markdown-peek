@@ -24,21 +24,21 @@ to the `parser` / `analyzer` / `model` areas that Layer 1 / 2 own.
 | CLI | `mdpeek gen <file>` | ✅ emits validated IR JSON; `--no-cache`, `--llm`, `--provider`, `--model`, `--effort` |
 | §5.1 web registry | `web/src/registry.tsx` | ✅ 2-layer registry + `Render` dispatcher |
 | §5.1 components | `web/src/components/` | ✅ all 18 node kinds |
-| §5.3 layout | `web/src/layout/ThreePane.tsx` | ✅ Outline / Content / Generated UI, SourceRangeLink jump |
+| §5.3 layout | `web/src/layout/ThreePane.tsx` | ✅ Outline / Content / Generated UI, SourceRangeLink jump (standalone dev harness) |
+| §5.3 / 論点 A server integration | `crates/mdpeek-server` + `web/src/panel.tsx` | ✅ `/api/gui` endpoint + Preact island co-existing with SSR content, toggled from the toolbar; `web/dist` embedded via `include_bytes!` (論点 C) |
 | §4.1 TS types | `web/src/ir.ts` | ✅ hand-maintained mirror of Rust IR |
 
-Tests: `cargo test` (18 Layer-3 unit tests + `tests/gen_output.rs` integration)
-and `cd web && npm run build` (tsc + vite) both pass.
+Layer 3 core now lives in its own crate (`crates/mdpeek-gui`, design §2 `mdpeek-core`)
+so both the CLI and the server share one implementation.
+
+Tests: `cargo test --workspace` (mdpeek-gui unit tests + `tests/gen_output.rs`
+integration) and `cd web && npm run build` (tsc + vite) all pass.
 
 ## Deliberately deferred (to avoid worktree interference)
 
-These Layer 3 items touch files owned by other in-flight worktrees, or depend on
-their outputs, so they are left as clean integration points:
+These Layer 3 items depend on other layers' outputs, so they are left as clean
+integration points:
 
-- **Server `/api/gui` route + Preact island mount** (論点 A). Wiring the
-  Generated UI pane into the live server edits `src/server.rs` and the static
-  HTML — shared with Layer 1 (#12/#16). `web/dist` embedding via `include_bytes!`
-  (論点 C) waits on that.
 - **Layer 2 `DocumentModel` / `planner`.** `generator::traits::GenInput` is a
   lightweight stand-in (raw markdown + `DocType` hint). When Layer 2 lands,
   `GenInput` becomes a thin adapter over `DocumentModel` — the `Generator`
@@ -64,9 +64,15 @@ mdpeek gen README.md --llm --provider codex        --model gpt-5-codex     --eff
 cargo build --features llm
 ANTHROPIC_API_KEY=... mdpeek gen README.md --llm --provider anthropic_api
 
-# Web frontend (Generated UI island):
-cd web && npm install && npm run dev     # dev harness with a bundled fixture
-cd web && npm run build                  # → web/dist (embedded by the server later)
+# Live server: open the preview, then click the ✨ toolbar button to reveal the
+# Generated UI pane (fetches /api/gui for the active file; rules by default,
+# LLM when [llm] enabled = true).
+mdpeek serve README.md
+
+# Web frontend build (rebuild after changing web/src; commit web/dist):
+cd web && npm install
+cd web && npm run build                  # → web/dist/mdpeek-gui.{js,css} (embedded by the server)
+cd web && npm run dev                    # standalone 3-pane dev harness with a fixture
 ```
 
 ### LLM backends

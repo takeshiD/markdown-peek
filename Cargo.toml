@@ -7,6 +7,7 @@ members = [
     "crates/mdpeek-gfm",
     "crates/mdpeek-parser",
     "crates/mdpeek-analyzer",
+    "crates/mdpeek-gui",
     "crates/mdpeek-render-html",
     "crates/mdpeek-render-term",
     "crates/mdpeek-watcher",
@@ -27,6 +28,7 @@ description = "Markdown previewer in browser and terminal"
 [dependencies]
 mdpeek-analyzer = { path = "crates/mdpeek-analyzer" }
 mdpeek-gfm = { path = "crates/mdpeek-gfm" }
+mdpeek-gui = { path = "crates/mdpeek-gui" }
 mdpeek-render-term = { path = "crates/mdpeek-render-term" }
 mdpeek-server = { path = "crates/mdpeek-server" }
 mdpeek-watcher = { path = "crates/mdpeek-watcher" }
@@ -42,19 +44,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ratatui = "0.30.2"
 crossterm = "0.29.0"
 ansi-to-tui = "8.0.1"
-# Layer 3 (Generative UI): IR (de)serialization, cache hashing, optional LLM.
-serde_json = "1"
-sha2 = "0.10"
-thiserror = "2.0"
-# LLM (Claude) generator backend, opt-in to keep the default build offline.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"], optional = true }
 
 [features]
 default = []
-# Enables the Claude-backed UI IR generator (generator::llm). Requires network
-# + ANTHROPIC_API_KEY at runtime; falls back to RulesGenerator when unset.
-llm = ["dep:reqwest", "dep:tokio"]
+# Layer 3 LLM backend: forwards to the Anthropic-API generator in mdpeek-gui
+# (+ mdpeek-server so it can drive it). CLI backends (claude_code/codex) need no
+# feature. Requires network + ANTHROPIC_API_KEY at runtime; falls back to rules.
+llm = ["mdpeek-gui/llm", "mdpeek-server/llm"]
 
 [[bin]]
 name = "mdpeek"
