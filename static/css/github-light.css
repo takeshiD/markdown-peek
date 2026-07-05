@@ -1353,8 +1353,8 @@
   color: #0969da;
 }
 
-/* Sidebar toggle: body top-left when collapsed, inside the sidebar top-right
-   when open (#14). */
+/* Sidebar toggle: body top-left when collapsed (blends into the background — no
+   border/shadow), inside the sidebar top-right when open (#14). */
 #mdpeek-sidebar-toggle {
   position: fixed;
   top: 16px;
@@ -1366,22 +1366,16 @@
   justify-content: center;
   padding: 0;
   cursor: pointer;
-  background-color: #ffffff;
+  background-color: transparent;
   color: #1f2328;
-  border: 1px solid #d1d9e0;
+  border: 1px solid transparent;
   border-radius: 6px;
-  box-shadow: 0 1px 3px rgba(31, 35, 40, 0.12);
+  box-shadow: none;
   z-index: 61;
 }
-#mdpeek-sidebar-toggle:hover { background-color: #f6f8fa; }
+#mdpeek-sidebar-toggle:hover { background-color: #eaeef2; }
 #mdpeek-sidebar-toggle svg { width: 18px; height: 18px; display: block; }
-body.mdpeek-sidebar-open #mdpeek-sidebar-toggle {
-  left: 236px;
-  background-color: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-body.mdpeek-sidebar-open #mdpeek-sidebar-toggle:hover { background-color: #eaeef2; }
+body.mdpeek-sidebar-open #mdpeek-sidebar-toggle { left: 236px; }
 
 /* Changed-block highlight for live updates (#16) */
 @keyframes mdpeek-flash-light {
@@ -1413,10 +1407,13 @@ body.mdpeek-toc-user-hidden #mdpeek-toc { display: none; }
   color: #1f2328;
   border-right: 1px solid #d1d9e0;
   z-index: 55;
-  display: none;
+  display: flex;
   flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.2s ease;
 }
-body.mdpeek-sidebar-open #mdpeek-sidebar { display: flex; }
+body.mdpeek-sidebar-open #mdpeek-sidebar { transform: translateX(0); }
+body { transition: padding-left 0.2s ease; }
 body.mdpeek-sidebar-open { padding-left: 280px; }
 #mdpeek-sidebar-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 #mdpeek-sidebar-header {
@@ -1637,6 +1634,7 @@ table.mdpeek-diff-split td:first-child { border-left: none; }
   box-shadow: 0 1px 3px rgba(31, 35, 40, 0.12);
   z-index: 58;
 }
+#mdpeek-breadcrumb { transition: left 0.2s ease; }
 body.mdpeek-sidebar-open #mdpeek-breadcrumb { left: 296px; }
 .mdpeek-bc-btn {
   display: inline-flex;
