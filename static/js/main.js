@@ -473,12 +473,72 @@ function applyUpdate(newHTML, frontmatter) {
     mermaidWithin(changed);
     typesetWithin(changed);
     initializeOutline();
+    refreshTocState();
     buildFrontmatterPanel(frontmatter);
     flashChanged(changed);
 
     if (changed.length && autoScrollEnabled()) {
         changed[0].scrollIntoView({ behavior: "smooth", block: "center" });
     }
+}
+
+// ---------------------------------------------------------------------------
+// TOC visibility toggle (#13): let the user show/hide the outline regardless of
+// viewport width, persisted across reloads and live updates.
+// ---------------------------------------------------------------------------
+
+const MDPEEK_TOC_KEY = "mdpeek-toc-visible";
+// Viewport width above which the outline shows by default (matches the CSS
+// `@media (max-width: 1280px)` rule that hides it on narrow screens).
+const MDPEEK_TOC_WIDTH = 1280;
+
+// Whether the outline should be visible: explicit user choice wins, otherwise
+// fall back to the width-based default.
+function tocShouldShow() {
+    const pref = localStorage.getItem(MDPEEK_TOC_KEY);
+    if (pref === "visible") {
+        return true;
+    }
+    if (pref === "hidden") {
+        return false;
+    }
+    return window.innerWidth > MDPEEK_TOC_WIDTH;
+}
+
+// Reflect stored preference onto body classes (which override the CSS default)
+// and the toggle button's pressed/visible state. Safe to call repeatedly.
+function refreshTocState() {
+    const pref = localStorage.getItem(MDPEEK_TOC_KEY);
+    document.body.classList.toggle("mdpeek-toc-user-visible", pref === "visible");
+    document.body.classList.toggle("mdpeek-toc-user-hidden", pref === "hidden");
+
+    const btn = document.getElementById("mdpeek-toc-toggle");
+    if (!btn) {
+        return;
+    }
+    // The button only makes sense when an outline exists (headings >= 2).
+    const toc = document.getElementById("mdpeek-toc");
+    if (!toc) {
+        btn.hidden = true;
+        return;
+    }
+    btn.hidden = false;
+    const shown = tocShouldShow();
+    btn.classList.toggle("mdpeek-active", shown);
+    btn.setAttribute("aria-pressed", shown ? "true" : "false");
+}
+
+function initializeTocToggle() {
+    const btn = document.getElementById("mdpeek-toc-toggle");
+    if (btn) {
+        btn.addEventListener("click", function () {
+            localStorage.setItem(MDPEEK_TOC_KEY, tocShouldShow() ? "hidden" : "visible");
+            refreshTocState();
+        });
+        // When no explicit choice is stored, the default follows width.
+        window.addEventListener("resize", refreshTocState, { passive: true });
+    }
+    refreshTocState();
 }
 
 // Toolbar toggle for "scroll to first change on update".
@@ -509,6 +569,7 @@ function initializeAutoScrollToggle() {
     initializeHighlight();
     initializeOutline();
     initializeFrontmatter();
+    initializeTocToggle();
     initializeAutoScrollToggle();
     // initializeMathJax();
 

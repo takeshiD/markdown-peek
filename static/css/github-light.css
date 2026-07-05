@@ -1363,4 +1363,8 @@
   border-radius: 4px;
 }
 
+/* Explicit TOC visibility choice (#13) overrides the width-based default. */
+body.mdpeek-toc-user-visible #mdpeek-toc { display: block; }
+body.mdpeek-toc-user-hidden #mdpeek-toc { display: none; }
+
 html, body { background-color: #ffffff; }
