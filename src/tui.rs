@@ -21,11 +21,15 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap};
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::sync::Once;
 use std::time::Duration;
+
+/// Horizontal / top padding between the terminal edge and the content.
+const PAD_X: u16 = 2;
+const PAD_TOP: u16 = 1;
 
 /// Clamp a scroll offset so it never scrolls past the last visible line.
 ///
@@ -436,8 +440,9 @@ pub fn run_tui(path: PathBuf, theme: ThemeChoice) -> Result<()> {
 
     loop {
         let size = guard.terminal.size()?;
-        let width = size.width;
-        let content_height = size.height.saturating_sub(1);
+        // Effective text area after reserving the status row and the padding.
+        let width = size.width.saturating_sub(PAD_X * 2);
+        let content_height = size.height.saturating_sub(1 + PAD_TOP);
         let total = total_wrapped(&app.plain, width);
         app.scroll = clamp_scroll(app.scroll, total, content_height);
 
@@ -450,13 +455,18 @@ pub fn run_tui(path: PathBuf, theme: ThemeChoice) -> Result<()> {
 
             let paragraph = Paragraph::new(display)
                 .wrap(Wrap { trim: false })
-                .scroll((app.scroll, 0));
+                .scroll((app.scroll, 0))
+                .block(Block::default().padding(Padding::new(PAD_X, PAD_X, PAD_TOP, 0)));
             frame.render_widget(paragraph, content);
-            frame.render_widget(Paragraph::new(status_line(&app)), status);
+            frame.render_widget(
+                Paragraph::new(status_line(&app))
+                    .block(Block::default().padding(Padding::horizontal(PAD_X))),
+                status,
+            );
 
             if let Mode::Search = app.mode {
-                // Place the cursor after the "/" + typed query.
-                let cx = status.x + 1 + app.input.chars().count() as u16;
+                // Place the cursor after the padded "/" + typed query.
+                let cx = status.x + PAD_X + 1 + app.input.chars().count() as u16;
                 frame.set_cursor_position(Position::new(cx.min(status.x + status.width), status.y));
             }
 
