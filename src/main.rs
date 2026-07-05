@@ -1,17 +1,13 @@
 mod cli;
 mod config;
-mod emitter;
-mod gfm;
-mod semantic;
-mod server;
-mod watcher;
+mod tui;
 
 use crate::cli::{Cli, Mode, ThemeChoice};
 use crate::config::{BrowserTheme, Config};
-use crate::emitter::{TerminalEmitter, Theme};
-use crate::server::serve;
-use crate::watcher::notify_on_change;
 use anyhow::Result;
+use mdpeek_render_term::{TerminalEmitter, Theme};
+use mdpeek_server::serve;
+use mdpeek_watcher::notify_on_change;
 use pulldown_cmark::Parser;
 use std::path::PathBuf;
 use std::sync::Once;
@@ -45,14 +41,21 @@ fn main() -> Result<()> {
 
 fn handle_serve(root: PathBuf, host: String, port: String, theme: BrowserTheme) {
     init_tracing();
-    if root.exists() {
-        serve(root, host, port, theme);
-    } else {
-        error!("'{}' is not found.", root.display());
-    }
+    // Map the binary's config theme onto the server crate's own theme so the
+    // server stays independent of the binary's config types.
+    let theme = match theme {
+        BrowserTheme::Light => mdpeek_server::Theme::Light,
+        BrowserTheme::Dark => mdpeek_server::Theme::Dark,
+    };
+    // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
+    // picks a valid active file, so we hand off even when `root` doesn't exist
+    // (e.g. the default README.md is absent) rather than bailing out here.
+    serve(root, host, port, theme);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {
+    use std::io::IsTerminal;
+
     init_tracing();
     if !root.exists() {
         error!("'{}' is not found.", root.display());
@@ -62,6 +65,16 @@ fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<Str
         error!("'{}' is not a file.", root.display());
         return;
     }
+
+    // Interactive live viewer: only when watching AND stdout is a real TTY.
+    // Piped/redirected stdout falls through to the clear+reprint loop below.
+    if watch && std::io::stdout().is_terminal() {
+        if let Err(e) = tui::run_tui(root.clone(), theme) {
+            error!("TUI viewer error: {e}");
+        }
+        return;
+    }
+
     match render_term(&root, theme) {
         Ok(rendered) => {
             if watch {
@@ -154,8 +167,8 @@ fn page(content: &str, pager_cfg: &Option<String>) -> std::io::Result<()> {
 
 fn render_term(root: &PathBuf, theme: ThemeChoice) -> Result<String> {
     let markdown_content = std::fs::read_to_string(root)?;
-    let parser = Parser::new_ext(&markdown_content, crate::gfm::parser_options());
-    let parser = crate::gfm::transform(parser);
+    let parser = Parser::new_ext(&markdown_content, mdpeek_gfm::parser_options());
+    let parser = mdpeek_gfm::transform(parser);
     let theme = match theme {
         ThemeChoice::Glow => Theme::glow(),
         ThemeChoice::Mono => Theme::mono(),

@@ -6,12 +6,11 @@
 //! panels can render directly, with every entry carrying a [`SourceRangeLink`]
 //! back to the original document (design思想「全 UI は sourceRange に紐づく」).
 
-use crate::semantic::model::{BlockClass, DocumentModel};
-use crate::semantic::parser::{BlockId, BlockTree, SourceRange};
+use crate::model::{BlockClass, DocumentModel};
+use mdpeek_parser::{BlockId, BlockKind, BlockTree, SourceRange};
+use regex::Regex;
 use serde::Serialize;
 use std::sync::LazyLock;
-
-use regex::Regex;
 
 /// A jump-to-source reference: the block and its span in the document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -102,10 +101,13 @@ fn todos(model: &DocumentModel, tree: &BlockTree) -> Vec<TodoItem> {
     }
 
     // 2. Inline TODO/FIXME/XXX/HACK markers in block text. Headings are section
-    //    titles (a `## TODO` heading is a section, not an inline note), so skip
-    //    them — their task items are already captured above.
+    //    titles (a `## TODO` heading is a section, not an inline note) and
+    //    metadata is front matter, so skip both — task items are captured above.
     for block in tree.iter() {
-        if matches!(block.kind, crate::semantic::parser::BlockKind::Heading { .. }) {
+        if matches!(
+            block.kind,
+            BlockKind::Heading { .. } | BlockKind::MetadataBlock
+        ) {
             continue;
         }
         for caps in MARKER_RE.captures_iter(&block.text) {
@@ -148,7 +150,7 @@ fn entries_for_class(
         .filter_map(|c| {
             let block = tree.find(c.block_id)?;
             // Skip the section heading itself; surface the content beneath it.
-            if matches!(block.kind, crate::semantic::parser::BlockKind::Heading { .. }) {
+            if matches!(block.kind, BlockKind::Heading { .. }) {
                 return None;
             }
             let text = block.text.trim();
@@ -169,12 +171,12 @@ fn entries_for_class(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::analyzer::build_model;
-    use crate::semantic::parser::parse;
+    use crate::analyzer::build_model;
+    use mdpeek_parser::BlockTree;
 
     fn panel_for(md: &str) -> SemanticPanel {
-        let tree = parse(md);
-        let model = build_model(&tree, None);
+        let tree = BlockTree::parse(md);
+        let model = build_model(md, &tree, None);
         build(&model, &tree)
     }
 

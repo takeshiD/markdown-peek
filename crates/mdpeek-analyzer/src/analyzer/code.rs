@@ -5,7 +5,7 @@
 //! `ApiExplorer` for HTTP, a `ConfigViewer` for JSON/YAML/TOML); Layer 2 exposes
 //! it with tests rather than embedding the result in `DocumentModel`.
 
-use crate::semantic::parser::{BlockKind, BlockTree};
+use mdpeek_parser::{BlockId, BlockKind, BlockTree};
 
 /// What a fenced code block appears to contain.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,7 +85,7 @@ fn sniff(content: &str) -> CodeIntent {
     if trimmed.starts_with("diff ")
         || trimmed.starts_with("--- ")
         || trimmed.starts_with("@@ ")
-        || trimmed.lines().filter(|l| l.starts_with("@@")).count() > 0
+        || trimmed.lines().any(|l| l.starts_with("@@"))
     {
         return CodeIntent::Diff;
     }
@@ -124,12 +124,10 @@ fn sniff(content: &str) -> CodeIntent {
 }
 
 /// Classify every code block in the tree, pairing each with its intent.
-pub fn classify(tree: &BlockTree) -> Vec<(crate::semantic::parser::BlockId, CodeIntent)> {
+pub fn classify(tree: &BlockTree) -> Vec<(BlockId, CodeIntent)> {
     tree.iter()
         .filter_map(|b| match &b.kind {
-            BlockKind::CodeBlock { lang } => {
-                Some((b.id, intent(lang.as_deref(), &b.text)))
-            }
+            BlockKind::CodeBlock { language } => Some((b.id, intent(language.as_deref(), &b.text))),
             _ => None,
         })
         .collect()
@@ -174,5 +172,13 @@ mod tests {
     #[test]
     fn unknown_when_no_signal() {
         assert_eq!(intent(None, "lorem ipsum"), CodeIntent::Unknown);
+    }
+
+    #[test]
+    fn classify_reads_fence_language_from_tree() {
+        let tree = BlockTree::parse("```bash\nmake\n```\n");
+        let intents = classify(&tree);
+        assert_eq!(intents.len(), 1);
+        assert_eq!(intents[0].1, CodeIntent::Shell);
     }
 }

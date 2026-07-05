@@ -11,11 +11,15 @@ pub mod doctype;
 pub mod table;
 pub mod tasks;
 
-use crate::semantic::model::{DocumentModel, OutlineEntry};
-use crate::semantic::parser::{BlockKind, BlockTree};
+use crate::links;
+use crate::model::{DocumentModel, OutlineEntry};
+use mdpeek_parser::{BlockKind, BlockTree};
 
 /// Run the full rules pipeline over a parsed tree, producing a [`DocumentModel`].
-pub fn build_model(tree: &BlockTree, filename: Option<&str>) -> DocumentModel {
+///
+/// `source` is the original markdown, needed to recover links (which the block
+/// tree does not carry).
+pub fn build_model(source: &str, tree: &BlockTree, filename: Option<&str>) -> DocumentModel {
     let outline = outline(tree);
     let tasks = tasks::extract(tree);
     let doc_type = doctype::classify(filename, tree, &outline);
@@ -24,9 +28,9 @@ pub fn build_model(tree: &BlockTree, filename: Option<&str>) -> DocumentModel {
     DocumentModel {
         doc_type,
         blocks,
-        frontmatter: tree.frontmatter.clone(),
+        frontmatter: tree.frontmatter().map(str::to_string),
         outline,
-        links: tree.links.clone(),
+        links: links::extract(source),
         tasks,
     }
 }
@@ -49,8 +53,8 @@ pub fn outline(tree: &BlockTree) -> Vec<OutlineEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::model::DocumentType;
-    use crate::semantic::parser::parse;
+    use crate::model::DocumentType;
+    use mdpeek_parser::BlockTree;
 
     #[test]
     fn build_model_populates_all_sections() {
@@ -60,8 +64,8 @@ mod tests {
                   ## Usage\n\n\
                   - [ ] install\n- [x] configure\n\n\
                   ```bash\nmake build\n```\n";
-        let tree = parse(md);
-        let model = build_model(&tree, Some("README.md"));
+        let tree = BlockTree::parse(md);
+        let model = build_model(md, &tree, Some("README.md"));
 
         assert_eq!(model.doc_type.value, DocumentType::Readme);
         assert!(model.frontmatter.is_some());
@@ -73,7 +77,7 @@ mod tests {
 
     #[test]
     fn outline_preserves_levels_and_order() {
-        let tree = parse("# A\n\n## B\n\n### C\n\n## D\n");
+        let tree = BlockTree::parse("# A\n\n## B\n\n### C\n\n## D\n");
         let outline = outline(&tree);
         let levels: Vec<u8> = outline.iter().map(|e| e.level).collect();
         let titles: Vec<&str> = outline.iter().map(|e| e.title.as_str()).collect();

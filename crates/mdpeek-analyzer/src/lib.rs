@@ -1,30 +1,29 @@
 //! Layer 2 — Semantic viewer (rules-centric).
 //!
-//! Turns raw markdown into a [`model::DocumentModel`] and a
-//! [`panel::SemanticPanel`] using deterministic rules only (no LLM). This is the
-//! foundation later layers build on:
+//! Turns a parsed [`mdpeek_parser::BlockTree`] into a [`model::DocumentModel`]
+//! and a [`panel::SemanticPanel`] using deterministic rules only (no LLM). This
+//! is the foundation later layers build on:
 //!
 //! ```text
-//! markdown ─▶ parser::BlockTree ─▶ analyzer(rules) ─▶ DocumentModel ─▶ SemanticPanel
+//! markdown ─▶ mdpeek_parser::BlockTree ─▶ analyzer(rules) ─▶ DocumentModel ─▶ SemanticPanel
 //! ```
 //!
-//! See AGENTS.md §10 "Layer 2 — Semantic viewer". Nothing here is UI IR yet;
-//! that is Layer 3. The public API is [`analyze`], returning an [`Analysis`]
+//! See AGENTS.md §10 "Layer 2 — Semantic viewer". Nothing here is UI IR
+//! (Layer 3). The public entry point is [`analyze`], returning an [`Analysis`]
 //! that bundles the tree, model and side panel.
 //!
-//! Not yet consumed by the CLI/server binary paths (those remain the Layer 1
-//! HTML/terminal renderers); it is exercised by the unit tests in each submodule
-//! and is the entry point Layer 3's planner/generator will call.
-#![allow(dead_code)]
+//! Block parsing and `SourceRange`s come from Layer 1's `mdpeek-parser`
+//! (`BlockTree`); this crate adds the semantic layer on top.
 
 pub mod analyzer;
+pub mod links;
 pub mod model;
 pub mod panel;
-pub mod parser;
+
+pub use mdpeek_parser::{Block, BlockId, BlockKind, BlockTree, SourceRange};
 
 use self::model::DocumentModel;
 use self::panel::SemanticPanel;
-use self::parser::BlockTree;
 
 /// The complete Layer 2 analysis of a document.
 #[derive(Debug, Clone)]
@@ -39,8 +38,8 @@ pub struct Analysis {
 /// `filename` (when known) sharpens document-type inference; pass `None` if
 /// analysing an in-memory buffer.
 pub fn analyze(markdown: &str, filename: Option<&str>) -> Analysis {
-    let tree = parser::parse(markdown);
-    let model = analyzer::build_model(&tree, filename);
+    let tree = BlockTree::parse(markdown);
+    let model = analyzer::build_model(markdown, &tree, filename);
     let panel = panel::build(&model, &tree);
     Analysis { tree, model, panel }
 }
@@ -48,7 +47,7 @@ pub fn analyze(markdown: &str, filename: Option<&str>) -> Analysis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::model::DocumentType;
+    use crate::model::DocumentType;
 
     #[test]
     fn end_to_end_readme_analysis() {

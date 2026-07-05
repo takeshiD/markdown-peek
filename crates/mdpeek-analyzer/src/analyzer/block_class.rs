@@ -4,8 +4,8 @@
 //! the section heading it sits under. Section membership is tracked by walking
 //! blocks in document order and remembering the most recent recognised heading.
 
-use crate::semantic::model::{BlockClass, ClassifiedBlock, OutlineEntry};
-use crate::semantic::parser::{BlockKind, BlockTree};
+use crate::model::{BlockClass, ClassifiedBlock, OutlineEntry};
+use mdpeek_parser::{BlockKind, BlockTree};
 
 /// Classify every block in the tree.
 pub fn classify(tree: &BlockTree, _outline: &[OutlineEntry]) -> Vec<ClassifiedBlock> {
@@ -15,24 +15,22 @@ pub fn classify(tree: &BlockTree, _outline: &[OutlineEntry]) -> Vec<ClassifiedBl
 
     for block in tree.iter() {
         let (class, confidence) = match &block.kind {
-            BlockKind::Heading { .. } => {
-                match section_class(&block.text) {
-                    Some(section) => {
-                        current_section = section;
-                        (section, 0.8)
-                    }
-                    None => {
-                        // Unrecognised heading opens a generic section.
-                        current_section = BlockClass::Generic;
-                        (BlockClass::Heading, 0.6)
-                    }
+            // Front matter is metadata, not content — leave it unclassified.
+            BlockKind::MetadataBlock => continue,
+            BlockKind::Heading { .. } => match section_class(&block.text) {
+                Some(section) => {
+                    current_section = section;
+                    (section, 0.8)
                 }
-            }
+                None => {
+                    // Unrecognised heading opens a generic section.
+                    current_section = BlockClass::Generic;
+                    (BlockClass::Heading, 0.6)
+                }
+            },
             BlockKind::CodeBlock { .. } => (BlockClass::CodeExample, 0.9),
             BlockKind::Table => (BlockClass::Table, 0.9),
-            BlockKind::List { task: true } | BlockKind::Item { checked: Some(_) } => {
-                (BlockClass::Task, 0.9)
-            }
+            BlockKind::Item { task: Some(_) } => (BlockClass::Task, 0.9),
             _ => {
                 // Inherit the enclosing section (or Generic).
                 let conf = if current_section == BlockClass::Generic {
@@ -90,8 +88,8 @@ pub fn section_class(title: &str) -> Option<BlockClass> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::analyzer::outline;
-    use crate::semantic::parser::{parse, BlockKind};
+    use crate::analyzer::outline;
+    use mdpeek_parser::{BlockKind, BlockTree};
 
     #[test]
     fn section_class_maps_common_headings() {
@@ -105,7 +103,7 @@ mod tests {
     #[test]
     fn paragraph_inherits_its_section() {
         let md = "# T\n\n## Risks\n\nThis is dangerous.\n\n## Usage\n\nRun it.\n";
-        let tree = parse(md);
+        let tree = BlockTree::parse(md);
         let ol = outline(&tree);
         let classes = classify(&tree, &ol);
 
@@ -127,10 +125,22 @@ mod tests {
     #[test]
     fn code_and_table_get_structural_classes() {
         let md = "## X\n\n```rust\nfn a(){}\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
-        let tree = parse(md);
+        let tree = BlockTree::parse(md);
         let ol = outline(&tree);
         let classes = classify(&tree, &ol);
         assert!(classes.iter().any(|c| c.class == BlockClass::CodeExample));
         assert!(classes.iter().any(|c| c.class == BlockClass::Table));
+    }
+
+    #[test]
+    fn task_items_classified_as_task() {
+        let md = "## X\n\n- [ ] do a\n- [x] do b\n";
+        let tree = BlockTree::parse(md);
+        let ol = outline(&tree);
+        let classes = classify(&tree, &ol);
+        assert_eq!(
+            classes.iter().filter(|c| c.class == BlockClass::Task).count(),
+            2
+        );
     }
 }

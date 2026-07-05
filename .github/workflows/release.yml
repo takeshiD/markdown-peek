@@ -62,8 +62,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
+          # Workspace-safe: scan every member package for the bin target
+          # (packages[0] is no longer guaranteed to be the binary crate).
           bin_name="$(cargo metadata --no-deps --format-version=1 \
-                    | jq -r '.packages[0].targets[] | select(.kind[]=="bin").name')"
+                    | jq -r 'first(.packages[].targets[] | select(.kind[]=="bin").name)')"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             bin_file="${bin_name}".exe
           else

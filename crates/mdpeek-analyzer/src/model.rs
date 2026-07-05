@@ -2,9 +2,11 @@
 //!
 //! This is the rules-stage output that later layers (planner → generator → IR)
 //! build on. It deliberately avoids the UI IR types (Layer 3): Layer 2 only
-//! produces a `DocumentModel` and the side-panel view over it.
+//! produces a `DocumentModel` and the side-panel view over it. Block ids and
+//! source ranges are re-exported from Layer 1's `mdpeek-parser`.
 
-use crate::semantic::parser::{BlockId, Link, SourceRange};
+use crate::links::Link;
+use mdpeek_parser::{BlockId, SourceRange};
 use serde::Serialize;
 
 /// Where a piece of information came from. Rules today; `Llm` reserved for
@@ -118,9 +120,6 @@ pub struct DocumentModel {
     pub links: Vec<Link>,
     pub tasks: Vec<Task>,
 }
-
-// `Link` lives in `parser` but is part of the model's public surface; make serde
-// derive available there rather than duplicating the type.
 
 #[cfg(test)]
 mod tests {

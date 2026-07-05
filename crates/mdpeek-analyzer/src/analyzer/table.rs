@@ -1,11 +1,11 @@
 //! Table semantics (AGENTS.md §3.2 "表の意味推定(status列など)").
 //!
-//! The block tree collapses a table's cell structure into aggregated text, so
-//! this module re-reads the table's source slice (via its byte range) to recover
+//! The block tree folds a table's cell structure into aggregated text, so this
+//! module re-reads the table's source lines (via its [`SourceRange`]) to recover
 //! the header row and detect meaningful columns — notably a status/state column,
 //! which later layers render as badges rather than plain text.
 
-use crate::semantic::parser::{Block, BlockKind, BlockTree};
+use mdpeek_parser::{Block, BlockKind, BlockTree};
 
 /// The recognised shape of a GFM table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,15 +16,22 @@ pub struct TableInfo {
     pub row_count: usize,
 }
 
-/// Analyse a table block by re-parsing its source slice. Returns `None` if the
+/// Analyse a table block by re-reading its source lines. Returns `None` if the
 /// block is not a table or has no parseable header.
 pub fn analyze(source: &str, block: &Block) -> Option<TableInfo> {
     if !matches!(block.kind, BlockKind::Table) {
         return None;
     }
-    let slice = source.get(block.byte_range.clone())?;
-    let mut lines = slice
+
+    // The block's source range spans header + delimiter + body rows. Slice those
+    // source lines (1-based, inclusive) and keep the pipe-bearing ones.
+    let start = block.range.start_line.saturating_sub(1) as usize;
+    let end = block.range.end_line as usize; // exclusive upper bound after skip
+    let count = end.saturating_sub(start);
+    let mut lines = source
         .lines()
+        .skip(start)
+        .take(count)
         .map(str::trim)
         .filter(|l| l.contains('|') && !l.is_empty());
 
@@ -51,7 +58,7 @@ pub fn analyze(source: &str, block: &Block) -> Option<TableInfo> {
 }
 
 /// Analyse every table in the tree.
-pub fn analyze_all(source: &str, tree: &BlockTree) -> Vec<(crate::semantic::parser::BlockId, TableInfo)> {
+pub fn analyze_all(source: &str, tree: &BlockTree) -> Vec<(mdpeek_parser::BlockId, TableInfo)> {
     tree.iter()
         .filter_map(|b| analyze(source, b).map(|info| (b.id, info)))
         .collect()
@@ -69,9 +76,7 @@ fn split_row(row: &str) -> Vec<String> {
 fn is_delimiter_row(row: &str) -> bool {
     let content: String = row.chars().filter(|c| !c.is_whitespace()).collect();
     !content.is_empty()
-        && content
-            .chars()
-            .all(|c| c == '-' || c == ':' || c == '|')
+        && content.chars().all(|c| c == '-' || c == ':' || c == '|')
         && content.contains('-')
 }
 
@@ -87,22 +92,22 @@ fn is_status_label(label: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::parser::parse;
+    use mdpeek_parser::BlockTree;
 
-    fn first_table(source: &str) -> (String, TableInfo) {
-        let tree = parse(source);
+    fn first_table(source: &str) -> TableInfo {
+        let tree = BlockTree::parse(source);
         let block = tree
             .iter()
             .find(|b| matches!(b.kind, BlockKind::Table))
             .expect("table present")
             .clone();
-        (source.to_string(), analyze(source, &block).expect("table analysed"))
+        analyze(source, &block).expect("table analysed")
     }
 
     #[test]
     fn extracts_columns_and_rows() {
         let md = "| Name | Age |\n|------|-----|\n| Ann  | 30  |\n| Bob  | 25  |\n";
-        let (_s, info) = first_table(md);
+        let info = first_table(md);
         assert_eq!(info.columns, vec!["Name", "Age"]);
         assert_eq!(info.row_count, 2);
         assert_eq!(info.status_column, None);
@@ -111,21 +116,21 @@ mod tests {
     #[test]
     fn detects_status_column() {
         let md = "| Task | Status |\n|------|--------|\n| A | done |\n";
-        let (_s, info) = first_table(md);
+        let info = first_table(md);
         assert_eq!(info.status_column, Some(1));
     }
 
     #[test]
     fn detects_japanese_status_column() {
         let md = "| 項目 | 状態 |\n|------|------|\n| A | 完了 |\n";
-        let (_s, info) = first_table(md);
+        let info = first_table(md);
         assert_eq!(info.columns, vec!["項目", "状態"]);
         assert_eq!(info.status_column, Some(1));
     }
 
     #[test]
     fn non_table_returns_none() {
-        let tree = parse("just a paragraph\n");
+        let tree = BlockTree::parse("just a paragraph\n");
         let para = tree.iter().next().unwrap();
         assert_eq!(analyze("just a paragraph\n", para), None);
     }

@@ -4,8 +4,8 @@
 //! heuristics → content sniffing → `Generic`. Each rule reports a confidence so
 //! Layer 3 can decide whether to escalate a low-confidence guess to the LLM.
 
-use crate::semantic::model::{Classified, DocumentType, OutlineEntry};
-use crate::semantic::parser::BlockTree;
+use crate::model::{Classified, DocumentType, OutlineEntry};
+use mdpeek_parser::BlockTree;
 
 /// Infer the document type from filename, frontmatter and structure.
 pub fn classify(
@@ -14,7 +14,7 @@ pub fn classify(
     outline: &[OutlineEntry],
 ) -> Classified<DocumentType> {
     // 1. Explicit frontmatter `type:` wins outright.
-    if let Some(t) = tree.frontmatter.as_deref().and_then(frontmatter_type) {
+    if let Some(t) = tree.frontmatter().and_then(frontmatter_type) {
         return Classified::rules(t, 0.95);
     }
 
@@ -58,7 +58,10 @@ pub fn classify(
     }
     // FAQ: a majority of headings are questions.
     if !titles.is_empty() {
-        let questions = titles.iter().filter(|t| t.trim_end().ends_with('?') || t.contains("？")).count();
+        let questions = titles
+            .iter()
+            .filter(|t| t.trim_end().ends_with('?') || t.contains('？'))
+            .count();
         if questions * 2 >= titles.len() && questions >= 2 {
             return Classified::rules(DocumentType::Faq, 0.7);
         }
@@ -101,7 +104,7 @@ fn filename_type(name: &str) -> Option<DocumentType> {
 fn frontmatter_type(frontmatter: &str) -> Option<DocumentType> {
     for line in frontmatter.lines() {
         let line = line.trim();
-        let Some((key, value)) = line.split_once(&[':', '='][..]) else {
+        let Some((key, value)) = line.split_once([':', '=']) else {
             continue;
         };
         let key = key.trim().trim_matches('"').to_lowercase();
@@ -160,11 +163,11 @@ fn looks_like_git_log(tree: &BlockTree) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::analyzer::outline;
-    use crate::semantic::parser::parse;
+    use crate::analyzer::outline;
+    use mdpeek_parser::BlockTree;
 
     fn classify_md(md: &str, filename: Option<&str>) -> DocumentType {
-        let tree = parse(md);
+        let tree = BlockTree::parse(md);
         let ol = outline(&tree);
         classify(filename, &tree, &ol).value
     }
