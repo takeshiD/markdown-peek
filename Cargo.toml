@@ -25,6 +25,7 @@ readme = "README.md"
 description = "Markdown previewer in browser and terminal"
 
 [dependencies]
+mdpeek-analyzer = { path = "crates/mdpeek-analyzer" }
 mdpeek-gfm = { path = "crates/mdpeek-gfm" }
 mdpeek-render-term = { path = "crates/mdpeek-render-term" }
 mdpeek-server = { path = "crates/mdpeek-server" }

@@ -29,3 +29,22 @@ theme = "glow"
 # Pager command used to display the terminal preview.
 # Set to an empty string "" to disable paging and write directly to stdout.
 pager = "less -R"
+
+[llm]
+# Generated-UI generation policy: choose between rules-based and LLM-based
+# inference. Read at startup and consulted by the generator.
+
+# Whether the LLM may be used at all. When false, generation is strictly
+# rules-based regardless of `strategy`. (Even when true, mdpeek degrades to
+# rules-only automatically if no API key is available.)
+enabled = false
+
+# Which source wins when both rules and the LLM could produce a result:
+#   "rules_first" - deterministic rules first; only ask the LLM for
+#                   low-confidence results (reproducible, offline-friendly).
+#   "llm_first"   - prefer the LLM; fall back to rules when it is unavailable.
+strategy = "rules_first"
+
+# Under "rules_first", a rules result below this confidence (0.0-1.0) is
+# escalated to the LLM. Defaults to 0.6 when omitted.
+confidence_threshold = 0.6

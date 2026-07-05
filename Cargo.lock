@@ -1167,6 +1167,7 @@ dependencies = [
  "clap",
  "clap-cargo",
  "crossterm",
+ "mdpeek-analyzer",
  "mdpeek-gfm",
  "mdpeek-render-term",
  "mdpeek-server",
@@ -1206,6 +1207,7 @@ dependencies = [
  "pulldown-cmark",
  "regex",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -16,10 +16,12 @@
 //! (`BlockTree`); this crate adds the semantic layer on top.
 
 pub mod analyzer;
+pub mod generation;
 pub mod links;
 pub mod model;
 pub mod panel;
 
+pub use generation::{GenerationConfig, GenerationStrategy};
 pub use mdpeek_parser::{Block, BlockId, BlockKind, BlockTree, SourceRange};
 
 use self::model::DocumentModel;
