@@ -33,6 +33,10 @@ impl Generator for ClaudeCodeGenerator {
         let mut cmd = Command::new("claude");
         cmd.arg("-p")
             .arg(&prompt)
+            .arg("--allowed-tools")
+            .arg("\"\"")
+            .arg("--max-turns")
+            .arg("1")
             .arg("--output-format")
             .arg("text");
         if let Some(model) = &self.model {
