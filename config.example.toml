@@ -41,10 +41,12 @@ pager = "less -R"
 enabled = false
 
 # Which source wins when both rules and the LLM could produce a result:
-#   "rules_first" - deterministic rules first; only ask the LLM for
-#                   low-confidence results (reproducible, offline-friendly).
-#   "llm_first"   - prefer the LLM; fall back to rules when it is unavailable.
-strategy = "rules_first"
+#   "llm_first"   - prefer the LLM for reading lenses; fall back to the
+#                   deterministic planner when the LLM is unavailable (default).
+#   "rules_first" - deterministic planner first; reproducible / offline-friendly.
+# When the LLM is enabled the generator is LLM-first: the LLM produces the lenses
+# and the rules planner is the fallback.
+strategy = "llm_first"
 
 # Under "rules_first", a rules result below this confidence (0.0-1.0) is
 # escalated to the LLM. Defaults to 0.6 when omitted.

@@ -17,8 +17,7 @@ to the `parser` / `analyzer` / `model` areas that Layer 1 / 2 own.
 | §1 sourceRange | `src/ir/range.rs` | ✅ `SourceRange` + `LineIndex` (byte offset → line/col) |
 | §3.5 / §8 allowlist | `src/ir/registry.rs` | ✅ 2-layer allowlist (core + domain) |
 | §3.5 validation | `src/ir/validate.rs` | ✅ schema (serde) + allowlist + sourceRange bounds + low-confidence flagging |
-| §3.4 generator | `crates/mdpeek-gui/src/generator/rules.rs` | ✅ `RulesGenerator` (structural): task lists→`Checklist`, tables→`DataTable`, mermaid→`Diagram`, json/yaml/toml/env→`ConfigViewer`, GFM alerts→`Callout` |
-| §3.3 / §9 planner + Layer 2 | `crates/mdpeek-gui/src/planner` | ✅ consumes `mdpeek_analyzer::analyze` (DocumentModel + SemanticPanel); doctype-aware semantic nodes: risks→`RiskPanel`, open questions→`Checklist`, DesignDoc/Readme→missing-section review `Checklist`, Adr/Changelog/Minutes→`Timeline` |
+| Reading lenses (LLM-first) | `crates/mdpeek-gui/src/planner` + `generator/llm` | ✅ Generated UI = **reading lenses** (design doc §8), not body reprints. LLM is primary; the planner is the deterministic fallback, consuming `mdpeek_analyzer::analyze`. Lenses: `SemanticOutline` (BlockClass groups), `DecisionLog`, `ActionItems`, `OpenQuestions`, `RiskPanel` (+assumptions), `Glossary`, `SummaryCards` (LLM-only). Body content (tables/code/diagrams) stays in the Markdown Body (§7.2). Lens Selector orders by doctype (§13). Per-item `Confidence` low/med/high (§14). |
 | §7 LLM | `src/generator/llm/` | ✅ 3 backends: `claude_code` (`claude` CLI) + `codex` (`codex` CLI) in the default build, `anthropic_api` (HTTP) behind `feature = "llm"`; model + effort per backend; validates output; rules fallback |
 | §6 cache | `src/cache/` | ✅ content-hash key (markdown + generator + schema version) + `.cache/mdpeek/*.gui.json` store |
 | §1 pipeline | `src/gui.rs` | ✅ generate → validate → cache facade (rules or LLM) |
