@@ -18,10 +18,10 @@ to the `parser` / `analyzer` / `model` areas that Layer 1 / 2 own.
 | §3.5 / §8 allowlist | `src/ir/registry.rs` | ✅ 2-layer allowlist (core + domain) |
 | §3.5 validation | `src/ir/validate.rs` | ✅ schema (serde) + allowlist + sourceRange bounds + low-confidence flagging |
 | §3.4 generator | `src/generator/rules.rs` | ✅ `RulesGenerator`: task lists→`Checklist`, tables→`DataTable`, mermaid→`Diagram`, json/yaml/toml/env→`ConfigViewer`, GFM alerts→`Callout` |
-| §7 LLM | `src/generator/llm/` (`feature = "llm"`) | ✅ `ClaudeGenerator` + prompt; offline fallback to rules; **not yet driven** (see below) |
+| §7 LLM | `src/generator/llm/` | ✅ 3 backends: `claude_code` (`claude` CLI) + `codex` (`codex` CLI) in the default build, `anthropic_api` (HTTP) behind `feature = "llm"`; model + effort per backend; validates output; rules fallback |
 | §6 cache | `src/cache/` | ✅ content-hash key (markdown + generator + schema version) + `.cache/mdpeek/*.gui.json` store |
-| §1 pipeline | `src/gui.rs` | ✅ generate → validate → cache facade |
-| CLI | `mdpeek gen <file>` | ✅ emits validated IR JSON; `--no-cache` |
+| §1 pipeline | `src/gui.rs` | ✅ generate → validate → cache facade (rules or LLM) |
+| CLI | `mdpeek gen <file>` | ✅ emits validated IR JSON; `--no-cache`, `--llm`, `--provider`, `--model`, `--effort` |
 | §5.1 web registry | `web/src/registry.tsx` | ✅ 2-layer registry + `Render` dispatcher |
 | §5.1 components | `web/src/components/` | ✅ all 18 node kinds |
 | §5.3 layout | `web/src/layout/ThreePane.tsx` | ✅ Outline / Content / Generated UI, SourceRangeLink jump |
@@ -51,17 +51,31 @@ their outputs, so they are left as clean integration points:
 ## Usage
 
 ```sh
-# Deterministic, offline IR generation:
+# Deterministic, offline IR generation (rules):
 mdpeek gen README.md              # prints validated UI IR JSON, caches under .cache/mdpeek/
 mdpeek gen README.md --no-cache   # always regenerate
 
-# LLM-backed generation (opt-in; falls back to rules if ANTHROPIC_API_KEY unset):
+# LLM-backed generation. Backend + model + effort come from [llm] in config.toml,
+# or from CLI flags (which override config). Falls back to rules on any failure.
+mdpeek gen README.md --llm --provider claude_code --model claude-sonnet-5 --effort high
+mdpeek gen README.md --llm --provider codex        --model gpt-5-codex     --effort medium
+
+# The `anthropic_api` backend (direct HTTP) needs a feature build + API key:
 cargo build --features llm
+ANTHROPIC_API_KEY=... mdpeek gen README.md --llm --provider anthropic_api
 
 # Web frontend (Generated UI island):
 cd web && npm install && npm run dev     # dev harness with a bundled fixture
 cd web && npm run build                  # → web/dist (embedded by the server later)
 ```
+
+### LLM backends
+
+| provider | build | needs | model flag | effort mapping |
+|---|---|---|---|---|
+| `claude_code` | default | `claude` CLI on PATH | `claude --model` | prompt keyword (`think`/`ultrathink`) |
+| `codex` | default | `codex` CLI on PATH | `codex --model` | `-c model_reasoning_effort="…"` |
+| `anthropic_api` | `--features llm` | `ANTHROPIC_API_KEY` | request `model` | advisory only |
 
 ## Security invariants (design §8)
 

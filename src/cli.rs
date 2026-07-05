@@ -1,4 +1,5 @@
 use crate::config::{BrowserTheme, Config, DefaultMode};
+use crate::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
@@ -49,6 +50,18 @@ pub struct GenArg {
     /// Skip the on-disk cache and always regenerate.
     #[arg(long)]
     pub no_cache: bool,
+    /// Use the LLM backend (overrides `[llm] enabled = false`).
+    #[arg(long)]
+    pub llm: bool,
+    /// LLM backend override: anthropic_api | claude_code | codex.
+    #[arg(long, value_enum)]
+    pub provider: Option<LlmProvider>,
+    /// Model id override (backend-specific).
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Reasoning effort override: low | medium | high.
+    #[arg(long, value_enum)]
+    pub effort: Option<Effort>,
 }
 
 // Subcommand arguments are optional so that an unset flag can fall back to
@@ -101,7 +114,12 @@ pub enum Mode {
         pager: Option<String>,
     },
     /// Generate Generative-UI IR JSON (Layer 3) and print it to stdout.
-    Gen { file: PathBuf, no_cache: bool },
+    Gen {
+        file: PathBuf,
+        no_cache: bool,
+        /// Resolved LLM backend to use, or `None` for rules-only generation.
+        llm: Option<LlmBackendConfig>,
+    },
 }
 
 impl Cli {
@@ -158,10 +176,24 @@ impl Cli {
                 theme: arg.theme.or(config.term.theme).unwrap_or(ThemeChoice::Glow),
                 pager,
             }),
-            Some(Commands::Gen(arg)) => Ok(Mode::Gen {
-                file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
-                no_cache: arg.no_cache,
-            }),
+            Some(Commands::Gen(arg)) => {
+                // Use the LLM when `--llm` is passed or `[llm] enabled = true`.
+                // CLI flags override the corresponding config fields.
+                let use_llm = arg.llm || config.llm_enabled();
+                let llm = use_llm.then(|| {
+                    let base = config.llm_backend_config();
+                    LlmBackendConfig {
+                        provider: arg.provider.unwrap_or(base.provider),
+                        model: arg.model.or(base.model),
+                        effort: arg.effort.or(base.effort),
+                    }
+                });
+                Ok(Mode::Gen {
+                    file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
+                    no_cache: arg.no_cache,
+                    llm,
+                })
+            }
             None => {
                 let root = self.root.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
                 let host = self

@@ -7,14 +7,9 @@
 //! The [`traits`] module defines the `Generator` contract and the lightweight
 //! [`traits::GenInput`] stand-in for Layer 2's `DocumentModel`.
 
+pub mod llm;
 pub mod rules;
 pub mod traits;
-
-// Scaffolding for the deferred server integration (design §7): constructed once
-// `/api/gui` drives it. `allow(dead_code)` until that wiring lands.
-#[cfg(feature = "llm")]
-#[allow(dead_code)]
-pub mod llm;
 
 pub use rules::RulesGenerator;
 #[allow(unused_imports)]

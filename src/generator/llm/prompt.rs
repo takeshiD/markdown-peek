@@ -56,6 +56,18 @@ pub fn strip_code_fence(text: &str) -> &str {
     t.trim().strip_suffix("```").unwrap_or(t).trim()
 }
 
+/// Extract the JSON array from noisy CLI output (Claude Code / Codex may print
+/// preamble, logs or a trailing summary around the payload). Strips a code fence
+/// first, then narrows to the outermost `[` … `]`. Falls back to the fence-
+/// stripped text so the validator produces a clear error if nothing matches.
+pub fn extract_json_array(text: &str) -> &str {
+    let t = strip_code_fence(text.trim());
+    match (t.find('['), t.rfind(']')) {
+        (Some(start), Some(end)) if end > start => &t[start..=end],
+        _ => t,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,6 +76,13 @@ mod tests {
     fn strips_fence() {
         assert_eq!(strip_code_fence("```json\n[]\n```"), "[]");
         assert_eq!(strip_code_fence("[]"), "[]");
+    }
+
+    #[test]
+    fn extracts_array_from_noise() {
+        let out = "Thinking...\nHere is the IR:\n```json\n[{\"kind\":\"Callout\"}]\n```\nDone.";
+        assert_eq!(extract_json_array(out), "[{\"kind\":\"Callout\"}]");
+        assert_eq!(extract_json_array("prefix [1,2] suffix"), "[1,2]");
     }
 
     #[test]

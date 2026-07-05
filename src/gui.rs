@@ -11,6 +11,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::cache::{CacheStore, GuiCacheEntry, content_hash};
+use crate::generator::llm::LlmBackendConfig;
 use crate::generator::{GenInput, Generator, RulesGenerator};
 use crate::ir::{LineIndex, UiNode, validate_nodes};
 
@@ -45,9 +46,62 @@ pub fn generate(markdown: &str, cache_root: Option<&Path>) -> Result<GuiCacheEnt
     Ok(entry)
 }
 
-/// Convenience: pretty-printed UI IR JSON for the `gen` CLI command.
-pub fn generate_json(markdown: &str, cache_root: Option<&Path>) -> Result<String> {
-    let entry = generate(markdown, cache_root)?;
+/// Generate validated UI IR using the configured LLM [`backend`], with the
+/// deterministic [`RulesGenerator`] as a fallback when the backend fails
+/// (missing CLI, no API key, network error, invalid output). Uses the on-disk
+/// cache keyed by the backend's model id.
+pub fn generate_with_llm(
+    markdown: &str,
+    cache_root: Option<&Path>,
+    backend: &LlmBackendConfig,
+) -> Result<GuiCacheEntry> {
+    let generator = match backend.build() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("mdpeek: LLM backend unavailable ({e}); using rules");
+            return generate(markdown, cache_root);
+        }
+    };
+    let model_id = generator.model_id();
+
+    if let Some(root) = cache_root
+        && let Some(entry) = CacheStore::new(root).get(markdown, &model_id)
+    {
+        return Ok(entry);
+    }
+
+    let total_lines = LineIndex::new(markdown).line_count();
+    let nodes = match generator.generate(&GenInput::new(markdown)) {
+        Ok(mut nodes) => {
+            // Backends validate internally; re-run for defence in depth.
+            validate_nodes(&mut nodes, total_lines).context("LLM IR failed validation")?;
+            nodes
+        }
+        Err(e) => {
+            eprintln!("mdpeek: LLM generation failed ({e}); falling back to rules");
+            return generate(markdown, cache_root);
+        }
+    };
+
+    let hash = content_hash(markdown, &model_id);
+    let entry = GuiCacheEntry::new("generic".to_string(), nodes, model_id, hash);
+    if let Some(root) = cache_root {
+        let _ = CacheStore::new(root).put(&entry);
+    }
+    Ok(entry)
+}
+
+/// Convenience: pretty-printed UI IR JSON for the `gen` CLI command. When
+/// `backend` is `Some`, uses the configured LLM; otherwise rules only.
+pub fn generate_json(
+    markdown: &str,
+    cache_root: Option<&Path>,
+    backend: Option<&LlmBackendConfig>,
+) -> Result<String> {
+    let entry = match backend {
+        Some(b) => generate_with_llm(markdown, cache_root, b)?,
+        None => generate(markdown, cache_root)?,
+    };
     serde_json::to_string_pretty(&entry.ui_ir).context("serializing UI IR")
 }
 
@@ -70,7 +124,7 @@ mod tests {
     #[test]
     fn produces_valid_json() {
         let md = "| a | b |\n|---|---|\n| 1 | 2 |\n";
-        let json = generate_json(md, None).unwrap();
+        let json = generate_json(md, None, None).unwrap();
         assert!(json.contains("DataTable"));
     }
 }

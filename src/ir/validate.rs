@@ -25,7 +25,6 @@ pub enum ValidateError {
     UnknownKind(String),
     #[error("sourceRange {0:?} is outside the document (1..={1} lines)")]
     RangeOutOfBounds(SourceRange, u32),
-    #[allow(dead_code)]
     #[error("invalid IR JSON: {0}")]
     Schema(String),
 }
@@ -97,8 +96,7 @@ fn nested_ranges(node: &UiNode) -> Vec<SourceRange> {
 }
 
 /// Parse untrusted JSON (e.g. LLM output) into validated nodes. Combines schema
-/// (serde) + allowlist + bounds. This is the entry point for `ClaudeGenerator`.
-#[allow(dead_code)]
+/// (serde) + allowlist + bounds. Entry point for the LLM backends.
 pub fn validate_json(json: &str, total_lines: u32) -> Result<Vec<UiNode>, ValidateError> {
     let mut nodes: Vec<UiNode> =
         serde_json::from_str(json).map_err(|e| ValidateError::Schema(e.to_string()))?;

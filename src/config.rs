@@ -10,6 +10,7 @@
 //! ```
 
 use crate::cli::ThemeChoice;
+use crate::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 use mdpeek_analyzer::generation::DEFAULT_CONFIDENCE_THRESHOLD;
 use mdpeek_analyzer::{GenerationConfig, GenerationStrategy};
 use serde::Deserialize;
@@ -69,6 +70,15 @@ pub struct LlmConfig {
     /// Confidence below which a rules result is escalated to the LLM under
     /// `rules_first`. Defaults to 0.6 when unset.
     pub confidence_threshold: Option<f32>,
+    /// Which LLM backend to drive (Layer 3): `"anthropic_api"` (default),
+    /// `"claude_code"`, or `"codex"`. See [`LlmProvider`].
+    pub provider: LlmProvider,
+    /// Model id passed to the backend (backend-specific). Omit for the
+    /// backend's default.
+    pub model: Option<String>,
+    /// Reasoning effort: `"low"` | `"medium"` | `"high"`. Mapped per backend
+    /// (Codex → `model_reasoning_effort`, Claude Code → thinking keyword).
+    pub effort: Option<Effort>,
 }
 
 /// Mode selected when no subcommand is given.
@@ -122,6 +132,22 @@ impl Config {
                 .confidence_threshold
                 .unwrap_or(DEFAULT_CONFIDENCE_THRESHOLD),
         }
+    }
+
+    /// Resolve the LLM backend selection (provider + model + effort) from the
+    /// `[llm]` config. Independent of `enabled`; the caller decides whether to
+    /// use it (see `mdpeek gen --llm`).
+    pub fn llm_backend_config(&self) -> LlmBackendConfig {
+        LlmBackendConfig {
+            provider: self.llm.provider,
+            model: self.llm.model.clone(),
+            effort: self.llm.effort,
+        }
+    }
+
+    /// Whether the `[llm]` section opted into LLM generation.
+    pub fn llm_enabled(&self) -> bool {
+        self.llm.enabled
     }
 
     fn load_from(path: &Path) -> Self {
@@ -249,6 +275,41 @@ mod tests {
     #[test]
     fn llm_unknown_key_is_rejected() {
         assert!(toml::from_str::<Config>("[llm]\nbogus = 1").is_err());
+    }
+
+    #[test]
+    fn llm_backend_defaults_to_anthropic_api() {
+        let config: Config = toml::from_str("").unwrap();
+        let backend = config.llm_backend_config();
+        assert_eq!(backend.provider, LlmProvider::AnthropicApi);
+        assert!(backend.model.is_none());
+        assert!(backend.effort.is_none());
+    }
+
+    #[test]
+    fn llm_backend_provider_model_effort_parse() {
+        let toml = r#"
+            [llm]
+            enabled = true
+            provider = "codex"
+            model = "gpt-5-codex"
+            effort = "high"
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.llm_enabled());
+        let backend = config.llm_backend_config();
+        assert_eq!(backend.provider, LlmProvider::Codex);
+        assert_eq!(backend.model.as_deref(), Some("gpt-5-codex"));
+        assert_eq!(backend.effort, Some(Effort::High));
+    }
+
+    #[test]
+    fn llm_claude_code_provider_parses() {
+        let config: Config =
+            toml::from_str("[llm]\nprovider = \"claude_code\"\neffort = \"medium\"").unwrap();
+        let backend = config.llm_backend_config();
+        assert_eq!(backend.provider, LlmProvider::ClaudeCode);
+        assert_eq!(backend.effort, Some(Effort::Medium));
     }
 
     #[test]

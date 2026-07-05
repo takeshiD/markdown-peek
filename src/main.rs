@@ -44,14 +44,23 @@ fn main() -> Result<()> {
             theme,
             pager,
         } => handle_term(file, watch, theme, pager),
-        Mode::Gen { file, no_cache } => handle_gen(file, no_cache)?,
+        Mode::Gen {
+            file,
+            no_cache,
+            llm,
+        } => handle_gen(file, no_cache, llm)?,
     }
     Ok(())
 }
 
 /// Generate Generative-UI IR (Layer 3) for `root` and print the JSON to stdout.
-/// The cache lives under `.cache/mdpeek/` in the current directory.
-fn handle_gen(root: PathBuf, no_cache: bool) -> Result<()> {
+/// The cache lives under `.cache/mdpeek/` in the current directory. When `llm`
+/// is set, the configured LLM backend is used (with a rules fallback).
+fn handle_gen(
+    root: PathBuf,
+    no_cache: bool,
+    llm: Option<crate::generator::llm::LlmBackendConfig>,
+) -> Result<()> {
     if !root.is_file() {
         anyhow::bail!("'{}' is not a file.", root.display());
     }
@@ -61,7 +70,7 @@ fn handle_gen(root: PathBuf, no_cache: bool) -> Result<()> {
     } else {
         Some(std::path::Path::new("."))
     };
-    let json = gui::generate_json(&markdown, cache_root)?;
+    let json = gui::generate_json(&markdown, cache_root, llm.as_ref())?;
     println!("{json}");
     Ok(())
 }

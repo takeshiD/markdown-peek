@@ -51,6 +51,28 @@ fn gen_writes_cache_file() {
 }
 
 #[test]
+fn gen_llm_falls_back_to_rules_when_backend_unavailable() {
+    // In a default build the `anthropic_api` backend needs `--features llm`, so
+    // `build()` errors and generation must fall back to deterministic rules
+    // rather than failing the command.
+    let dir = tempfile::tempdir().unwrap();
+    let md = "- [ ] task a\n- [x] task b\n";
+    let file = write_md(&dir, "tasks.md", md);
+
+    Command::cargo_bin("mdpeek")
+        .unwrap()
+        .arg("gen")
+        .arg(&file)
+        .arg("--no-cache")
+        .arg("--llm")
+        .arg("--provider")
+        .arg("anthropic_api")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Checklist"));
+}
+
+#[test]
 fn gen_rejects_directory() {
     let dir = tempfile::tempdir().unwrap();
     Command::cargo_bin("mdpeek")

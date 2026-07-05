@@ -37,7 +37,6 @@ pub fn is_allowed(kind: &str) -> bool {
 }
 
 /// All allowed kinds (core + domain), for diagnostics / TS generation checks.
-#[allow(dead_code)]
 pub fn all_kinds() -> impl Iterator<Item = &'static str> {
     CORE_KINDS.iter().chain(DOMAIN_KINDS.iter()).copied()
 }
