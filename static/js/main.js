@@ -566,6 +566,11 @@ function initializeAutoScrollToggle() {
 const MDPEEK_SIDEBAR_KEY = "mdpeek-sidebar-open";
 const MDPEEK_GROUPBY_KEY = "mdpeek-tree-groupby"; // "worktree" | "branch"
 
+// Active single file (for restoring after closing a diff), and the first file
+// picked for a two-file comparison (#15).
+let lastActivePath = null;
+let pendingCompare = null;
+
 function sidebarGroupBy() {
     return localStorage.getItem(MDPEEK_GROUPBY_KEY) === "branch" ? "branch" : "worktree";
 }
@@ -590,6 +595,7 @@ function selectFile(path, linkEl) {
             console.log("select rejected", r.status);
             return;
         }
+        lastActivePath = path;
         // The server pushes a live update over the WebSocket; just move the
         // active marker here.
         document.querySelectorAll("#mdpeek-sidebar a.mdpeek-file-active").forEach(function (a) {
@@ -624,6 +630,9 @@ function buildSidebar(data) {
         existing.remove();
     }
 
+    if (data.active) {
+        lastActivePath = data.active;
+    }
     const groupBy = sidebarGroupBy();
     const aside = document.createElement("aside");
     aside.id = "mdpeek-sidebar";
@@ -662,6 +671,7 @@ function buildSidebar(data) {
         const ul = document.createElement("ul");
         group.files.forEach(function (file) {
             const li = document.createElement("li");
+            li.className = "mdpeek-file-row";
             const a = document.createElement("a");
             a.href = "#";
             a.textContent = file.rel;
@@ -673,7 +683,20 @@ function buildSidebar(data) {
                 event.preventDefault();
                 selectFile(file.path, a);
             });
+            // Compare affordance (#15): pick two files (e.g. the same path in
+            // two worktrees) to diff.
+            const cmp = document.createElement("button");
+            cmp.type = "button";
+            cmp.className = "mdpeek-compare";
+            cmp.title = "Select for compare";
+            cmp.textContent = "⇄";
+            cmp.addEventListener("click", function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                toggleCompare(file, cmp);
+            });
             li.appendChild(a);
+            li.appendChild(cmp);
             ul.appendChild(li);
         });
         section.appendChild(ul);
@@ -697,6 +720,85 @@ function initializeSidebar() {
         .then(function (r) { return r.json(); })
         .then(function (data) { buildSidebar(data); })
         .catch(function (e) { console.log("tree fetch failed", e); });
+}
+
+// ---------------------------------------------------------------------------
+// Two-file diff view (#15).
+// ---------------------------------------------------------------------------
+
+function clearPendingCompare() {
+    if (pendingCompare && pendingCompare.el) {
+        pendingCompare.el.classList.remove("mdpeek-compare-pending");
+    }
+    pendingCompare = null;
+}
+
+// First compare click marks a file; the second (on a different file) opens the
+// diff. Clicking the same file again cancels.
+function toggleCompare(file, el) {
+    if (pendingCompare && pendingCompare.path === file.path) {
+        clearPendingCompare();
+        return;
+    }
+    if (!pendingCompare) {
+        pendingCompare = { path: file.path, el: el };
+        el.classList.add("mdpeek-compare-pending");
+        return;
+    }
+    const a = pendingCompare.path;
+    const b = file.path;
+    clearPendingCompare();
+    openDiff(a, b);
+}
+
+function openDiff(a, b) {
+    fetch("/api/diff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ a: a, b: b }),
+    })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (d) { showDiff(d.html); })
+        .catch(function (e) { console.log("diff error", e); });
+}
+
+function showDiff(html) {
+    let view = document.getElementById("mdpeek-diff-view");
+    if (!view) {
+        view = document.createElement("div");
+        view.id = "mdpeek-diff-view";
+        const bar = document.createElement("div");
+        bar.id = "mdpeek-diff-bar";
+        const title = document.createElement("span");
+        title.textContent = "Diff";
+        const close = document.createElement("button");
+        close.type = "button";
+        close.id = "mdpeek-diff-close";
+        close.textContent = "✕";
+        close.title = "Close diff";
+        close.addEventListener("click", closeDiff);
+        bar.appendChild(title);
+        bar.appendChild(close);
+        const body = document.createElement("div");
+        body.id = "mdpeek-diff-body";
+        view.appendChild(bar);
+        view.appendChild(body);
+        document.body.appendChild(view);
+    }
+    document.getElementById("mdpeek-diff-body").innerHTML = html;
+    document.body.classList.add("mdpeek-diff-open");
+}
+
+function closeDiff() {
+    document.body.classList.remove("mdpeek-diff-open");
+    const view = document.getElementById("mdpeek-diff-view");
+    if (view) {
+        view.remove();
+    }
+    // Resume single-file watching/preview on the last active file.
+    if (lastActivePath) {
+        selectFile(lastActivePath, null);
+    }
 }
 
 (function() {
@@ -744,6 +846,14 @@ function initializeSidebar() {
             }
             if (msg && msg.type === "update") {
                 applyUpdate(msg.html, msg.frontmatter);
+            } else if (msg && msg.type === "diff-update") {
+                // Live re-diff (#15): refresh the diff view if it is open.
+                if (document.body.classList.contains("mdpeek-diff-open")) {
+                    const body = document.getElementById("mdpeek-diff-body");
+                    if (body) {
+                        body.innerHTML = msg.html;
+                    }
+                }
             }
         };
 

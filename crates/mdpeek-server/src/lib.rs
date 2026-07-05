@@ -36,8 +36,15 @@ struct AppState {
     roots: Arc<Vec<PathBuf>>,
     /// Directory discovery starts from when (re)building the explorer tree.
     scan_root: Arc<PathBuf>,
-    /// Tells the watch loop to re-point at a newly selected file.
-    rewatch: StdSender<PathBuf>,
+    /// Tells the watch loop to re-point at a newly selected file or diff pair.
+    rewatch: StdSender<WatchTarget>,
+}
+
+/// What the server watches and re-renders on change: a single file (normal
+/// preview) or a pair being diffed (#15).
+enum WatchTarget {
+    Single(PathBuf),
+    Pair(PathBuf, PathBuf),
 }
 
 /// Browser colour theme selected for the served page. The caller (the `mdpeek`
@@ -70,7 +77,7 @@ pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
     let (tx, _) = broadcast::channel::<Message>(16);
     let file_path = Arc::new(RwLock::new(active.clone()));
     let theme = Arc::new(RwLock::new(theme));
-    let (rewatch_tx, rewatch_rx) = std::sync::mpsc::channel::<PathBuf>();
+    let (rewatch_tx, rewatch_rx) = std::sync::mpsc::channel::<WatchTarget>();
     let state = AppState {
         tx: tx.clone(),
         file_path: Arc::clone(&file_path),
@@ -81,29 +88,62 @@ pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
     };
     let server = std::thread::spawn(move || run_server(state, host, port));
 
-    // Watch loop: follow the active file, re-pointing when a selection arrives.
-    // On each change (or selection) re-render and broadcast a block-diff update
-    // (#16) so the client patches in place instead of full-reloading.
+    // Watch loop: follow the active file (or a diff pair), re-pointing when a
+    // selection arrives. On each change (or selection) re-render and broadcast an
+    // update (#16 in-place patch, or #15 re-diff) so the client updates without a
+    // full reload.
     let (mut handle, rx) = watch_channel();
-    let mut current = active;
-    handle.watch(&current);
-    broadcast_update(&current, &tx);
+    let mut watched: Vec<PathBuf> = Vec::new();
+    let mut target = WatchTarget::Single(active);
+    watch_target(&mut handle, &mut watched, &target);
+    broadcast_for(&target, &tx);
     loop {
         while let Ok(next) = rewatch_rx.try_recv() {
-            if next != current {
-                handle.unwatch(&current);
-                handle.watch(&next);
-                current = next;
-            }
-            broadcast_update(&current, &tx);
+            watch_target(&mut handle, &mut watched, &next);
+            target = next;
+            broadcast_for(&target, &tx);
         }
         match rx.recv_timeout(Duration::from_millis(300)) {
-            Ok(()) => broadcast_update(&current, &tx),
+            Ok(()) => broadcast_for(&target, &tx),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     let _ = server.join();
+}
+
+fn target_paths(target: &WatchTarget) -> Vec<PathBuf> {
+    match target {
+        WatchTarget::Single(p) => vec![p.clone()],
+        WatchTarget::Pair(a, b) => vec![a.clone(), b.clone()],
+    }
+}
+
+/// Re-point the watcher: drop the previously watched paths and watch the new set.
+fn watch_target(
+    handle: &mut mdpeek_watcher::WatchHandle,
+    watched: &mut Vec<PathBuf>,
+    target: &WatchTarget,
+) {
+    for p in watched.iter() {
+        handle.unwatch(p);
+    }
+    *watched = target_paths(target);
+    for p in watched.iter() {
+        handle.watch(p);
+    }
+}
+
+/// Broadcast the appropriate update for the current watch target.
+fn broadcast_for(target: &WatchTarget, tx: &broadcast::Sender<Message>) {
+    match target {
+        WatchTarget::Single(p) => broadcast_update(p, tx),
+        WatchTarget::Pair(a, b) => {
+            let msg =
+                serde_json::json!({ "type": "diff-update", "html": render_diff(a, b) }).to_string();
+            let _ = tx.send(Message::text(msg));
+        }
+    }
 }
 
 /// Re-render `path` and broadcast an in-place update to connected clients (#16).
@@ -131,6 +171,7 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/ws", get(websocket_handler))
         .route("/api/tree", get(tree_handler))
         .route("/api/select", post(select_handler))
+        .route("/api/diff", post(diff_handler))
         .route("/static/{*path}", get(static_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
@@ -264,8 +305,9 @@ async fn select_handler(
     match explorer::resolve_within(&state.roots, &req.path) {
         Some(abs) => {
             *state.file_path.write().unwrap() = abs.clone();
-            // Re-point the watcher; it re-renders and broadcasts the new file.
-            if state.rewatch.send(abs).is_err() {
+            // Re-point the watcher (also exits any active diff mode); it
+            // re-renders and broadcasts the new file.
+            if state.rewatch.send(WatchTarget::Single(abs)).is_err() {
                 error!("watch loop is gone; cannot switch file");
                 return StatusCode::INTERNAL_SERVER_ERROR;
             }
@@ -276,6 +318,79 @@ async fn select_handler(
             StatusCode::FORBIDDEN
         }
     }
+}
+
+#[derive(Deserialize)]
+struct DiffRequest {
+    a: String,
+    b: String,
+}
+
+/// `POST /api/diff {a, b}` — start diffing two markdown files (#15). Both paths
+/// are validated against the discovered roots; the watcher then follows both and
+/// re-broadcasts the diff on any change. Returns the initial diff HTML fragment.
+async fn diff_handler(
+    State(state): State<AppState>,
+    Json(req): Json<DiffRequest>,
+) -> impl IntoResponse {
+    let a = explorer::resolve_within(&state.roots, &req.a);
+    let b = explorer::resolve_within(&state.roots, &req.b);
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            let html = render_diff(&a, &b);
+            if state.rewatch.send(WatchTarget::Pair(a, b)).is_err() {
+                error!("watch loop is gone; cannot start diff");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({})),
+                )
+                    .into_response();
+            }
+            Json(serde_json::json!({ "html": html })).into_response()
+        }
+        _ => {
+            warn!(
+                "Rejected diff for '{}' / '{}' (outside roots)",
+                req.a, req.b
+            );
+            StatusCode::FORBIDDEN.into_response()
+        }
+    }
+}
+
+/// Render a source-level line diff of two markdown files as an HTML table
+/// (#15 phase 1). Added/removed/context lines are classed for the theme CSS.
+fn render_diff(a: &Path, b: &Path) -> String {
+    use similar::{ChangeTag, TextDiff};
+
+    let ta = std::fs::read_to_string(a).unwrap_or_default();
+    let tb = std::fs::read_to_string(b).unwrap_or_default();
+    let diff = TextDiff::from_lines(&ta, &tb);
+
+    let name = |p: &Path| {
+        p.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string()
+    };
+    let mut out = format!(
+        "<div class=\"mdpeek-diff-header\"><span class=\"mdpeek-diff-a\">&minus; {}</span><span class=\"mdpeek-diff-b\">+ {}</span></div><table class=\"mdpeek-diff\"><tbody>",
+        escape_html_min(&name(a)),
+        escape_html_min(&name(b)),
+    );
+    for change in diff.iter_all_changes() {
+        let (cls, sign) = match change.tag() {
+            ChangeTag::Delete => ("mdpeek-diff-del", "-"),
+            ChangeTag::Insert => ("mdpeek-diff-add", "+"),
+            ChangeTag::Equal => ("mdpeek-diff-ctx", " "),
+        };
+        let line = escape_html_min(change.value().trim_end_matches(['\n', '\r']));
+        out.push_str(&format!(
+            "<tr class=\"{cls}\"><td class=\"mdpeek-diff-sign\">{sign}</td><td class=\"mdpeek-diff-line\">{line}</td></tr>"
+        ));
+    }
+    out.push_str("</tbody></table>");
+    out
 }
 
 struct StaticAsset {
@@ -443,5 +558,32 @@ mod tests {
         let (body, fm) = render_markdown("# Only heading\n");
         assert!(body.contains("Only heading"));
         assert!(fm.is_none());
+    }
+
+    #[test]
+    fn render_diff_marks_added_and_removed_lines() {
+        use super::render_diff;
+        let dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let a = dir.join(format!("mdpeek_diff_a_{pid}.md"));
+        let b = dir.join(format!("mdpeek_diff_b_{pid}.md"));
+        std::fs::write(&a, "line one\nshared\n").unwrap();
+        std::fs::write(&b, "line ONE\nshared\n").unwrap();
+
+        let html = render_diff(&a, &b);
+        assert!(
+            html.contains("mdpeek-diff-del"),
+            "should mark the removed line"
+        );
+        assert!(
+            html.contains("mdpeek-diff-add"),
+            "should mark the added line"
+        );
+        assert!(html.contains("line one") && html.contains("line ONE"));
+        // The unchanged line is context, not add/del.
+        assert!(html.contains("mdpeek-diff-ctx"));
+
+        let _ = std::fs::remove_file(&a);
+        let _ = std::fs::remove_file(&b);
     }
 }
