@@ -33,11 +33,18 @@ function closePanel() {
   document.getElementById(TOGGLE_ID)?.setAttribute("aria-pressed", "false");
 }
 
-/** Panel chrome: a sticky header with a title + close button, wrapping content. */
-function Island({ children }: { children: preact.ComponentChildren }) {
+/** Panel chrome: a sticky header with a title + close button, wrapping content.
+ * `loading` shows an indeterminate progress bar under the header. */
+function Island({
+  children,
+  loading = false,
+}: {
+  children: preact.ComponentChildren;
+  loading?: boolean;
+}) {
   return (
     <>
-      <div class="gui-island__head">
+      <div class={loading ? "gui-island__head is-loading" : "gui-island__head"}>
         <span class="gui-island__title">✨ Generated UI</span>
         <button class="gui-island__close" type="button" aria-label="Close generated UI" onClick={closePanel}>
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -48,8 +55,19 @@ function Island({ children }: { children: preact.ComponentChildren }) {
   );
 }
 
+/** Indeterminate loading state (a spinner + label). The request is a single
+ * fetch with no progress events, so a spinner rather than a % bar. */
+function Loading() {
+  return (
+    <div class="gui-loading" role="status" aria-live="polite">
+      <span class="gui-spinner" aria-hidden="true" />
+      <span>Generating UI…</span>
+    </div>
+  );
+}
+
 async function loadInto(panel: HTMLElement) {
-  render(<Island><p class="gui-status">Generating UI…</p></Island>, panel);
+  render(<Island loading><Loading /></Island>, panel);
   try {
     const res = await fetch("/api/gui");
     if (!res.ok) throw new Error(`/api/gui returned ${res.status}`);
