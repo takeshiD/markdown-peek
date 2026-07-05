@@ -392,34 +392,19 @@ async fn diff_handler(
     }
 }
 
-fn file_name(p: &Path) -> String {
-    p.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("?")
-        .to_string()
-}
-
-fn diff_header(a: &Path, b: &Path) -> String {
-    format!(
-        "<div class=\"mdpeek-diff-header\"><span class=\"mdpeek-diff-a\">&minus; {}</span><span class=\"mdpeek-diff-b\">+ {}</span></div>",
-        escape_html_min(&file_name(a)),
-        escape_html_min(&file_name(b)),
-    )
-}
-
 /// Render a diff of two markdown files (#15) in the requested mode/layout:
 /// source (raw line diff) or rendered (block-level HTML diff), laid out unified
-/// (one column) or split (two columns).
+/// (one column) or split (two columns). The file labels/header are drawn by the
+/// client (which knows the worktree/branch of each side).
 fn render_diff(a: &Path, b: &Path, opts: DiffOptions) -> String {
     let ta = std::fs::read_to_string(a).unwrap_or_default();
     let tb = std::fs::read_to_string(b).unwrap_or_default();
-    let body = match (opts.mode, opts.layout) {
+    match (opts.mode, opts.layout) {
         (DiffMode::Source, DiffLayout::Unified) => source_unified(&ta, &tb),
         (DiffMode::Source, DiffLayout::Split) => source_split(&ta, &tb),
         (DiffMode::Rendered, DiffLayout::Unified) => rendered_unified(&ta, &tb),
         (DiffMode::Rendered, DiffLayout::Split) => rendered_split(&ta, &tb),
-    };
-    format!("{}{}", diff_header(a, b), body)
+    }
 }
 
 /// CSS class for a change tag.

@@ -50,6 +50,8 @@ const ICON_ROWS =
     '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-align-justify"><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="21" y1="12" y2="12"/><line x1="3" x2="21" y1="18" y2="18"/></svg>';
 const ICON_COLUMNS =
     '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-columns-2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>';
+const ICON_CARET =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down mdpeek-bc-caret"><path d="m6 9 6 6 6-6"/></svg>';
 
 // Escape arbitrary text for safe innerHTML insertion.
 function escapeText(s) {
@@ -609,7 +611,23 @@ function applySidebarVisibility() {
     }
 }
 
-function selectFile(path, linkEl) {
+// Mark the sidebar entry for `path` as active (used by both sidebar clicks and
+// breadcrumb-driven selection).
+function markActiveInSidebar(path) {
+    document.querySelectorAll("#mdpeek-sidebar a.mdpeek-file-active").forEach(function (a) {
+        a.classList.remove("mdpeek-file-active");
+    });
+    if (!path) {
+        return;
+    }
+    document.querySelectorAll("#mdpeek-sidebar a[data-mdpeek-path]").forEach(function (a) {
+        if (a.getAttribute("data-mdpeek-path") === path) {
+            a.classList.add("mdpeek-file-active");
+        }
+    });
+}
+
+function selectFile(path) {
     fetch("/api/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -621,13 +639,8 @@ function selectFile(path, linkEl) {
         }
         lastActivePath = path;
         // The server pushes a live update over the WebSocket; just move the
-        // active marker here.
-        document.querySelectorAll("#mdpeek-sidebar a.mdpeek-file-active").forEach(function (a) {
-            a.classList.remove("mdpeek-file-active");
-        });
-        if (linkEl) {
-            linkEl.classList.add("mdpeek-file-active");
-        }
+        // active marker here (by path, so breadcrumb-driven selects also mark it).
+        markActiveInSidebar(path);
         updateBreadcrumb();
     }).catch(function (e) {
         console.log("select error", e);
@@ -704,12 +717,13 @@ function buildSidebar(data) {
             a.href = "#";
             a.textContent = file.rel;
             a.title = file.path;
+            a.setAttribute("data-mdpeek-path", file.path);
             if (data.active && file.path === data.active) {
                 a.classList.add("mdpeek-file-active");
             }
             a.addEventListener("click", function (event) {
                 event.preventDefault();
-                selectFile(file.path, a);
+                selectFile(file.path);
             });
             // Compare affordance (#15): pick two files (e.g. the same path in
             // two worktrees) to diff.
@@ -740,21 +754,40 @@ function buildSidebar(data) {
 // "layer1-viewer > README.md" (branch or worktree name per the grouping toggle).
 // ---------------------------------------------------------------------------
 
-// The group whose root is the longest prefix of the active path (worktrees can
-// nest, so the most specific root wins).
-function activeGroup() {
-    if (!treeData || !treeData.tree || !lastActivePath) {
+// The group whose root is the longest prefix of `path` (worktrees can nest, so
+// the most specific root wins).
+function groupForPath(path) {
+    if (!treeData || !treeData.tree || !path) {
         return null;
     }
     let best = null;
     treeData.tree.groups.forEach(function (g) {
-        if (lastActivePath === g.root || lastActivePath.indexOf(g.root + "/") === 0) {
+        if (path === g.root || path.indexOf(g.root + "/") === 0) {
             if (!best || g.root.length > best.root.length) {
                 best = g;
             }
         }
     });
     return best;
+}
+
+function activeGroup() {
+    return groupForPath(lastActivePath);
+}
+
+// A file's worktree/branch scope and its path relative to that worktree.
+function fileLabel(path) {
+    const g = groupForPath(path);
+    let rel = path ? path.split("/").pop() : "";
+    let scope = "";
+    if (g) {
+        const f = g.files.filter(function (x) { return x.path === path; })[0];
+        if (f) {
+            rel = f.rel;
+        }
+        scope = g.branch ? g.name + " · " + g.branch : g.name;
+    }
+    return { scope: scope, rel: rel };
 }
 
 function activeFileLabel(group) {
@@ -767,11 +800,110 @@ function activeFileLabel(group) {
     return lastActivePath ? lastActivePath.split("/").pop() : "";
 }
 
+// --- breadcrumb dropdown menu ---
+let bcOpenMenu = null;
+
+function closeBcMenu() {
+    if (bcOpenMenu) {
+        bcOpenMenu.remove();
+        bcOpenMenu = null;
+        document.removeEventListener("click", onBcOutsideClick, true);
+    }
+}
+
+function onBcOutsideClick(e) {
+    if (bcOpenMenu && !bcOpenMenu.contains(e.target)) {
+        closeBcMenu();
+    }
+}
+
+// Open a dropdown anchored under `anchorEl`. `items` = [{html, active, value}];
+// `onPick(value)` fires on selection.
+function openBcMenu(anchorEl, items, onPick) {
+    const wasOpen = bcOpenMenu;
+    closeBcMenu();
+    if (wasOpen && wasOpen.dataset.anchor === anchorEl.id) {
+        return; // clicking the same trigger again just closes it
+    }
+    const menu = document.createElement("div");
+    menu.className = "mdpeek-bc-menu";
+    menu.dataset.anchor = anchorEl.id;
+    items.forEach(function (it) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mdpeek-bc-menu-item" + (it.active ? " is-active" : "");
+        b.innerHTML = it.html;
+        b.addEventListener("click", function (ev) {
+            ev.stopPropagation();
+            closeBcMenu();
+            onPick(it.value);
+        });
+        menu.appendChild(b);
+    });
+    const r = anchorEl.getBoundingClientRect();
+    menu.style.left = r.left + "px";
+    menu.style.top = r.bottom + 4 + "px";
+    document.body.appendChild(menu);
+    bcOpenMenu = menu;
+    // Defer so this same click doesn't immediately close the menu.
+    setTimeout(function () {
+        document.addEventListener("click", onBcOutsideClick, true);
+    }, 0);
+}
+
+// Switch to another worktree/branch, keeping the same relative file when it
+// exists there (otherwise the group's first file).
+function switchToGroup(g) {
+    if (!g || !g.files.length) {
+        return;
+    }
+    const curRel = activeFileLabel(activeGroup());
+    const same = g.files.filter(function (f) { return f.rel === curRel; })[0];
+    const target = same || g.files[0];
+    selectFile(target.path);
+}
+
+function openGroupMenu(anchor) {
+    if (!treeData || !treeData.tree) {
+        return;
+    }
+    const groupBy = sidebarGroupBy();
+    const cur = activeGroup();
+    const items = treeData.tree.groups
+        .filter(function (g) { return g.files.length; })
+        .map(function (g) {
+            const label = groupBy === "branch" ? (g.branch || g.name) : g.name;
+            const icon = groupBy === "branch" ? LUCIDE_BRANCH : LUCIDE_WORKTREE;
+            return {
+                value: g,
+                active: cur && g.root === cur.root,
+                html: icon + "<span>" + escapeText(label) + "</span>",
+            };
+        });
+    openBcMenu(anchor, items, switchToGroup);
+}
+
+function openFileMenu(anchor) {
+    const g = activeGroup();
+    if (!g) {
+        return;
+    }
+    const items = g.files.map(function (f) {
+        return {
+            value: f,
+            active: f.path === lastActivePath,
+            html: "<span>" + escapeText(f.rel) + "</span>",
+        };
+    });
+    openBcMenu(anchor, items, function (f) { selectFile(f.path); });
+}
+
 function updateBreadcrumb() {
     const bc = document.getElementById("mdpeek-breadcrumb");
     if (!bc) {
         return;
     }
+    closeBcMenu();
     const group = activeGroup();
     const file = activeFileLabel(group);
     if (!file) {
@@ -780,17 +912,41 @@ function updateBreadcrumb() {
         return;
     }
     bc.hidden = false;
-    let html = "";
+    bc.innerHTML = "";
+
     if (group) {
         const groupBy = sidebarGroupBy();
         const label = groupBy === "branch" ? (group.branch || group.name) : group.name;
         const icon = groupBy === "branch" ? LUCIDE_BRANCH : LUCIDE_WORKTREE;
-        html +=
-            '<span class="mdpeek-bc-group">' + icon + "<span>" + escapeText(label) + "</span></span>" +
-            '<span class="mdpeek-bc-sep" aria-hidden="true">›</span>';
+        const gbtn = document.createElement("button");
+        gbtn.type = "button";
+        gbtn.id = "mdpeek-bc-group-btn";
+        gbtn.className = "mdpeek-bc-btn mdpeek-bc-group";
+        gbtn.title = "Switch worktree/branch";
+        gbtn.innerHTML = icon + "<span>" + escapeText(label) + "</span>" + ICON_CARET;
+        gbtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            openGroupMenu(gbtn);
+        });
+        bc.appendChild(gbtn);
+        const sep = document.createElement("span");
+        sep.className = "mdpeek-bc-sep";
+        sep.setAttribute("aria-hidden", "true");
+        sep.textContent = "›";
+        bc.appendChild(sep);
     }
-    html += '<span class="mdpeek-bc-file">' + escapeText(file) + "</span>";
-    bc.innerHTML = html;
+
+    const fbtn = document.createElement("button");
+    fbtn.type = "button";
+    fbtn.id = "mdpeek-bc-file-btn";
+    fbtn.className = "mdpeek-bc-btn mdpeek-bc-file";
+    fbtn.title = "Switch file";
+    fbtn.innerHTML = "<span>" + escapeText(file) + "</span>" + ICON_CARET;
+    fbtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openFileMenu(fbtn);
+    });
+    bc.appendChild(fbtn);
 }
 
 function initializeBreadcrumb() {
@@ -851,9 +1007,12 @@ function toggleCompare(file, el) {
 // Current diff view state: the two paths plus mode (source/rendered) and layout
 // (unified/split), so toggles re-request and live re-diffs stay consistent.
 let diffState = null;
+// Previous diff body HTML, to flash the rows/blocks that changed on live re-diff.
+let lastDiffHtml = null;
 
 function openDiff(a, b) {
     diffState = { a: a, b: b, mode: "source", layout: "unified" };
+    lastDiffHtml = null;
     ensureDiffView();
     requestDiff();
 }
@@ -862,6 +1021,7 @@ function requestDiff() {
     if (!diffState) {
         return;
     }
+    renderDiffFiles();
     renderDiffControls();
     fetch("/api/diff", {
         method: "POST",
@@ -869,20 +1029,105 @@ function requestDiff() {
         body: JSON.stringify(diffState),
     })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function (d) { applyDiffHtml(d.html); })
+        // Manual (re)request: replace without a change flash.
+        .then(function (d) { applyDiffHtml(d.html, false); })
         .catch(function (e) { console.log("diff error", e); });
 }
 
-// Set the diff body; re-highlight code in rendered mode.
-function applyDiffHtml(html) {
+// The diffable units (table rows, or rendered blocks) inside a container.
+function diffUnits(container) {
+    return Array.from(
+        container.querySelectorAll(
+            "table.mdpeek-diff > tbody > tr, .mdpeek-rdiff > .mdpeek-rdiff-block"
+        )
+    );
+}
+
+// Indices (in the new content) of the units that changed vs the old content,
+// via a front/back trim so unchanged rows aren't flagged.
+function diffUnitChanges(oldHtml, newHtml) {
+    const o = diffUnits(parseFragment(oldHtml)).map(function (e) { return e.outerHTML; });
+    const n = diffUnits(parseFragment(newHtml)).map(function (e) { return e.outerHTML; });
+    let a = 0;
+    while (a < o.length && a < n.length && o[a] === n[a]) {
+        a++;
+    }
+    let bo = o.length - 1;
+    let bn = n.length - 1;
+    while (bo >= a && bn >= a && o[bo] === n[bn]) {
+        bo--;
+        bn--;
+    }
+    const idx = [];
+    for (let i = a; i <= bn; i++) {
+        idx.push(i);
+    }
+    return idx;
+}
+
+// Set the diff body; re-highlight code in rendered mode. When `flash` is set
+// (a live re-diff), briefly highlight the rows/blocks that changed (#16).
+function applyDiffHtml(html, flash) {
     const body = document.getElementById("mdpeek-diff-body");
     if (!body) {
         return;
     }
+    let changedIdx = [];
+    if (flash && lastDiffHtml) {
+        changedIdx = diffUnitChanges(lastDiffHtml, html);
+    }
     body.innerHTML = html;
+    lastDiffHtml = html;
     if (diffState && diffState.mode === "rendered") {
         highlightWithin([body]);
     }
+    if (changedIdx.length) {
+        const units = diffUnits(body);
+        flashChanged(changedIdx.map(function (i) { return units[i]; }).filter(Boolean));
+    }
+}
+
+// (Re)build the A ⇄ B file labels in the diff bar, coloured to match the diff
+// (left = A / deletions, right = B / additions), with a swap button.
+function renderDiffFiles() {
+    const el = document.getElementById("mdpeek-diff-files");
+    if (!el || !diffState) {
+        return;
+    }
+    el.innerHTML = "";
+    el.appendChild(fileLabelEl(fileLabel(diffState.a), "mdpeek-diff-a"));
+
+    const swap = document.createElement("button");
+    swap.type = "button";
+    swap.id = "mdpeek-diff-swap";
+    swap.title = "Swap sides";
+    swap.setAttribute("aria-label", "Swap left/right");
+    swap.textContent = "⇄";
+    swap.addEventListener("click", function () {
+        const t = diffState.a;
+        diffState.a = diffState.b;
+        diffState.b = t;
+        lastDiffHtml = null; // sides changed; don't flash the swap as edits
+        requestDiff();
+    });
+    el.appendChild(swap);
+
+    el.appendChild(fileLabelEl(fileLabel(diffState.b), "mdpeek-diff-b"));
+}
+
+function fileLabelEl(label, cls) {
+    const span = document.createElement("span");
+    span.className = "mdpeek-diff-file " + cls;
+    let html = "";
+    if (label.scope) {
+        html +=
+            '<span class="mdpeek-diff-scope">' + LUCIDE_WORKTREE +
+            "<span>" + escapeText(label.scope) + "</span></span>";
+    }
+    html += '<span class="mdpeek-diff-rel">' + escapeText(label.rel) + "</span>";
+    span.innerHTML = html;
+    span.title = (label.scope ? label.scope + " · " : "") + label.rel;
+    return span;
 }
 
 // Build one shadcn-style segmented control (a pill with the active option
@@ -937,9 +1182,11 @@ function ensureDiffView() {
 
         const bar = document.createElement("div");
         bar.id = "mdpeek-diff-bar";
-        const title = document.createElement("span");
-        title.className = "mdpeek-diff-bar-title";
-        title.textContent = "Diff";
+
+        // A ⇄ B file labels (with worktree/branch) rebuilt by renderDiffFiles().
+        const files = document.createElement("div");
+        files.id = "mdpeek-diff-files";
+        files.className = "mdpeek-diff-bar-files";
 
         // Segmented controls (source/rendered, unified/split) are rebuilt from
         // diffState by renderDiffControls().
@@ -954,7 +1201,7 @@ function ensureDiffView() {
         close.title = "Close diff";
         close.addEventListener("click", closeDiff);
 
-        bar.appendChild(title);
+        bar.appendChild(files);
         bar.appendChild(controls);
         bar.appendChild(close);
         const body = document.createElement("div");
@@ -969,13 +1216,14 @@ function ensureDiffView() {
 function closeDiff() {
     document.body.classList.remove("mdpeek-diff-open");
     diffState = null;
+    lastDiffHtml = null;
     const view = document.getElementById("mdpeek-diff-view");
     if (view) {
         view.remove();
     }
     // Resume single-file watching/preview on the last active file.
     if (lastActivePath) {
-        selectFile(lastActivePath, null);
+        selectFile(lastActivePath);
     }
 }
 
@@ -1026,9 +1274,10 @@ function closeDiff() {
             if (msg && msg.type === "update") {
                 applyUpdate(msg.html, msg.frontmatter);
             } else if (msg && msg.type === "diff-update") {
-                // Live re-diff (#15): refresh the diff view if it is open.
+                // Live re-diff (#15): refresh the diff view if it is open, and
+                // flash the rows/blocks that changed (#16).
                 if (document.body.classList.contains("mdpeek-diff-open")) {
-                    applyDiffHtml(msg.html);
+                    applyDiffHtml(msg.html, true);
                 }
             }
         };
