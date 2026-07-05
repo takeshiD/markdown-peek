@@ -1500,19 +1500,39 @@ tr.mdpeek-diff-del .mdpeek-diff-sign { color: #cf222e; }
 .mdpeek-diff-del { background-color: #ffebe9; }
 .mdpeek-diff-ctx { background: none; }
 
-/* Diff bar controls (source/rendered, unified/split toggles) */
+/* Diff bar controls: shadcn-style segmented controls (source/rendered, unified/split) */
 #mdpeek-diff-bar { gap: 12px; }
-.mdpeek-diff-bar-controls { display: flex; gap: 8px; }
-.mdpeek-diff-tog {
-  cursor: pointer;
-  background: #f6f8fa;
+.mdpeek-diff-bar-controls { display: flex; gap: 10px; }
+.mdpeek-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: #eaeef2;
   border: 1px solid #d1d9e0;
-  border-radius: 6px;
-  padding: 3px 10px;
-  font-size: 12px;
-  color: inherit;
+  border-radius: 8px;
 }
-.mdpeek-diff-tog:hover { background: #eaeef2; }
+.mdpeek-seg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  color: #59636e;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.mdpeek-seg-item svg { width: 14px; height: 14px; }
+.mdpeek-seg-item:hover { color: #1f2328; }
+.mdpeek-seg-item.is-active {
+  background: #ffffff;
+  color: #1f2328;
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
+}
 
 /* Split (two-column) diff layout */
 table.mdpeek-diff-split { table-layout: fixed; }

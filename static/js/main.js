@@ -41,6 +41,15 @@ const LUCIDE_BRANCH =
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-git-branch"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
 const LUCIDE_WORKTREE =
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+// Icons for the diff mode/layout segmented controls (#15).
+const ICON_CODE =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-code"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
+const ICON_EYE =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_ROWS =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-align-justify"><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="21" y1="12" y2="12"/><line x1="3" x2="21" y1="18" y2="18"/></svg>';
+const ICON_COLUMNS =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-columns-2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>';
 
 // Escape arbitrary text for safe innerHTML insertion.
 function escapeText(s) {
@@ -853,7 +862,7 @@ function requestDiff() {
     if (!diffState) {
         return;
     }
-    syncDiffToggles();
+    renderDiffControls();
     fetch("/api/diff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -876,15 +885,48 @@ function applyDiffHtml(html) {
     }
 }
 
-function syncDiffToggles() {
-    const modeBtn = document.getElementById("mdpeek-diff-mode");
-    const layoutBtn = document.getElementById("mdpeek-diff-layout");
-    if (modeBtn) {
-        modeBtn.textContent = diffState.mode === "rendered" ? "rendered" : "source";
+// Build one shadcn-style segmented control (a pill with the active option
+// highlighted). `options` is [{value, label, icon}]; `onSelect(value)` fires on
+// click.
+function makeSegment(current, options, onSelect) {
+    const seg = document.createElement("div");
+    seg.className = "mdpeek-seg";
+    seg.setAttribute("role", "group");
+    options.forEach(function (opt) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "mdpeek-seg-item" + (opt.value === current ? " is-active" : "");
+        item.setAttribute("aria-pressed", opt.value === current ? "true" : "false");
+        item.innerHTML = opt.icon + "<span>" + opt.label + "</span>";
+        item.addEventListener("click", function () {
+            if (opt.value !== current) {
+                onSelect(opt.value);
+            }
+        });
+        seg.appendChild(item);
+    });
+    return seg;
+}
+
+// (Re)build the diff-bar segmented controls to reflect the current diffState.
+function renderDiffControls() {
+    const controls = document.getElementById("mdpeek-diff-controls");
+    if (!controls || !diffState) {
+        return;
     }
-    if (layoutBtn) {
-        layoutBtn.textContent = diffState.layout === "split" ? "split" : "unified";
-    }
+    controls.innerHTML = "";
+    controls.appendChild(
+        makeSegment(diffState.mode, [
+            { value: "source", label: "Source", icon: ICON_CODE },
+            { value: "rendered", label: "Rendered", icon: ICON_EYE },
+        ], function (v) { diffState.mode = v; requestDiff(); })
+    );
+    controls.appendChild(
+        makeSegment(diffState.layout, [
+            { value: "unified", label: "Unified", icon: ICON_ROWS },
+            { value: "split", label: "Split", icon: ICON_COLUMNS },
+        ], function (v) { diffState.layout = v; requestDiff(); })
+    );
 }
 
 function ensureDiffView() {
@@ -899,28 +941,11 @@ function ensureDiffView() {
         title.className = "mdpeek-diff-bar-title";
         title.textContent = "Diff";
 
+        // Segmented controls (source/rendered, unified/split) are rebuilt from
+        // diffState by renderDiffControls().
         const controls = document.createElement("div");
+        controls.id = "mdpeek-diff-controls";
         controls.className = "mdpeek-diff-bar-controls";
-        const modeBtn = document.createElement("button");
-        modeBtn.type = "button";
-        modeBtn.id = "mdpeek-diff-mode";
-        modeBtn.className = "mdpeek-diff-tog";
-        modeBtn.title = "Toggle source / rendered diff";
-        modeBtn.addEventListener("click", function () {
-            diffState.mode = diffState.mode === "source" ? "rendered" : "source";
-            requestDiff();
-        });
-        const layoutBtn = document.createElement("button");
-        layoutBtn.type = "button";
-        layoutBtn.id = "mdpeek-diff-layout";
-        layoutBtn.className = "mdpeek-diff-tog";
-        layoutBtn.title = "Toggle unified / split layout";
-        layoutBtn.addEventListener("click", function () {
-            diffState.layout = diffState.layout === "unified" ? "split" : "unified";
-            requestDiff();
-        });
-        controls.appendChild(modeBtn);
-        controls.appendChild(layoutBtn);
 
         const close = document.createElement("button");
         close.type = "button";
