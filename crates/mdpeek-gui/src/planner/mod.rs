@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use mdpeek_analyzer::Analysis;
-use mdpeek_analyzer::model::BlockClass;
+use mdpeek_analyzer::model::{BlockClass, DocumentType};
 
 use crate::ir::SourceRange;
 use crate::ir::node::*;
@@ -299,6 +299,31 @@ fn glossary(analysis: &Analysis, conf: f32) -> Option<UiNode> {
     }))
 }
 
+/// Lens Selector (design doc §13 / §9.3): recommended lens order per document
+/// type. Kinds listed here sort first (in this order); anything else keeps its
+/// original relative position after them. This makes the pane doctype-aware
+/// (e.g. an ADR leads with decisions; a design doc with its semantic outline).
+pub fn recommended_order(doc_type: DocumentType) -> &'static [&'static str] {
+    use DocumentType::*;
+    match doc_type {
+        DesignDoc => &["SemanticOutline", "DecisionLog", "RiskPanel", "OpenQuestions", "Glossary"],
+        Adr => &["DecisionLog", "RiskPanel", "OpenQuestions"],
+        Minutes => &["DecisionLog", "ActionItems", "Timeline", "OpenQuestions"],
+        Investigation => &["Timeline", "ActionItems", "DecisionLog", "RiskPanel"],
+        Runbook | Procedure | Recipe => &["ActionItems", "RiskPanel", "SemanticOutline"],
+        Readme => &["SemanticOutline", "ActionItems", "Glossary"],
+        Changelog => &["Timeline", "SemanticOutline"],
+        _ => &["SemanticOutline", "SummaryCards", "OpenQuestions", "Glossary"],
+    }
+}
+
+/// Stable-sort `nodes` by the recommended order for `doc_type`.
+pub fn order_lenses(doc_type: DocumentType, nodes: &mut [UiNode]) {
+    let order = recommended_order(doc_type);
+    let rank = |kind: &str| order.iter().position(|k| *k == kind).unwrap_or(order.len());
+    nodes.sort_by_key(|n| rank(n.kind()));
+}
+
 fn first_line(text: &str) -> String {
     let line = text.lines().next().unwrap_or(text).trim();
     if line.chars().count() > 120 {
@@ -349,5 +374,19 @@ mod tests {
     #[test]
     fn plain_prose_plans_nothing() {
         assert!(plan_md("Just a sentence.\n", None).is_empty());
+    }
+
+    #[test]
+    fn selector_orders_by_doctype() {
+        // Build a few lenses out of order, then order for an ADR: DecisionLog
+        // should come before RiskPanel, and unlisted kinds go last.
+        let mut nodes = vec![
+            UiNode::Glossary(GlossaryNode { meta: rules_meta(1.0), terms: vec![] }),
+            UiNode::RiskPanel(RiskPanelNode { meta: rules_meta(1.0), risks: vec![], assumptions: vec![] }),
+            UiNode::DecisionLog(DecisionLogNode { meta: rules_meta(1.0), decisions: vec![] }),
+        ];
+        order_lenses(DocumentType::Adr, &mut nodes);
+        let kinds: Vec<&str> = nodes.iter().map(|n| n.kind()).collect();
+        assert_eq!(kinds, vec!["DecisionLog", "RiskPanel", "Glossary"]);
     }
 }

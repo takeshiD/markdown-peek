@@ -47,6 +47,8 @@ pub fn generate(
     // Markdown Body (§7.2). This is the deterministic fallback for LLM-first.
     let analysis = mdpeek_analyzer::analyze(markdown, filename);
     let mut nodes: Vec<UiNode> = planner::plan(&analysis);
+    // Lens Selector (§13): order by the document type's recommended lenses.
+    planner::order_lenses(analysis.model.doc_type.value, &mut nodes);
     let doc_type = format!("{:?}", analysis.model.doc_type.value);
 
     // Validate everything (the security boundary).
@@ -90,7 +92,7 @@ pub fn generate_with_llm(
     }
 
     let total_lines = LineIndex::new(markdown).line_count();
-    let nodes = match generator.generate(&GenInput::new(markdown)) {
+    let mut nodes = match generator.generate(&GenInput::new(markdown)) {
         Ok(mut nodes) => {
             // Backends validate internally; re-run for defence in depth.
             validate_nodes(&mut nodes, total_lines).context("LLM IR failed validation")?;
@@ -102,13 +104,15 @@ pub fn generate_with_llm(
         }
     };
 
-    let doc_type = format!(
-        "{:?}",
-        mdpeek_analyzer::analyze(markdown, filename)
-            .model
-            .doc_type
-            .value
-    );
+    // An empty LLM result is not useful — fall back to the deterministic planner.
+    if nodes.is_empty() {
+        return generate(markdown, filename, cache_root);
+    }
+
+    // Lens Selector (§13): order LLM output by the document type's recommendation.
+    let doc_type_value = mdpeek_analyzer::analyze(markdown, filename).model.doc_type.value;
+    planner::order_lenses(doc_type_value, &mut nodes);
+    let doc_type = format!("{doc_type_value:?}");
     let hash = content_hash(markdown, &model_id, filename);
     let entry = GuiCacheEntry::new(doc_type, nodes, model_id, hash);
     if let Some(root) = cache_root {
