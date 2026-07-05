@@ -115,7 +115,17 @@ fn todos(model: &DocumentModel, tree: &BlockTree) -> Vec<TodoItem> {
                 .get(1)
                 .map(|m| m.as_str().to_lowercase())
                 .unwrap_or_default();
-            let note = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
+            // Trim trailing comment closers so `<!-- TODO: x -->` yields "x".
+            let note = caps
+                .get(2)
+                .map(|m| {
+                    m.as_str()
+                        .trim()
+                        .trim_end_matches("-->")
+                        .trim_end_matches("*/")
+                        .trim()
+                })
+                .unwrap_or("");
             let text = if note.is_empty() {
                 marker.to_uppercase()
             } else {
@@ -198,6 +208,13 @@ mod tests {
         assert!(panel.todos.iter().any(|t| t.marker == "task" && t.done));
         let inline = panel.todos.iter().find(|t| t.marker == "todo").unwrap();
         assert_eq!(inline.text, "refactor this later");
+    }
+
+    #[test]
+    fn inline_todo_in_html_comment_strips_closer() {
+        let panel = panel_for("# T\n\n<!-- TODO: wire up retries -->\n");
+        let todo = panel.todos.iter().find(|t| t.marker == "todo").unwrap();
+        assert_eq!(todo.text, "wire up retries");
     }
 
     #[test]
