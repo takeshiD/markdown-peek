@@ -64,6 +64,7 @@ interface Runtime {
   dom: DomSection[];
   activeAnchor: string | null;
   lang: Lang;
+  overview: string;
   history: ChatTurn[];
   onScroll: () => void;
   typer: number | null;
@@ -337,6 +338,8 @@ async function ask() {
         question: q,
         lang: rt.lang,
         history: rt.history.slice(-8),
+        guide_overview: rt.overview,
+        guide_commentary: section?.section.commentary ?? "",
       }),
     });
     if (!res.ok) throw new Error(`ask returned ${res.status}`);
@@ -389,6 +392,7 @@ async function loadGuide() {
     return;
   }
 
+  rt.overview = guide.overview;
   els.origin.textContent = guide.origin === "llm" ? "LLM" : guide.origin;
   els.origin.classList.toggle("scrolly-origin--llm", guide.origin === "llm");
   els.overview.textContent = guide.overview;
@@ -430,6 +434,7 @@ async function enter() {
     dom: [],
     activeAnchor: null,
     lang,
+    overview: "",
     history: [],
     onScroll: () => setActive(currentAnchor()),
     typer: null,

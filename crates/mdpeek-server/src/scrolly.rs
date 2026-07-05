@@ -67,6 +67,13 @@ pub struct AskRequest {
     pub lang: String,
     #[serde(default)]
     pub history: Vec<ChatTurn>,
+    /// The guide's whole-document overview (so Q&A can be about the guide's own
+    /// explanation, not just the source text).
+    #[serde(default)]
+    pub guide_overview: String,
+    /// The guide's commentary for the current section.
+    #[serde(default)]
+    pub guide_commentary: String,
 }
 
 fn default_lang() -> String {
@@ -149,10 +156,12 @@ pub fn answer(
     };
 
     let system = format!(
-        "You answer a reader's questions about a specific section of a design or \
-         planning document. Be concise and grounded ONLY in the provided text; if \
-         the section does not answer the question, say so plainly rather than \
-         guessing. {}",
+        "You answer a reader's questions while they read a design or planning \
+         document with a guided-reading assistant. Two things are in scope: (a) \
+         the ORIGINAL document text, and (b) the GUIDE's own explanation (its \
+         overview and per-section commentary) — the reader may be asking about \
+         either. Be concise and grounded in the material provided; if it does not \
+         answer the question, say so plainly rather than guessing. {}",
         lang_instruction(&req.lang)
     );
 
@@ -162,9 +171,30 @@ pub fn answer(
         convo.push_str(&format!("{who}: {}\n", turn.content));
     }
 
+    // Only include guide blocks when the client supplied them (kept optional so
+    // the endpoint still works for callers without a loaded guide).
+    let guide_overview = if req.guide_overview.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Guide's overview of the whole document:\n{}\n\n---\n",
+            req.guide_overview.trim()
+        )
+    };
+    let guide_commentary = if req.guide_commentary.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Guide's commentary on this section:\n{}\n\n---\n",
+            req.guide_commentary.trim()
+        )
+    };
+
     let user = format!(
-        "Section title: {title}\n\nSection text:\n{}\n\n---\n\
-         Whole-document context (for reference):\n{}\n\n---\n\
+        "Current section title: {title}\n\n\
+         Original section text:\n{}\n\n---\n\
+         {guide_commentary}{guide_overview}\
+         Whole original document (for reference):\n{}\n\n---\n\
          {convo}Reader's question: {}\n\nAnswer:",
         truncate_chars(body, 6_000),
         truncate_chars(markdown, 8_000),
