@@ -468,9 +468,10 @@ fn source_split(ta: &str, tb: &str) -> String {
     let rows = pair_changes(changes);
     let mut out = String::from("<table class=\"mdpeek-diff mdpeek-diff-split\"><tbody>");
     for row in rows {
+        let (lcls, rcls) = split_row_classes(row.changed);
         out.push_str("<tr>");
-        cell(&mut out, &row.left, "mdpeek-diff-del");
-        cell(&mut out, &row.right, "mdpeek-diff-add");
+        cell(&mut out, &row.left, lcls);
+        cell(&mut out, &row.right, rcls);
         out.push_str("</tr>");
     }
     out.push_str("</tbody></table>");
@@ -515,9 +516,10 @@ fn rendered_split(ta: &str, tb: &str) -> String {
     let mut out =
         String::from("<table class=\"mdpeek-diff mdpeek-diff-split mdpeek-rdiff-split\"><tbody>");
     for row in rows {
+        let (lcls, rcls) = split_row_classes(row.changed);
         out.push_str("<tr>");
-        rendered_cell(&mut out, &row.left, "mdpeek-diff-del");
-        rendered_cell(&mut out, &row.right, "mdpeek-diff-add");
+        rendered_cell(&mut out, &row.left, lcls);
+        rendered_cell(&mut out, &row.right, rcls);
         out.push_str("</tr>");
     }
     out.push_str("</tbody></table>");
@@ -550,11 +552,14 @@ fn split_blocks(src: &str) -> Vec<String> {
 struct SplitRow {
     left: Option<String>,
     right: Option<String>,
+    /// True for add/delete rows; false for unchanged (context) rows so they are
+    /// not coloured as a diff.
+    changed: bool,
 }
 
 /// Turn a flat change list into aligned two-column rows: a run of deletes is
 /// paired positionally with the following run of inserts; equals occupy both
-/// columns.
+/// columns as unchanged context.
 fn pair_changes(changes: Vec<(similar::ChangeTag, String)>) -> Vec<SplitRow> {
     use similar::ChangeTag;
     let mut rows = Vec::new();
@@ -565,6 +570,7 @@ fn pair_changes(changes: Vec<(similar::ChangeTag, String)>) -> Vec<SplitRow> {
                 rows.push(SplitRow {
                     left: Some(changes[i].1.clone()),
                     right: Some(changes[i].1.clone()),
+                    changed: false,
                 });
                 i += 1;
             }
@@ -585,12 +591,23 @@ fn pair_changes(changes: Vec<(similar::ChangeTag, String)>) -> Vec<SplitRow> {
                     rows.push(SplitRow {
                         left: dels.get(j).cloned(),
                         right: adds.get(j).cloned(),
+                        changed: true,
                     });
                 }
             }
         }
     }
     rows
+}
+
+/// Left/right cell classes for a split row: red/green for changed rows, neutral
+/// context otherwise (so unchanged lines aren't coloured as a diff).
+fn split_row_classes(changed: bool) -> (&'static str, &'static str) {
+    if changed {
+        ("mdpeek-diff-del", "mdpeek-diff-add")
+    } else {
+        ("mdpeek-diff-ctx", "mdpeek-diff-ctx")
+    }
 }
 
 /// Emit one source-diff `<td>` (monospace, pre-escaped line).
@@ -814,6 +831,27 @@ mod tests {
         );
         assert!(rendered.contains("mdpeek-diff-split"));
         assert!(rendered.contains("mdpeek-diff-del") && rendered.contains("mdpeek-diff-add"));
+
+        // Split must not colour the unchanged "shared" line as a diff: it stays
+        // context, and only the changed line is coloured.
+        let split = render_diff(
+            &a,
+            &b,
+            super::DiffOptions {
+                mode: super::DiffMode::Source,
+                layout: super::DiffLayout::Split,
+            },
+        );
+        assert!(
+            split.contains("mdpeek-diff-ctx"),
+            "unchanged rows should be context"
+        );
+        assert_eq!(
+            split.matches("mdpeek-diff-del").count(),
+            1,
+            "only the one changed line is a deletion"
+        );
+        assert_eq!(split.matches("mdpeek-diff-add").count(), 1);
 
         let _ = std::fs::remove_file(&a);
         let _ = std::fs::remove_file(&b);
