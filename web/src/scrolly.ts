@@ -7,12 +7,16 @@
 // highlights the section they've reached and reveals its commentary with a light
 // typewriter effect (the "simple streaming" of this prototype slice).
 //
+// Also: a language selector (auto / 日本語 / English, persisted) and in-panel
+// Q&A scoped to the section the reader is on.
+//
 // Deliberately imperative DOM (not Preact): the typewriter + scroll-sync are
 // easier to reason about without a vdom re-render fighting the animation, and
 // the highlight/dim works directly on the server-rendered body.
 //
-// Deferred to later slices: in-section Q&A, resumable/saved sessions, true
-// server-side token streaming, inline (anchored) commentary cards.
+// LLM-only (no offline fallback): generation errors surface in the panel.
+// Deferred to later slices: resumable/saved sessions, true server-side token
+// streaming, inline (anchored) commentary cards.
 
 import "./scrolly.css";
 
@@ -21,8 +25,16 @@ const TOGGLE_ID = "mdpeek-scrolly-toggle";
 const OPEN_CLASS = "mdpeek-scrolly-open";
 const GUI_OPEN_CLASS = "mdpeek-gui-open";
 const FOCUS_CLASS = "mdpeek-scrolly-focus";
+const LANG_KEY = "mdpeek-scrolly-lang";
 /** A heading counts as "current" once its top passes this many px from the top. */
 const ACTIVE_OFFSET = 140;
+
+type Lang = "auto" | "ja" | "en";
+const LANGS: { value: Lang; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "ja", label: "日本語" },
+  { value: "en", label: "English" },
+];
 
 interface Section {
   index: number;
@@ -36,6 +48,10 @@ interface Guide {
   sections: Section[];
   origin: string;
 }
+interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
 
 /** A guide section resolved to the DOM elements it spans. */
 interface DomSection {
@@ -45,9 +61,10 @@ interface DomSection {
 }
 
 interface Runtime {
-  guide: Guide;
   dom: DomSection[];
   activeAnchor: string | null;
+  lang: Lang;
+  history: ChatTurn[];
   onScroll: () => void;
   typer: number | null;
   els: {
@@ -59,6 +76,9 @@ interface Runtime {
     commentary: HTMLElement;
     prev: HTMLButtonElement;
     next: HTMLButtonElement;
+    chatLog: HTMLElement;
+    chatInput: HTMLInputElement;
+    chatSend: HTMLButtonElement;
   };
 }
 
@@ -66,6 +86,11 @@ let rt: Runtime | null = null;
 
 const reduceMotion = () =>
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+function readLang(): Lang {
+  const v = localStorage.getItem(LANG_KEY);
+  return v === "ja" || v === "en" || v === "auto" ? v : "auto";
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -78,19 +103,35 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** A small inline spinner + label (used while generating / answering). */
+function spinner(label: string): HTMLElement {
+  const wrap = el("span", "scrolly-loading");
+  wrap.append(el("span", "scrolly-spinner"), el("span", "scrolly-loading__label", label));
+  return wrap;
+}
+
 /** Build the fixed side panel once; returns its dynamic sub-elements. */
-function buildPanel(panel: HTMLElement): Runtime["els"] {
+function buildPanel(panel: HTMLElement, lang: Lang): Runtime["els"] {
   panel.textContent = "";
 
   const head = el("div", "scrolly-head");
   const title = el("span", "scrolly-head__title", "✨ Guided Reading");
+  const langSel = el("select", "scrolly-lang");
+  langSel.setAttribute("aria-label", "Commentary language");
+  for (const opt of LANGS) {
+    const o = el("option", undefined, opt.label);
+    o.value = opt.value;
+    if (opt.value === lang) o.selected = true;
+    langSel.append(o);
+  }
+  langSel.addEventListener("change", () => setLang(langSel.value as Lang));
   const origin = el("span", "scrolly-origin");
   const close = el("button", "scrolly-close");
   close.type = "button";
   close.setAttribute("aria-label", "Close guided reading");
   close.textContent = "✕";
   close.addEventListener("click", exit);
-  head.append(title, origin, close);
+  head.append(title, langSel, origin, close);
 
   const body = el("div", "scrolly-body");
 
@@ -122,10 +163,41 @@ function buildPanel(panel: HTMLElement): Runtime["els"] {
   next.addEventListener("click", () => step(1));
   nav.append(prev, next);
 
-  body.append(overviewWrap, progress, current, nav);
+  // Q&A about the section the reader is on.
+  const chat = el("section", "scrolly-chat");
+  chat.append(el("h3", "scrolly-block__label", "Ask about this section"));
+  const chatLog = el("div", "scrolly-chatlog");
+  const form = el("form", "scrolly-chatform");
+  const chatInput = el("input", "scrolly-chatinput");
+  chatInput.type = "text";
+  chatInput.placeholder = "質問を入力…";
+  chatInput.setAttribute("aria-label", "Ask a question about this section");
+  const chatSend = el("button", "scrolly-chatsend");
+  chatSend.type = "submit";
+  chatSend.textContent = "Send";
+  form.append(chatInput, chatSend);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    void ask();
+  });
+  chat.append(chatLog, form);
+
+  body.append(overviewWrap, progress, current, nav, chat);
   panel.append(head, body);
 
-  return { origin, overview, progressText, progressFill, sectionTitle, commentary, prev, next };
+  return {
+    origin,
+    overview,
+    progressText,
+    progressFill,
+    sectionTitle,
+    commentary,
+    prev,
+    next,
+    chatLog,
+    chatInput,
+    chatSend,
+  };
 }
 
 /** Resolve guide sections to spans of `.markdown-body` direct children. */
@@ -146,7 +218,6 @@ function resolveDom(sections: Section[]): DomSection[] {
       cur.els.push(child);
     }
   }
-  // Keep document order stable regardless of guide ordering.
   out.sort((a, b) => a.section.index - b.section.index);
   return out;
 }
@@ -163,6 +234,11 @@ function currentAnchor(): string | null {
     }
   }
   return anchor;
+}
+
+function activeSection(): DomSection | null {
+  if (!rt) return null;
+  return rt.dom.find((d) => d.section.anchor === rt!.activeAnchor) ?? null;
 }
 
 function setActive(anchor: string | null) {
@@ -183,18 +259,20 @@ function setActive(anchor: string | null) {
   rt.els.progressFill.style.width = `${((idx + 1) / rt.dom.length) * 100}%`;
   rt.els.prev.disabled = idx <= 0;
   rt.els.next.disabled = idx >= rt.dom.length - 1;
+  rt.els.chatInput.placeholder = `「${d.section.title}」について質問…`;
 
-  typewrite(rt.els.commentary, d.section.commentary);
+  typewrite(rt.els.commentary, d.section.commentary || "（この節の解説は生成されませんでした）");
 }
 
 /** Reveal `text` into `target` char-by-char (instant under reduced motion). */
-function typewrite(target: HTMLElement, text: string) {
+function typewrite(target: HTMLElement, text: string, done?: () => void) {
   if (rt?.typer != null) {
     window.clearInterval(rt.typer);
     rt.typer = null;
   }
   if (reduceMotion()) {
     target.textContent = text;
+    done?.();
     return;
   }
   target.textContent = "";
@@ -206,6 +284,7 @@ function typewrite(target: HTMLElement, text: string) {
     if (i >= chars.length) {
       window.clearInterval(timer);
       if (rt) rt.typer = null;
+      done?.();
     }
   }, 12);
   if (rt) rt.typer = timer;
@@ -223,49 +302,140 @@ function step(delta: number) {
   });
 }
 
+// ---- Q&A ------------------------------------------------------------------
+
+function addBubble(role: "user" | "assistant", text: string): HTMLElement {
+  const b = el("div", `scrolly-bubble scrolly-bubble--${role}`);
+  b.textContent = text;
+  rt?.els.chatLog.append(b);
+  rt?.els.chatLog.scrollTo({ top: rt.els.chatLog.scrollHeight });
+  return b;
+}
+
+async function ask() {
+  if (!rt) return;
+  const q = rt.els.chatInput.value.trim();
+  if (!q) return;
+  const section = activeSection();
+
+  rt.els.chatInput.value = "";
+  rt.els.chatInput.disabled = true;
+  rt.els.chatSend.disabled = true;
+  addBubble("user", q);
+
+  const pending = el("div", "scrolly-bubble scrolly-bubble--assistant");
+  pending.append(spinner("考え中…"));
+  rt.els.chatLog.append(pending);
+  rt.els.chatLog.scrollTo({ top: rt.els.chatLog.scrollHeight });
+
+  try {
+    const res = await fetch("/api/scrolly/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        anchor: section?.section.anchor ?? "",
+        question: q,
+        lang: rt.lang,
+        history: rt.history.slice(-8),
+      }),
+    });
+    if (!res.ok) throw new Error(`ask returned ${res.status}`);
+    const data = (await res.json()) as { answer: string };
+    pending.textContent = "";
+    typewrite(pending, data.answer, () =>
+      rt?.els.chatLog.scrollTo({ top: rt.els.chatLog.scrollHeight }),
+    );
+    rt.history.push({ role: "user", content: q }, { role: "assistant", content: data.answer });
+  } catch (e) {
+    pending.classList.add("scrolly-bubble--error");
+    pending.textContent = `回答の取得に失敗しました: ${String(e)}`;
+  } finally {
+    if (rt) {
+      rt.els.chatInput.disabled = false;
+      rt.els.chatSend.disabled = false;
+      rt.els.chatInput.focus();
+    }
+  }
+}
+
+// ---- Guide loading --------------------------------------------------------
+
+async function loadGuide() {
+  if (!rt) return;
+  const els = rt.els;
+
+  // Detach any previous focus/scroll wiring while we regenerate.
+  window.removeEventListener("scroll", rt.onScroll);
+  for (const d of rt.dom) for (const n of d.els) n.classList.remove(FOCUS_CLASS);
+  rt.dom = [];
+  rt.activeAnchor = null;
+
+  els.overview.textContent = "";
+  els.overview.append(spinner("ガイドを生成中…"));
+  els.sectionTitle.textContent = "…";
+  els.commentary.textContent = "";
+  els.origin.textContent = "";
+
+  let guide: Guide;
+  try {
+    const res = await fetch(`/api/scrolly?lang=${encodeURIComponent(rt.lang)}`);
+    if (!res.ok) {
+      const info = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(info?.error ?? `/api/scrolly returned ${res.status}`);
+    }
+    guide = (await res.json()) as Guide;
+  } catch (e) {
+    els.overview.textContent = `ガイドの生成に失敗しました: ${String(e)}`;
+    return;
+  }
+
+  els.origin.textContent = guide.origin === "llm" ? "LLM" : guide.origin;
+  els.origin.classList.toggle("scrolly-origin--llm", guide.origin === "llm");
+  els.overview.textContent = guide.overview;
+
+  rt.dom = resolveDom(guide.sections);
+  if (rt.dom.length === 0) {
+    els.sectionTitle.textContent = "No sections found";
+    els.commentary.textContent = "This document has no H1–H3 headings to guide through.";
+    return;
+  }
+
+  window.addEventListener("scroll", rt.onScroll, { passive: true });
+  setActive(currentAnchor());
+}
+
+function setLang(lang: Lang) {
+  if (!rt || lang === rt.lang) return;
+  rt.lang = lang;
+  localStorage.setItem(LANG_KEY, lang);
+  void loadGuide();
+}
+
+// ---- Enter / exit ---------------------------------------------------------
+
 async function enter() {
   const panel = document.getElementById(PANEL_ID);
   if (!panel) return;
 
   // Mutually exclusive with the Generated UI pane.
   document.body.classList.remove(GUI_OPEN_CLASS);
-  document
-    .getElementById("mdpeek-gui-toggle")
-    ?.setAttribute("aria-pressed", "false");
+  document.getElementById("mdpeek-gui-toggle")?.setAttribute("aria-pressed", "false");
 
   document.body.classList.add(OPEN_CLASS);
   document.getElementById(TOGGLE_ID)?.setAttribute("aria-pressed", "true");
 
-  const els = buildPanel(panel);
-  els.overview.textContent = "Generating guide…";
-
-  let guide: Guide;
-  try {
-    const res = await fetch("/api/scrolly");
-    if (!res.ok) throw new Error(`/api/scrolly returned ${res.status}`);
-    guide = (await res.json()) as Guide;
-  } catch (e) {
-    els.overview.textContent = `Failed to build guide: ${String(e)}`;
-    return;
-  }
-
-  const dom = resolveDom(guide.sections);
-  const onScroll = () => setActive(currentAnchor());
-  rt = { guide, dom, activeAnchor: null, onScroll, typer: null, els };
-
-  els.origin.textContent = guide.origin === "llm" ? "LLM" : "offline";
-  els.origin.classList.toggle("scrolly-origin--llm", guide.origin === "llm");
-  els.overview.textContent = guide.overview;
-
-  if (dom.length === 0) {
-    els.sectionTitle.textContent = "No sections found";
-    els.commentary.textContent =
-      "This document has no H1–H3 headings to guide through.";
-    return;
-  }
-
-  window.addEventListener("scroll", onScroll, { passive: true });
-  setActive(currentAnchor());
+  const lang = readLang();
+  const els = buildPanel(panel, lang);
+  rt = {
+    dom: [],
+    activeAnchor: null,
+    lang,
+    history: [],
+    onScroll: () => setActive(currentAnchor()),
+    typer: null,
+    els,
+  };
+  await loadGuide();
 }
 
 function exit() {
@@ -295,7 +465,12 @@ export function initScrolly() {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && document.body.classList.contains(OPEN_CLASS)) {
+    // Don't hijack Escape while typing a question.
+    if (
+      e.key === "Escape" &&
+      document.body.classList.contains(OPEN_CLASS) &&
+      document.activeElement !== rt?.els.chatInput
+    ) {
       exit();
     }
   });

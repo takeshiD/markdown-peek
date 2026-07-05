@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{
-        Path as AxumPath, State,
+        Path as AxumPath, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{StatusCode, header},
@@ -211,6 +211,7 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/diff", post(diff_handler))
         .route("/api/gui", get(gui_handler))
         .route("/api/scrolly", get(scrolly_handler))
+        .route("/api/scrolly/ask", post(scrolly_ask_handler))
         .route("/static/{*path}", get(static_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
@@ -372,11 +373,25 @@ async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// `GET /api/scrolly` — Generative Scrollytelling guide for the active file.
-/// Returns a [`scrolly::ScrollyGuide`] (`overview` + per-section `commentary`,
-/// aligned to rendered heading anchors). Generation runs on a blocking thread
-/// (LLM backends may block/spawn); offline-safe via the rules fallback.
-async fn scrolly_handler(State(state): State<AppState>) -> impl IntoResponse {
+/// Query params for `/api/scrolly`: `lang` = `auto` | `ja` | `en`.
+#[derive(Debug, Deserialize)]
+struct ScrollyQuery {
+    #[serde(default = "default_scrolly_lang")]
+    lang: String,
+}
+
+fn default_scrolly_lang() -> String {
+    "auto".to_string()
+}
+
+/// `GET /api/scrolly?lang=` — Generative Scrollytelling guide for the active
+/// file. Returns a [`scrolly::ScrollyGuide`] (`overview` + per-section
+/// `commentary`, aligned to rendered heading anchors). LLM-only: 500 if no
+/// backend is configured or generation fails. Runs on a blocking thread.
+async fn scrolly_handler(
+    State(state): State<AppState>,
+    Query(query): Query<ScrollyQuery>,
+) -> impl IntoResponse {
     let file_path = { state.file_path.read().unwrap().to_path_buf() };
 
     let markdown = match tokio::fs::read_to_string(&file_path).await {
@@ -391,40 +406,93 @@ async fn scrolly_handler(State(state): State<AppState>) -> impl IntoResponse {
         }
     };
 
-    let backend_desc = match state.llm.as_ref() {
-        Some(b) => format!("LLM {:?}", b.provider),
-        None => "rules (offline)".to_string(),
-    };
     info!(
-        "scrolly: guiding '{}' [{}]",
+        "scrolly: guiding '{}' [{}, lang={}]",
         file_path.display(),
-        backend_desc
+        state
+            .llm
+            .as_ref()
+            .as_ref()
+            .map(|b| format!("LLM {:?}", b.provider))
+            .unwrap_or_else(|| "no backend".to_string()),
+        query.lang,
     );
 
     let started = std::time::Instant::now();
     let llm = (*state.llm).clone();
+    let lang = query.lang.clone();
     let result = tokio::task::spawn_blocking(move || {
         // Cache under the cwd's `.cache/mdpeek/`, matching `/api/gui`.
-        scrolly::generate(&markdown, llm.as_ref(), Path::new("."))
+        scrolly::generate(&markdown, llm.as_ref(), Path::new("."), &lang)
     })
     .await;
 
     match result {
-        Ok(guide) => {
+        Ok(Ok(guide)) => {
             info!(
-                "scrolly: {} section(s) for '{}' in {} ms [origin={}]",
+                "scrolly: {} section(s) for '{}' in {} ms",
                 guide.sections.len(),
                 file_path.display(),
                 started.elapsed().as_millis(),
-                guide.origin,
             );
             Json(guide).into_response()
+        }
+        Ok(Err(e)) => {
+            error!("scrolly: generation failed for '{}': {e}", file_path.display());
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
         }
         Err(e) => {
             error!(
                 "scrolly: generation task panicked for '{}': {e}",
                 file_path.display()
             );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `POST /api/scrolly/ask` — answer a reader's question about one section
+/// (in-panel Q&A). Body: [`scrolly::AskRequest`]. Runs on a blocking thread.
+async fn scrolly_ask_handler(
+    State(state): State<AppState>,
+    Json(req): Json<scrolly::AskRequest>,
+) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+
+    let markdown = match tokio::fs::read_to_string(&file_path).await {
+        Ok(content) => content,
+        Err(e) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    info!(
+        "scrolly: Q&A on '{}' section '{}' [lang={}]",
+        file_path.display(),
+        req.anchor,
+        req.lang,
+    );
+
+    let llm = (*state.llm).clone();
+    let result =
+        tokio::task::spawn_blocking(move || scrolly::answer(&markdown, llm.as_ref(), &req)).await;
+
+    match result {
+        Ok(answer) => Json(answer).into_response(),
+        Err(e) => {
+            error!("scrolly: Q&A task panicked: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),

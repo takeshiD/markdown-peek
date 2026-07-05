@@ -50,6 +50,44 @@ pub struct ScrollyGuide {
     pub origin: String,
 }
 
+/// One prior conversation turn in the in-panel Q&A.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChatTurn {
+    pub role: String,
+    pub content: String,
+}
+
+/// A reader's question about a section (POST body for `/api/scrolly/ask`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct AskRequest {
+    /// Heading anchor of the section the reader is asking about.
+    pub anchor: String,
+    pub question: String,
+    #[serde(default = "default_lang")]
+    pub lang: String,
+    #[serde(default)]
+    pub history: Vec<ChatTurn>,
+}
+
+fn default_lang() -> String {
+    "auto".to_string()
+}
+
+/// The model's answer, returned to the panel.
+#[derive(Debug, Clone, Serialize)]
+pub struct AnswerResult {
+    pub answer: String,
+}
+
+/// Map a `lang` selection to an explicit instruction for the model.
+fn lang_instruction(lang: &str) -> &'static str {
+    match lang {
+        "ja" => "Respond in Japanese (必ず日本語で回答してください).",
+        "en" => "Respond in English.",
+        _ => "Respond in the SAME LANGUAGE as the document.",
+    }
+}
+
 /// A heading + the raw markdown of its section (until the next H1–H3).
 struct SectionMeta {
     index: usize,
@@ -59,28 +97,86 @@ struct SectionMeta {
     body: String,
 }
 
-/// Build the guide for `markdown`, using `backend` when available and caching
-/// the result under `cache_root/.cache/mdpeek/<hash>.scrolly.json`.
+/// Build the guide for `markdown` via the LLM `backend`, caching the result under
+/// `cache_root/.cache/mdpeek/<hash>.scrolly.json`. `lang` steers the commentary
+/// language (`"auto"` = match the document; `"ja"`/`"en"` force). LLM-only: with
+/// no backend, or on a generation/parse failure, this returns an error (the
+/// mode is always model-generated — there is no offline fallback).
 pub fn generate(
     markdown: &str,
     backend: Option<&LlmBackendConfig>,
     cache_root: &Path,
-) -> ScrollyGuide {
-    let metas = section_metas(markdown);
+    lang: &str,
+) -> anyhow::Result<ScrollyGuide> {
+    let backend = backend
+        .ok_or_else(|| anyhow::anyhow!("Guided Reading needs an LLM backend (none configured)"))?;
 
-    let model_id = backend.map(model_id).unwrap_or_else(|| "rules".to_string());
-    let cache_path = cache_path(cache_root, markdown, &model_id);
+    let cache_path = cache_path(cache_root, markdown, &model_id(backend), lang);
     if let Some(hit) = read_cache(&cache_path) {
-        return hit;
+        return Ok(hit);
     }
 
-    let guide = match backend {
-        Some(b) => generate_llm(markdown, &metas, b).unwrap_or_else(|_| fallback(markdown, &metas)),
-        None => fallback(markdown, &metas),
+    let metas = section_metas(markdown);
+    let guide = generate_llm(markdown, &metas, backend, lang)?;
+    write_cache(&cache_path, &guide);
+    Ok(guide)
+}
+
+/// Answer a reader's question about a specific section (in-panel Q&A). Grounded
+/// in that section's source text plus a whole-doc overview for context, honouring
+/// `lang` and the prior `history` turns. Requires an LLM backend.
+pub fn answer(
+    markdown: &str,
+    backend: Option<&LlmBackendConfig>,
+    req: &AskRequest,
+) -> AnswerResult {
+    let backend = match backend {
+        Some(b) => b,
+        None => {
+            return AnswerResult {
+                answer: "質問応答にはLLMバックエンドが必要です（オフラインでは利用できません）。\
+                         Q&A needs an LLM backend and is unavailable offline."
+                    .to_string(),
+            };
+        }
     };
 
-    write_cache(&cache_path, &guide);
-    guide
+    let metas = section_metas(markdown);
+    let section = metas.iter().find(|m| m.anchor == req.anchor);
+    let (title, body) = match section {
+        Some(m) => (m.title.as_str(), m.body.as_str()),
+        None => ("(document)", markdown),
+    };
+
+    let system = format!(
+        "You answer a reader's questions about a specific section of a design or \
+         planning document. Be concise and grounded ONLY in the provided text; if \
+         the section does not answer the question, say so plainly rather than \
+         guessing. {}",
+        lang_instruction(&req.lang)
+    );
+
+    let mut convo = String::new();
+    for turn in &req.history {
+        let who = if turn.role == "user" { "Reader" } else { "You" };
+        convo.push_str(&format!("{who}: {}\n", turn.content));
+    }
+
+    let user = format!(
+        "Section title: {title}\n\nSection text:\n{}\n\n---\n\
+         Whole-document context (for reference):\n{}\n\n---\n\
+         {convo}Reader's question: {}\n\nAnswer:",
+        truncate_chars(body, 6_000),
+        truncate_chars(markdown, 8_000),
+        req.question,
+    );
+
+    match mdpeek_gui::complete_text_blocking(backend, &system, &user) {
+        Ok(text) => AnswerResult { answer: text },
+        Err(e) => AnswerResult {
+            answer: format!("回答の生成に失敗しました: {e}"),
+        },
+    }
 }
 
 // ---- LLM path -------------------------------------------------------------
@@ -101,8 +197,9 @@ fn generate_llm(
     markdown: &str,
     metas: &[SectionMeta],
     backend: &LlmBackendConfig,
+    lang: &str,
 ) -> anyhow::Result<ScrollyGuide> {
-    let system = system_prompt();
+    let system = system_prompt(lang);
     let user = user_prompt(markdown, metas);
     let raw = mdpeek_gui::complete_text_blocking(backend, &system, &user)?;
     let json = extract_json_object(&raw);
@@ -128,42 +225,35 @@ fn generate_llm(
                 .remove(&m.index)
                 .map(|c| c.trim().to_string())
                 .filter(|c| !c.is_empty())
-                .unwrap_or_else(|| rules_commentary(&m.body)),
+                .unwrap_or_default(),
         })
         .collect();
 
-    let overview = {
-        let o = parsed.overview.trim().to_string();
-        if o.is_empty() {
-            rules_overview(markdown)
-        } else {
-            o
-        }
-    };
-
     Ok(ScrollyGuide {
-        overview,
+        overview: parsed.overview.trim().to_string(),
         sections,
         origin: "llm".to_string(),
     })
 }
 
-fn system_prompt() -> String {
-    "You are a reading guide for design and planning documents. Your job is to \
-     help a reader understand the document with reduced cognitive load as they \
-     scroll through it.\n\n\
-     Rules:\n\
-     1. Be concise: 2-4 sentences of commentary per section.\n\
-     2. Do NOT restate or paraphrase the section's sentences. Add value instead: \
-     explain why the section matters, how it connects to earlier decisions, \
-     surface unstated assumptions or gaps, and translate jargon.\n\
-     3. The overview is 2-4 sentences on the whole document's purpose and how it \
-     is structured.\n\
-     4. Respond in the SAME LANGUAGE as the document.\n\
-     5. Output STRICT JSON ONLY (no markdown code fences, no prose around it) \
-     matching exactly:\n\
-     {\"overview\": string, \"sections\": [{\"index\": number, \"commentary\": string}]}"
-        .to_string()
+fn system_prompt(lang: &str) -> String {
+    format!(
+        "You are a reading guide for design and planning documents. Your job is to \
+         help a reader understand the document with reduced cognitive load as they \
+         scroll through it.\n\n\
+         Rules:\n\
+         1. Be concise: 2-4 sentences of commentary per section.\n\
+         2. Do NOT restate or paraphrase the section's sentences. Add value instead: \
+         explain why the section matters, how it connects to earlier decisions, \
+         surface unstated assumptions or gaps, and translate jargon.\n\
+         3. The overview is 2-4 sentences on the whole document's purpose and how it \
+         is structured.\n\
+         4. {}\n\
+         5. Output STRICT JSON ONLY (no markdown code fences, no prose around it) \
+         matching exactly:\n\
+         {{\"overview\": string, \"sections\": [{{\"index\": number, \"commentary\": string}}]}}",
+        lang_instruction(lang)
+    )
 }
 
 fn user_prompt(markdown: &str, metas: &[SectionMeta]) -> String {
@@ -176,48 +266,6 @@ fn user_prompt(markdown: &str, metas: &[SectionMeta]) -> String {
         "Document:\n\n{doc}\n\n---\nSections to comment on (by index):\n{list}\n\
          Produce the overview and one commentary object per section index above."
     )
-}
-
-// ---- Rules / offline fallback --------------------------------------------
-
-fn fallback(markdown: &str, metas: &[SectionMeta]) -> ScrollyGuide {
-    let sections = metas
-        .iter()
-        .map(|m| ScrollySection {
-            index: m.index,
-            anchor: m.anchor.clone(),
-            title: m.title.clone(),
-            level: m.level,
-            commentary: rules_commentary(&m.body),
-        })
-        .collect();
-    ScrollyGuide {
-        overview: rules_overview(markdown),
-        sections,
-        origin: "rules".to_string(),
-    }
-}
-
-/// Naive commentary: the first sentence or two of the section body (heading and
-/// markdown syntax stripped). Never claims to be more than an excerpt.
-fn rules_commentary(body: &str) -> String {
-    let text = plain_text(body);
-    let excerpt = first_sentences(&text, 2);
-    if excerpt.is_empty() {
-        "(No preview available for this section.)".to_string()
-    } else {
-        excerpt
-    }
-}
-
-fn rules_overview(markdown: &str) -> String {
-    let text = plain_text(markdown);
-    let excerpt = first_sentences(&text, 3);
-    if excerpt.is_empty() {
-        "Overview unavailable offline.".to_string()
-    } else {
-        excerpt
-    }
 }
 
 // ---- Section extraction ---------------------------------------------------
@@ -292,53 +340,6 @@ fn heading_level(level: HeadingLevel) -> u8 {
 
 // ---- Text helpers ---------------------------------------------------------
 
-/// Strip common markdown syntax to plain-ish text for the offline excerpts.
-fn plain_text(md: &str) -> String {
-    let mut out = String::with_capacity(md.len());
-    for raw in md.lines() {
-        let line = raw.trim();
-        // Skip headings, fences, frontmatter delimiters, and list/table markup
-        // noise so the excerpt reads as prose.
-        if line.is_empty()
-            || line.starts_with('#')
-            || line.starts_with("```")
-            || line.starts_with("---")
-            || line.starts_with("+++")
-            || line.starts_with('|')
-            || line.starts_with('>')
-        {
-            continue;
-        }
-        let cleaned = line
-            .trim_start_matches(|c| c == '-' || c == '*' || c == '+' || c == ' ')
-            .replace(['`', '*', '_', '#'], "");
-        if !cleaned.trim().is_empty() {
-            out.push_str(cleaned.trim());
-            out.push(' ');
-        }
-    }
-    out.trim().to_string()
-}
-
-/// Take up to `n` sentences (`.`/`。`/`!`/`?` terminated), capped in length.
-fn first_sentences(text: &str, n: usize) -> String {
-    let mut out = String::new();
-    let mut count = 0;
-    for ch in text.chars() {
-        out.push(ch);
-        if matches!(ch, '.' | '。' | '!' | '?' | '！' | '？') {
-            count += 1;
-            if count >= n {
-                break;
-            }
-        }
-        if out.chars().count() >= 320 {
-            break;
-        }
-    }
-    out.trim().to_string()
-}
-
 fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
@@ -368,10 +369,11 @@ fn model_id(backend: &LlmBackendConfig) -> String {
     }
 }
 
-fn cache_path(root: &Path, markdown: &str, model_id: &str) -> PathBuf {
+fn cache_path(root: &Path, markdown: &str, model_id: &str, lang: &str) -> PathBuf {
     let mut h = DefaultHasher::new();
     SCROLLY_SCHEMA.hash(&mut h);
     model_id.hash(&mut h);
+    lang.hash(&mut h);
     markdown.hash(&mut h);
     let hash = h.finish();
     root.join(".cache")
@@ -419,13 +421,10 @@ mod tests {
     }
 
     #[test]
-    fn fallback_is_complete_and_marked_rules() {
-        let metas = section_metas(DOC);
-        let guide = fallback(DOC, &metas);
-        assert_eq!(guide.origin, "rules");
-        assert_eq!(guide.sections.len(), metas.len());
-        assert!(!guide.overview.is_empty());
-        assert!(guide.sections.iter().all(|s| !s.commentary.is_empty()));
+    fn generate_without_backend_errors() {
+        // LLM-only: no backend must be a hard error, not a silent fallback.
+        let dir = std::env::temp_dir();
+        assert!(generate(DOC, None, &dir, "auto").is_err());
     }
 
     #[test]
