@@ -40,14 +40,6 @@ pub fn notify_on_change(path: impl AsRef<Path>, callback: impl Fn()) {
     }
 }
 
-/// Spawn a debounced file watcher on a background thread and return a receiver
-/// that yields a `()` for each batch of detected changes.
-///
-/// Unlike [`notify_on_change`], this is non-blocking: it hands back a
-/// [`Receiver`] so the caller can `select`/`try_recv` on change events
-/// alongside other event sources (e.g. terminal input in the TUI). The
-/// debouncer is kept alive by moving it into the spawned thread, which loops
-/// forwarding events until the receiver is dropped.
 /// A controllable debounced watcher whose set of watched paths can change at
 /// runtime. Change batches are coalesced into `()` signals on the paired
 /// [`Receiver`]. Keep the handle alive for as long as you want events — dropping
@@ -129,6 +121,14 @@ pub fn watch_channel() -> (WatchHandle, Receiver<()>) {
     (WatchHandle { debouncer }, out_rx)
 }
 
+/// Spawn a debounced file watcher on a background thread and return a receiver
+/// that yields a `()` for each batch of detected changes.
+///
+/// Unlike [`notify_on_change`], this is non-blocking: it hands back a
+/// [`Receiver`] so the caller can `select`/`try_recv` on change events
+/// alongside other event sources (e.g. terminal input in the TUI). The
+/// debouncer is kept alive by moving it into the spawned thread, which loops
+/// forwarding events until the receiver is dropped.
 pub fn watch_events(path: impl AsRef<Path>) -> Receiver<()> {
     let path = path.as_ref().to_path_buf();
     // Channel delivering the caller-facing `()` change signals.
