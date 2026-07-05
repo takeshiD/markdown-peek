@@ -36,6 +36,21 @@ const LUCIDE_MOON =
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
 const LUCIDE_SUN =
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>';
+// git-branch / folder icons for the branch vs. worktree grouping (#14) and breadcrumb.
+const LUCIDE_BRANCH =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-git-branch"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
+const LUCIDE_WORKTREE =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+
+// Escape arbitrary text for safe innerHTML insertion.
+function escapeText(s) {
+    const d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+}
+
+// Last /api/tree payload, so the breadcrumb (#14) can be recomputed on file switch.
+let treeData = null;
 
 function currentTheme() {
     const stored = localStorage.getItem(MDPEEK_THEME_KEY);
@@ -604,6 +619,7 @@ function selectFile(path, linkEl) {
         if (linkEl) {
             linkEl.classList.add("mdpeek-file-active");
         }
+        updateBreadcrumb();
     }).catch(function (e) {
         console.log("select error", e);
     });
@@ -630,6 +646,7 @@ function buildSidebar(data) {
         existing.remove();
     }
 
+    treeData = data;
     if (data.active) {
         lastActivePath = data.active;
     }
@@ -647,7 +664,9 @@ function buildSidebar(data) {
     const groupToggle = document.createElement("button");
     groupToggle.type = "button";
     groupToggle.id = "mdpeek-groupby-toggle";
-    groupToggle.textContent = groupBy === "branch" ? "by branch" : "by worktree";
+    groupToggle.innerHTML =
+        (groupBy === "branch" ? LUCIDE_BRANCH : LUCIDE_WORKTREE) +
+        "<span>" + (groupBy === "branch" ? "branch" : "worktree") + "</span>";
     groupToggle.title = "Switch grouping (worktree / branch)";
     groupToggle.addEventListener("click", function () {
         localStorage.setItem(MDPEEK_GROUPBY_KEY, groupBy === "branch" ? "worktree" : "branch");
@@ -704,6 +723,75 @@ function buildSidebar(data) {
     });
 
     document.body.appendChild(aside);
+    updateBreadcrumb();
+}
+
+// ---------------------------------------------------------------------------
+// Breadcrumb (#14): show which worktree/branch the open file belongs to, e.g.
+// "layer1-viewer > README.md" (branch or worktree name per the grouping toggle).
+// ---------------------------------------------------------------------------
+
+// The group whose root is the longest prefix of the active path (worktrees can
+// nest, so the most specific root wins).
+function activeGroup() {
+    if (!treeData || !treeData.tree || !lastActivePath) {
+        return null;
+    }
+    let best = null;
+    treeData.tree.groups.forEach(function (g) {
+        if (lastActivePath === g.root || lastActivePath.indexOf(g.root + "/") === 0) {
+            if (!best || g.root.length > best.root.length) {
+                best = g;
+            }
+        }
+    });
+    return best;
+}
+
+function activeFileLabel(group) {
+    if (group) {
+        const f = group.files.filter(function (x) { return x.path === lastActivePath; })[0];
+        if (f) {
+            return f.rel;
+        }
+    }
+    return lastActivePath ? lastActivePath.split("/").pop() : "";
+}
+
+function updateBreadcrumb() {
+    const bc = document.getElementById("mdpeek-breadcrumb");
+    if (!bc) {
+        return;
+    }
+    const group = activeGroup();
+    const file = activeFileLabel(group);
+    if (!file) {
+        bc.hidden = true;
+        bc.innerHTML = "";
+        return;
+    }
+    bc.hidden = false;
+    let html = "";
+    if (group) {
+        const groupBy = sidebarGroupBy();
+        const label = groupBy === "branch" ? (group.branch || group.name) : group.name;
+        const icon = groupBy === "branch" ? LUCIDE_BRANCH : LUCIDE_WORKTREE;
+        html +=
+            '<span class="mdpeek-bc-group">' + icon + "<span>" + escapeText(label) + "</span></span>" +
+            '<span class="mdpeek-bc-sep" aria-hidden="true">›</span>';
+    }
+    html += '<span class="mdpeek-bc-file">' + escapeText(file) + "</span>";
+    bc.innerHTML = html;
+}
+
+function initializeBreadcrumb() {
+    if (document.getElementById("mdpeek-breadcrumb")) {
+        return;
+    }
+    const bc = document.createElement("nav");
+    bc.id = "mdpeek-breadcrumb";
+    bc.hidden = true;
+    document.body.appendChild(bc);
 }
 
 function initializeSidebar() {
@@ -751,33 +839,98 @@ function toggleCompare(file, el) {
     openDiff(a, b);
 }
 
+// Current diff view state: the two paths plus mode (source/rendered) and layout
+// (unified/split), so toggles re-request and live re-diffs stay consistent.
+let diffState = null;
+
 function openDiff(a, b) {
+    diffState = { a: a, b: b, mode: "source", layout: "unified" };
+    ensureDiffView();
+    requestDiff();
+}
+
+function requestDiff() {
+    if (!diffState) {
+        return;
+    }
+    syncDiffToggles();
     fetch("/api/diff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ a: a, b: b }),
+        body: JSON.stringify(diffState),
     })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function (d) { showDiff(d.html); })
+        .then(function (d) { applyDiffHtml(d.html); })
         .catch(function (e) { console.log("diff error", e); });
 }
 
-function showDiff(html) {
+// Set the diff body; re-highlight code in rendered mode.
+function applyDiffHtml(html) {
+    const body = document.getElementById("mdpeek-diff-body");
+    if (!body) {
+        return;
+    }
+    body.innerHTML = html;
+    if (diffState && diffState.mode === "rendered") {
+        highlightWithin([body]);
+    }
+}
+
+function syncDiffToggles() {
+    const modeBtn = document.getElementById("mdpeek-diff-mode");
+    const layoutBtn = document.getElementById("mdpeek-diff-layout");
+    if (modeBtn) {
+        modeBtn.textContent = diffState.mode === "rendered" ? "rendered" : "source";
+    }
+    if (layoutBtn) {
+        layoutBtn.textContent = diffState.layout === "split" ? "split" : "unified";
+    }
+}
+
+function ensureDiffView() {
     let view = document.getElementById("mdpeek-diff-view");
     if (!view) {
         view = document.createElement("div");
         view.id = "mdpeek-diff-view";
+
         const bar = document.createElement("div");
         bar.id = "mdpeek-diff-bar";
         const title = document.createElement("span");
+        title.className = "mdpeek-diff-bar-title";
         title.textContent = "Diff";
+
+        const controls = document.createElement("div");
+        controls.className = "mdpeek-diff-bar-controls";
+        const modeBtn = document.createElement("button");
+        modeBtn.type = "button";
+        modeBtn.id = "mdpeek-diff-mode";
+        modeBtn.className = "mdpeek-diff-tog";
+        modeBtn.title = "Toggle source / rendered diff";
+        modeBtn.addEventListener("click", function () {
+            diffState.mode = diffState.mode === "source" ? "rendered" : "source";
+            requestDiff();
+        });
+        const layoutBtn = document.createElement("button");
+        layoutBtn.type = "button";
+        layoutBtn.id = "mdpeek-diff-layout";
+        layoutBtn.className = "mdpeek-diff-tog";
+        layoutBtn.title = "Toggle unified / split layout";
+        layoutBtn.addEventListener("click", function () {
+            diffState.layout = diffState.layout === "unified" ? "split" : "unified";
+            requestDiff();
+        });
+        controls.appendChild(modeBtn);
+        controls.appendChild(layoutBtn);
+
         const close = document.createElement("button");
         close.type = "button";
         close.id = "mdpeek-diff-close";
         close.textContent = "✕";
         close.title = "Close diff";
         close.addEventListener("click", closeDiff);
+
         bar.appendChild(title);
+        bar.appendChild(controls);
         bar.appendChild(close);
         const body = document.createElement("div");
         body.id = "mdpeek-diff-body";
@@ -785,12 +938,12 @@ function showDiff(html) {
         view.appendChild(body);
         document.body.appendChild(view);
     }
-    document.getElementById("mdpeek-diff-body").innerHTML = html;
     document.body.classList.add("mdpeek-diff-open");
 }
 
 function closeDiff() {
     document.body.classList.remove("mdpeek-diff-open");
+    diffState = null;
     const view = document.getElementById("mdpeek-diff-view");
     if (view) {
         view.remove();
@@ -813,6 +966,7 @@ function closeDiff() {
     initializeFrontmatter();
     initializeTocToggle();
     initializeAutoScrollToggle();
+    initializeBreadcrumb();
     initializeSidebar();
     // initializeMathJax();
 
@@ -849,10 +1003,7 @@ function closeDiff() {
             } else if (msg && msg.type === "diff-update") {
                 // Live re-diff (#15): refresh the diff view if it is open.
                 if (document.body.classList.contains("mdpeek-diff-open")) {
-                    const body = document.getElementById("mdpeek-diff-body");
-                    if (body) {
-                        body.innerHTML = msg.html;
-                    }
+                    applyDiffHtml(msg.html);
                 }
             }
         };
