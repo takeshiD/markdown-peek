@@ -61,3 +61,19 @@ test("commands are copied line by line or all at once, never run", async ({ page
   );
   await expect(page.getByTestId("live-region")).toHaveText(/Copied all commands/);
 });
+
+test("hiding another aid keeps ticks and the current step", async ({ page, server }) => {
+  await openApp(page, server);
+  const pane = page.getByTestId("widgets-pane");
+  const list = pane.locator('[data-kind="Checklist"]');
+  const steps = pane.locator('[data-kind="StepNavigator"]');
+  await list.getByRole("checkbox").first().click();
+  await steps.getByRole("button", { name: "Next step" }).click();
+  await expect(list).toContainText("2 of 4 done");
+  await expect(steps).toContainText("Step 2 of 5");
+  await pane.locator('[data-kind="ConfigViewer"]').getByRole("button", { name: /^Hide / }).click();
+  await expect(list).toContainText("2 of 4 done");
+  await expect(steps).toContainText("Step 2 of 5");
+  await page.reload();
+  await expect(page.getByTestId("widgets-pane").locator('[data-kind="Checklist"]')).toContainText("2 of 4 done");
+});

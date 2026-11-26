@@ -353,6 +353,11 @@ fn only_candidates(alts: Vec<(String, f32)>, cands: &[Candidate]) -> Vec<(String
         .collect()
 }
 
+/// At most this many document-level aids are shown.
+pub const MAX_DOCUMENT_AIDS: usize = 2;
+/// At most this many aids in total (the rest are skipped as `over_limit`).
+pub const MAX_AIDS: usize = 8;
+
 pub fn rules_answer(cands: &[Candidate]) -> Option<Answer> {
     let best = cands
         .iter()
@@ -787,6 +792,41 @@ pub fn adaptive_layout_with(
             fallback: None,
         });
     }
+
+    // Attention budget: a margin full of aids reads as noise. Keep the most
+    // helpful ones (document-level first-capped), in reading order.
+    let mut docs: Vec<Placement> = Vec::new();
+    let mut secs: Vec<Placement> = Vec::new();
+    for p in placements {
+        if p.scope == "document" { docs.push(p) } else { secs.push(p) }
+    }
+    let mut over: Vec<Placement> = Vec::new();
+    docs.sort_by(|a, b| b.why.helps.total_cmp(&a.why.helps));
+    if docs.len() > MAX_DOCUMENT_AIDS {
+        over.extend(docs.split_off(MAX_DOCUMENT_AIDS));
+    }
+    let room = MAX_AIDS.saturating_sub(docs.len());
+    if secs.len() > room {
+        let mut ranked: Vec<usize> = (0..secs.len()).collect();
+        ranked.sort_by(|&a, &b| secs[b].why.helps.total_cmp(&secs[a].why.helps).then(a.cmp(&b)));
+        let keep: std::collections::HashSet<usize> = ranked.into_iter().take(room).collect();
+        let (k, o): (Vec<_>, Vec<_>) = secs.into_iter().enumerate().partition(|(i, _)| keep.contains(i));
+        secs = k.into_iter().map(|(_, p)| p).collect();
+        over.extend(o.into_iter().map(|(_, p)| p));
+    }
+    for p in over {
+        skipped.push(Skipped {
+            scope: p.scope,
+            anchor: p.anchor,
+            reason_code: "over_limit".into(),
+            by: p.why.by,
+            helps: Some(p.why.helps),
+            confidence: Some(p.why.confidence),
+            fallback: None,
+        });
+    }
+    let mut placements = docs;
+    placements.extend(secs);
 
     // Validate every node (allowlist + sourceRange bounds); drop failures.
     let mut kept = Vec::new();

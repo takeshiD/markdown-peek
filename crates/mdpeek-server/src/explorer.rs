@@ -9,7 +9,6 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use walkdir::WalkDir;
 
 /// A markdown file within a group, identified to the client by its absolute
 /// path and shown by its path relative to the group root.
@@ -103,25 +102,33 @@ fn worktrees(toplevel: &Path) -> Vec<Worktree> {
     result
 }
 
-/// Scan `root` for markdown files, skipping `.git` and any nested directory that
-/// is itself another worktree root (so a worktree's files aren't double-listed
-/// under an enclosing root).
+/// Scan `root` for markdown files, honouring `.gitignore` / git excludes (so
+/// `node_modules`, build output etc. never reach the explorer or the palette),
+/// skipping `.git` and any nested directory that is itself another worktree
+/// root (so a worktree's files aren't double-listed under an enclosing root).
+/// Dot-directories such as `.github` are kept.
 fn scan_markdown(root: &Path, exclude: &[PathBuf]) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|e| {
+    let exclude: Vec<PathBuf> = exclude.to_vec();
+    let mut out: Vec<PathBuf> = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .git_global(true)
+        .parents(true)
+        .filter_entry(move |e| {
             if e.file_name() == ".git" {
                 return false;
             }
-            if e.file_type().is_dir() && exclude.iter().any(|x| x == e.path()) {
-                return false;
-            }
-            true
+            let is_dir = e.file_type().is_some_and(|t| t.is_dir());
+            !(is_dir && exclude.iter().any(|x| x == e.path()))
         })
+        .build()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && markdown_ext(e.path()))
+        .filter(|e| e.file_type().is_some_and(|t| t.is_file()) && markdown_ext(e.path()))
         .map(|e| e.into_path())
-        .collect()
+        .collect();
+    out.sort();
+    out
 }
 
 fn to_entries(files: Vec<PathBuf>, root: &Path) -> Vec<FileEntry> {

@@ -29,6 +29,9 @@ const BODY_EVENT = "mp:body";
 export function DocumentView() {
   const doc = useStore((s) => s.doc);
   const docVersion = useStore((s) => s.docVersion);
+  // Kana means Japanese: lets the browser apply Japanese line breaking and
+  // fonts (the UI chrome itself stays English).
+  const lang = /[\u3040-\u30ff]/.test(doc.html) ? "ja" : undefined;
   const mode = useStore((s) => s.prefs.mode);
   const diff = useStore((s) => s.diff);
   const scrollRef = useRef<HTMLElement>(null);
@@ -141,7 +144,7 @@ export function DocumentView() {
               </p>
             )}
             {doc.frontmatter && <FrontMatter text={doc.frontmatter} />}
-            <article ref={articleRef} className="markdown-body" aria-label={doc.title} />
+            <article ref={articleRef} className="markdown-body" lang={lang} aria-label={doc.title} />
             {mode === "adaptive" && <AdaptiveSlots articleRef={articleRef} />}
           </div>
         </div>
@@ -228,7 +231,7 @@ function AdaptiveSlots({ articleRef }: { articleRef: React.RefObject<HTMLElement
         const act = isActive(p, activeLine);
         return (
           <PortalPair key={widgetKey(p)} slot={s}>
-            {(where) => <WidgetNote p={p} pinned={pin} active={act} compact={where === "inline"} collapsible={p.scope === "document"} />}
+            {(where) => <WidgetNote p={p} pinned={pin} active={act} compact={where === "inline"} collapsible={p.scope === "document" || where === "inline"} besideSection />}
           </PortalPair>
         );
       })}

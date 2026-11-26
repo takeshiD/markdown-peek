@@ -125,6 +125,9 @@
 /* Markdown body (GFM). Rebuilt on the tokens; replaces github-*.css.        */
 /* ------------------------------------------------------------------------ */
 @layer components {
+  /* Japanese: phrase-aware heading breaks, strict kinsoku, CJK fonts first. */
+  .markdown-body:lang(ja) { line-break: strict; font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic", Meiryo, var(--font-body); }
+  .markdown-body:lang(ja) :is(h1, h2, h3, h4) { word-break: auto-phrase; text-wrap: balance; }
   .markdown-body {
     font-family: var(--font-body);
     font-size: 16px;
@@ -284,13 +287,18 @@
 /* Live update marker, source jump, adaptive margin notes                    */
 /* ------------------------------------------------------------------------ */
 @layer components {
-  @keyframes mp-changed { from { background-color: var(--change); } to { background-color: transparent; } }
-  .mp-changed { animation: mp-changed 2.4s ease-out 1; border-radius: 4px; box-shadow: -10px 0 0 0 var(--change); }
+  /* Live change marker: a thin bar in the gutter plus a soft wash that fades.
+     Quiet enough to read through; the bar says "this changed". */
+  @keyframes mp-changed {
+    from { background-color: color-mix(in srgb, var(--change) 38%, transparent); }
+    to { background-color: transparent; }
+  }
+  .mp-changed { animation: mp-changed 1.6s ease-out 1; border-radius: 3px; box-shadow: -7px 0 0 -4px var(--change); }
   @keyframes mp-hit { from { background-color: color-mix(in srgb, var(--primary) 16%, transparent); } to { background-color: transparent; } }
   .mp-source-hit { animation: mp-hit 2.2s ease-out 1; box-shadow: -10px 0 0 0 var(--primary); border-radius: 4px; }
   /* Persistent (no-motion) fallbacks so state is still visible with reduced motion. */
   @media (prefers-reduced-motion: reduce) {
-    .mp-changed { background-color: var(--change-soft); }
+    .mp-changed { background-color: color-mix(in srgb, var(--change) 22%, transparent); }
     .mp-source-hit { background-color: color-mix(in srgb, var(--primary) 10%, transparent); }
   }
 
@@ -300,7 +308,13 @@
   .mp-doc { container-type: inline-size; container-name: doc; }
   .mp-note-slot[data-place="side"] { display: none; }
   .mp-note-slot[data-place="inline"] { display: block; margin: 0.5em 0 1.5em; }
-  @container doc (min-width: 980px) {
+  /* A narrower margin tier, so Adaptive keeps true margin notes at 1280 px
+     with the rail open (document column ~900-1000 px) instead of falling
+     back to inline copies under each section. */
+  @container doc (min-width: 820px) and (max-width: 1099.98px) {
+    .mp-adaptive .markdown-body, .mp-note-slot { --note-width: 232px; --note-gap: 24px; }
+  }
+  @container doc (min-width: 820px) {
     .mp-adaptive .markdown-body { margin-right: calc(var(--note-width) + var(--note-gap)); }
     .mp-note-slot[data-place="side"] {
       display: block;
@@ -369,6 +383,14 @@
   }
   .gui-srclink:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
 
+  /* Note actions (why / pin / hide) appear on hover or keyboard focus, so a
+     column of notes is not a column of icons. A pinned note keeps its pin. */
+  @media (hover: hover) {
+    [data-widget] .mp-note-action:not([aria-pressed="true"]) { opacity: 0; transition: opacity 120ms; }
+    [data-widget]:hover .mp-note-action, [data-widget]:focus-within .mp-note-action,
+    [data-widget] .mp-note-action[data-state="open"] { opacity: 1; }
+  }
+
   /* Operable widgets ------------------------------------------------------ */
   .gui-progress { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
   .gui-progress__text { font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -435,7 +457,11 @@
   .gui-table th { font-weight: 600; }
   .gui-linkish { color: var(--foreground); text-align: left; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; cursor: pointer; }
   .gui-linkish:hover { text-decoration-color: currentColor; }
-  .gui-sev--warning > strong, .gui-sev--error > strong { color: var(--danger); }
+  /* Risks and questions are statements, not errors: ink text at normal weight;
+     only error-level items get a thin danger rule. */
+  .gui-risklist > li > strong { font-weight: 450; color: var(--foreground); }
+  .gui-risklist > li.gui-sev--error { box-shadow: inset 2px 0 0 var(--danger); padding-left: 8px; }
+  .gui-callout > strong { font-weight: 600; }
   .gui-conf { font-size: 12px; color: var(--muted-foreground); }
   .gui-card + .gui-card { margin-top: 10px; }
   .gui-card__head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }

@@ -421,7 +421,9 @@ export function DataTable({ node, onJump }: NodeProps<Extract<UiNode, { kind: "D
             {rows.map((row, i) => (
               <tr key={i}>
                 {node.columns.map((c) => (
-                  <td key={c.key}>{String(row[c.key] ?? "")}</td>
+                  <td key={c.key}>
+                    <InlineText text={String(row[c.key] ?? "")} />
+                  </td>
                 ))}
               </tr>
             ))}

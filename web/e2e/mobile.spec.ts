@@ -31,7 +31,8 @@ async function tapTargets(page: Page, scope: string) {
         const style = getComputedStyle(el);
         if (r.width === 0 || r.height === 0 || style.visibility === "hidden") continue;
         if (el.closest("article") && !el.closest(".mp-note-slot")) continue; // links inside the prose are text
-        if (r.bottom <= 0 || r.top >= window.innerHeight) continue; // scrolled out of view
+        const midY = r.top + r.height / 2;
+        if (midY <= 0 || midY >= window.innerHeight) continue; // scrolled (mostly) out of view: tap after scrolling
         ctrls.push({ el, r });
         if (r.width < 43.5 || r.height < 43.5) out.push(`too small: ${name(el)} ${Math.round(r.width)}x${Math.round(r.height)}`);
         const cx = r.left + r.width / 2;

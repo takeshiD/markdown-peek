@@ -22,7 +22,7 @@ for (const scheme of ["light", "dark"] as const) {
     await axe(page, `${scheme} split`);
     await page.locator("body").press("3");
     await axe(page, `${scheme} adaptive`);
-    await page.getByRole("button", { name: "Why this widget: Steps" }).first().click();
+    await page.getByRole("button", { name: "Why this reading aid: Steps" }).first().click();
     await axe(page, `${scheme} popover`);
     await page.keyboard.press("Escape");
     await page.keyboard.press("Control+k");
@@ -79,11 +79,11 @@ test("every control is reachable by keyboard: modes, panes, widgets, why, pin", 
   const steps = page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]');
   await steps.locator("header .gui-srclink").focus();
   await page.keyboard.press("Tab");
-  await expect(steps.getByRole("button", { name: "Why this widget: Steps" })).toBeFocused();
+  await expect(steps.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("why-provider")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(steps.getByRole("button", { name: "Why this widget: Steps" })).toBeFocused();
+  await expect(steps.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(steps.getByRole("button", { name: "Pin Steps" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -102,7 +102,7 @@ test("state changes are announced to screen readers", async ({ page, server }) =
   await expect(live).toHaveText("Read mode");
   await page.locator("body").press("2");
   await page.getByRole("button", { name: "Choose reading aids again" }).click();
-  await expect(live).toHaveText(/Reading aids updated: \d+ widgets? chosen by fake/);
+  await expect(live).toHaveText(/Reading aids updated: \d+ aids? chosen by fake/);
 });
 
 test("prefers-reduced-motion stops animations and transitions", async ({ page, server }) => {

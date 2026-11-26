@@ -44,7 +44,7 @@ export function WhyPopover({ p, layout }: { p: Placement; layout: AdaptiveLayout
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="size-7 text-muted-foreground max-md:size-11" aria-label={`Why this widget: ${kindLabel(p.node.kind)}`}>
+        <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Why this reading aid: ${kindLabel(p.node.kind)}`}>
           <Info />
         </Button>
       </PopoverTrigger>
@@ -82,6 +82,7 @@ export function WidgetNote({
   active,
   compact,
   collapsible,
+  besideSection,
 }: {
   p: Placement;
   pinned: boolean;
@@ -89,6 +90,8 @@ export function WidgetNote({
   compact?: boolean;
   /** Start folded (whole-document aids in the margin stay out of the way). */
   collapsible?: boolean;
+  /** Rendered next to its own section (Adaptive): the section name is implied. */
+  besideSection?: boolean;
 }) {
   const layout = useStore((s) => s.layout)!;
   const [open, setOpen] = useState(!collapsible);
@@ -125,20 +128,20 @@ export function WidgetNote({
         <SourceLink range={r} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
         <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold">
           {title}
-          {p.scope === "section" && <span className="font-normal text-muted-foreground"> in {p.anchor.heading}</span>}
+          {p.scope === "section" && !besideSection && <span className="font-normal text-muted-foreground"> in {p.anchor.heading}</span>}
         </h3>
         <WhyPopover p={p} layout={layout} />
         <Button
           variant="ghost"
           size="icon-sm"
-          className={cn("size-7 max-md:size-11", pinned ? "text-primary" : "text-muted-foreground")}
+          className={cn("mp-note-action size-7 max-md:size-11", pinned ? "text-primary" : "text-muted-foreground")}
           aria-pressed={pinned}
           aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
           onClick={() => togglePin(p)}
         >
           {pinned ? <PinOff /> : <Pin />}
         </Button>
-        <Button variant="ghost" size="icon-sm" className="size-7 text-muted-foreground max-md:size-11" aria-label={`Hide ${title}`} onClick={() => hideWidget(p)}>
+        <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Hide ${title}`} onClick={() => hideWidget(p)}>
           <EyeOff />
         </Button>
       </header>
@@ -164,7 +167,7 @@ export function HiddenWidgetsMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Show a hidden widget</DropdownMenuLabel>
+        <DropdownMenuLabel>Show a hidden reading aid</DropdownMenuLabel>
         {hidden.map((p) => (
           <DropdownMenuItem key={widgetKey(p)} onSelect={() => showWidget(widgetKey(p))}>
             {kindLabel(p.node.kind)}
@@ -190,7 +193,10 @@ function WidgetsMessage() {
   if (sel === "error" && err) {
     return (
       <div role="alert" className="text-[13px] text-danger">
-        <p>{err}</p>
+        <p>
+          {err}
+          {layout ? " Showing the previous reading aids, which may be out of date." : ""}
+        </p>
         <Button variant="outline" size="sm" className="mt-2 max-md:h-11" onClick={() => fetchAdaptive("reselect")}>
           <RefreshCw /> Try again
         </Button>
@@ -212,13 +218,19 @@ export function WidgetList() {
   const { visible, pinned } = useVisiblePlacements();
   const activeLine = useStore((s) => s.activeLine);
   const layout = useStore((s) => s.layout);
+  const stale = useStore((s) => s.select === "error");
   return (
     <div className="flex flex-col gap-5">
       <WidgetsMessage />
-      {layout &&
-        visible.map((p) => <WidgetNote key={widgetKey(p)} p={p} pinned={pinned.has(widgetKey(p))} active={isActive(p, activeLine)} />)}
+      {layout && (
+        <div className={cn("flex flex-col gap-5 transition-opacity", stale && "opacity-55")} data-stale={stale ? "true" : undefined}>
+          {visible.map((p) => (
+            <WidgetNote key={widgetKey(p)} p={p} pinned={pinned.has(widgetKey(p))} active={isActive(p, activeLine)} />
+          ))}
+        </div>
+      )}
       {layout && layout.placements.length > 0 && visible.length === 0 && (
-        <p className="text-[13px] text-muted-foreground">All widgets are hidden. Use Hidden to bring one back.</p>
+        <p className="text-[13px] text-muted-foreground">All reading aids are hidden. Use Hidden to bring one back.</p>
       )}
     </div>
   );
@@ -231,9 +243,9 @@ export function WidgetPaneHeader({ className }: { className?: string } = {}) {
   const sel = useStore((s) => s.select);
   return (
     <div className={cn("flex min-h-11 items-center gap-2 border-b px-4", className)}>
-      <h2 className="text-[13px] font-semibold">Reading aids</h2>
-      {layout && (
-        <span className="truncate text-[12px] text-muted-foreground" title="Document type">
+      <h2 className="shrink-0 whitespace-nowrap text-[13px] font-semibold">Reading aids</h2>
+      {layout && sel !== "error" && (
+        <span className="min-w-0 truncate text-[12px] text-muted-foreground" title="Document type">
           {layout.doc_type.value} ({pct(layout.doc_type.confidence)}, {layout.doc_type.by})
         </span>
       )}

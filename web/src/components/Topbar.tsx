@@ -74,12 +74,12 @@ function Breadcrumb({ touch }: { touch?: boolean }) {
     if (same) void selectFile(same.path);
   };
   return (
-    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-0.5 text-[13px]">
+    <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden text-[13px]">
       {group && !touch && (
-        <>
+        <div className="flex min-w-0 shrink items-center gap-0.5 max-lg:hidden">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 max-w-48 gap-1.5 px-2 font-medium" aria-label={`Repository: ${groupLabel(group, by)}. Switch ${by}`}>
+              <Button variant="ghost" size="sm" className="h-8 min-w-0 max-w-48 shrink gap-1.5 px-2 font-medium" aria-label={`Repository: ${groupLabel(group, by)}. Switch ${by}`}>
                 {by === "branch" ? <GitBranch aria-hidden="true" /> : <Folder aria-hidden="true" />}
                 <span className="truncate">{groupLabel(group, by)}</span>
                 <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
@@ -99,14 +99,14 @@ function Breadcrumb({ touch }: { touch?: boolean }) {
           <span className="text-muted-foreground/60" aria-hidden="true">
             /
           </span>
-        </>
+        </div>
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="sm"
-            className={cn("h-8 min-w-0 gap-1.5 px-2 font-normal", touch && "h-11")}
+            className={cn("h-8 min-w-0 max-w-full shrink gap-1.5 px-2 font-normal", touch && "h-11")}
             aria-label={`File: ${rel}. Switch file`}
             data-testid="breadcrumb-file"
           >
@@ -146,7 +146,7 @@ export function ModeSwitch() {
         <Tooltip key={m.value}>
           <TooltipTrigger asChild>
             <ToggleGroupItem value={m.value} aria-label={`${m.label} mode`} className="h-8 px-2.5 text-[13px]">
-              <m.icon aria-hidden="true" /> {m.label}
+              <m.icon aria-hidden="true" /> <span className="max-lg:sr-only">{m.label}</span>
             </ToggleGroupItem>
           </TooltipTrigger>
           <TooltipContent>
@@ -205,7 +205,7 @@ function ViewMenu({ autoscroll, guided, lens }: { autoscroll: boolean; guided: b
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className={cn("h-8 gap-1.5 px-2 font-normal", active ? "text-foreground" : "text-muted-foreground")} data-testid="view-menu">
-          <Eye aria-hidden="true" /> View
+          <Eye aria-hidden="true" /> <span className="max-lg:sr-only">View</span>
           <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
@@ -305,7 +305,6 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         />
       )}
       <Breadcrumb />
-      <span className="flex-1" />
       <SelectorStatus />
       <ModeSwitch />
       {mode === "split" && (

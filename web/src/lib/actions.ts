@@ -27,7 +27,7 @@ function describeLayout(l: AdaptiveLayout): string {
   const n = l.placements.length;
   const who = l.selector.provider;
   const fb = l.selector.fallback ? ` Fallback: ${fallbackText(l.selector.fallback)}.` : "";
-  return `Reading aids updated: ${n} ${n === 1 ? "widget" : "widgets"} chosen by ${who}.${fb}`;
+  return `Reading aids updated: ${n} ${n === 1 ? "aid" : "aids"} chosen by ${who}.${fb}`;
 }
 
 /** Accept a layout unless it belongs to an older revision than the body shown. */
@@ -196,11 +196,12 @@ export function togglePin(p: Placement) {
 
 export function hideWidget(p: Placement) {
   const k = widgetKey(p);
-  updateDocPrefs((d) => ({ pinned: d.pinned.filter((x) => x !== k), hidden: d.hidden.includes(k) ? d.hidden : [...d.hidden, k] }));
-  announce(`${kindLabel(p.node.kind)} hidden. Restore it from Hidden widgets.`);
+  // Spread `d`: ticks and step positions of other aids must survive a hide.
+  updateDocPrefs((d) => ({ ...d, pinned: d.pinned.filter((x) => x !== k), hidden: d.hidden.includes(k) ? d.hidden : [...d.hidden, k] }));
+  announce(`${kindLabel(p.node.kind)} hidden. Restore it from Hidden.`);
 }
 
 export function showWidget(key: string) {
   updateDocPrefs((d) => ({ ...d, hidden: d.hidden.filter((x) => x !== key) }));
-  announce("Widget shown again");
+  announce("Reading aid shown again");
 }

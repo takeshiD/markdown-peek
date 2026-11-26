@@ -97,8 +97,9 @@ fn fake_provider_is_scripted_and_deterministic() {
     assert_eq!(find("Steps").unwrap()["why"]["by"], "fake");
     assert_eq!(skip("Commands").unwrap()["reason_code"], "low_helps");
     assert_eq!(skip("Prerequisites").unwrap()["reason_code"], "low_confidence");
-    let rb = find("Rollback").unwrap();
-    assert_eq!(rb["why"]["reason_code"], "fallback_invalid_answer");
+    // Rollback's only content is a GFM alert, already highlighted in the body,
+    // so it has no candidate (invalid answers are covered in select_jev.rs).
+    assert_eq!(skip("Rollback").unwrap()["reason_code"], "no_candidates");
     let docs: Vec<_> = a["placements"].as_array().unwrap().iter().filter(|p| p["scope"] == "document").collect();
     assert_eq!(docs.len(), 1);
     assert_eq!(docs[0]["node"]["kind"], "ActionItems");

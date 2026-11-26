@@ -199,6 +199,28 @@ fn truncate_chars(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
+/// Whether a semantic outline says more than the plain heading list: most
+/// headings must land in a real group (not "Other"), and groups must not just
+/// repeat their only heading ("Risks" → "Risks").
+fn outline_is_informative(n: &crate::ir::node::SemanticOutlineNode) -> bool {
+    let total: usize = n.groups.iter().map(|g| g.items.len()).sum();
+    if total == 0 {
+        return false;
+    }
+    let other: usize = n
+        .groups
+        .iter()
+        .filter(|g| g.label.eq_ignore_ascii_case("other"))
+        .map(|g| g.items.len())
+        .sum();
+    let tautological = n
+        .groups
+        .iter()
+        .filter(|g| g.items.len() == 1 && g.items[0].title.trim().eq_ignore_ascii_case(g.label.trim()))
+        .count();
+    other * 2 < total && tautological * 2 < n.groups.len().max(1)
+}
+
 /// Split `markdown` into sections, compute features and eligible candidates.
 pub fn plan_document(
     markdown: &str,
@@ -555,9 +577,10 @@ pub fn plan_document(
             });
         }
         // An alert with no text (`> [!WARNING]` alone) is not worth a callout.
-        let alert = alert.clone().filter(|(t, _)| !t.trim().is_empty());
-        if let Some((text, r)) = alert.clone().or(risk_para.clone()) {
-            let s = if alert.is_some() { 0.7 } else { 0.55 };
+        // A GFM alert is already highlighted in the body: repeating it in the
+        // margin adds nothing. Only an un-highlighted risk paragraph is lifted.
+        if let Some((text, r)) = risk_para.clone().filter(|_| alert.is_none()) {
+            let s = 0.55;
             cands.push(Candidate {
                 id: "Callout:risk",
                 description: "Highlighted warning / risk callout quoting the section's text",
@@ -590,7 +613,13 @@ pub fn plan_document(
     crate::planner::order_lenses(analysis.model.doc_type.value, &mut lenses);
     let mut doc_candidates = Vec::new();
     let heading_count = analysis.model.outline.len();
-    for node in lenses {
+    for mut node in lenses {
+        // A glossary entry the document never defines only says "not defined
+        // here": keep terms with a stated definition.
+        if let UiNode::Glossary(n) = &mut node {
+            n.terms
+                .retain(|t| t.definition.as_deref().is_some_and(|d| !d.trim().is_empty()));
+        }
         let (id, desc, items): (&'static str, &'static str, Vec<SourceRange>) = match &node {
             UiNode::SemanticOutline(n) => (
                 "SemanticOutline",
@@ -626,15 +655,22 @@ pub fn plan_document(
         };
         // Prefilter thresholds (§3.2).
         let ok = match id {
-            "SemanticOutline" => heading_count >= 4,
+            "SemanticOutline" => {
+                heading_count >= 4 && matches!(&node, UiNode::SemanticOutline(n) if outline_is_informative(n))
+            }
             "Glossary" => items.len() >= 3,
+            // A list that is mostly ticked off is a status matrix (e.g. a
+            // README feature list), not work to do.
+            "ActionItems" => matches!(&node, UiNode::ActionItems(n) if {
+                let done = n.items.iter().filter(|i| matches!(i.status, crate::ir::node::ActionStatus::Done)).count();
+                !n.items.is_empty() && done * 4 < n.items.len() * 3
+            }),
             _ => !items.is_empty(),
         };
         if !ok {
             continue;
         }
         let Some(r) = span(items.iter().copied()) else { continue };
-        let mut node = node;
         node.meta_mut().source_range = Some(r);
         let score = node.meta().confidence.unwrap_or(0.5);
         doc_candidates.push(Candidate {
@@ -795,13 +831,13 @@ mod tests {
     }
 
     #[test]
-    fn alert_callout_body_is_verbatim() {
+    fn alert_already_highlighted_in_body_gets_no_callout() {
+        // A GFM alert is shown highlighted in the body; a margin callout would
+        // only repeat it (independent UX review, 2026-11-27).
         let md = "## Rollback\n\n> [!CAUTION]\n> Rolling back deletes data.\n> Be careful.\n";
         let p = plan(md);
-        let c = p.sections[0].candidates.iter().find(|c| c.id == "Callout:risk").unwrap();
-        let UiNode::Callout(n) = &c.node else { panic!() };
-        assert_eq!(n.body, "Rolling back deletes data.\nBe careful.");
-        assert_eq!(n.meta.source_range.unwrap().start_line, 3);
+        assert!(p.sections[0].candidates.iter().all(|c| c.id != "Callout:risk"));
+        assert_eq!(p.sections[0].features.alerts, 1);
     }
 
     #[test]
