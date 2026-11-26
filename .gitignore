@@ -9,8 +9,8 @@ PLAN.md
 .cache
 # Web frontend (Layer 3): node_modules is reproducible via `npm install`.
 web/node_modules
-# The built Generated-UI island is committed so mdpeek-server can embed it with
+# The built web UI (app.js/app.css) is committed so mdpeek-server can embed it with
 # include_bytes! (design 論点 C). Ignore everything else vite emits into dist/.
 web/dist/*
-!web/dist/mdpeek-gui.js
-!web/dist/mdpeek-gui.css
+!web/dist/app.js
+!web/dist/app.css

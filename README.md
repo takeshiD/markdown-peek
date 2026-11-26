@@ -13,7 +13,7 @@ Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watche
 ### Available now
 - ⚡ Fast — a single binary with all assets embedded
 - 🔄 Live, in-place updates — only the blocks you changed re-render (no full reload), your scroll position is kept, and changed blocks are briefly highlighted
-- 🌐 Browser preview with a repository/worktree file explorer, outline + fuzzy heading search, a front matter panel, and light/dark themes
+- 🌐 Browser preview with Read / Split / Adaptive modes, source-linked reading aids, a command palette (Ctrl/⌘K), a repository/worktree file explorer, outline + fuzzy heading search, a front matter panel, light/dark/system themes, and full keyboard support
 - 🔍 Two-file diff — source or rendered, unified or side-by-side, including the same file across worktrees/branches
 - 🖥️ Interactive terminal viewer (TUI) — scrolling, wrapping, vim-style search, and live updates without flicker
 - 📝 GitHub Flavored Markdown (GFM); GitLab Flavored Markdown (GLFM) planned
@@ -40,12 +40,53 @@ mdpeek
 ```
 Or point it at a single file: `mdpeek serve path/to/file.md`.
 
-The preview updates **in place** as you edit — only the blocks that changed re-render (your scroll position is kept) and they are briefly highlighted. From the sidebar you can:
-- switch between files across worktrees/branches (toggle grouping by worktree or branch),
-- open a **two-file diff** with the ⇄ compare buttons — source or rendered, unified or side-by-side,
-- toggle the outline (with fuzzy heading search), the color theme, and auto-scroll-to-change.
+The preview updates **in place** as you edit — only the blocks that changed re-render (your reading position is kept) and they are briefly marked.
 
-A breadcrumb shows which worktree/branch the open file belongs to.
+### The browser UI
+
+The window has a top bar (repository / file breadcrumb, view mode, selector status, command palette, theme), a left rail with **Outline** and **Files**, the document, and — depending on the mode — *reading aids*: small widgets (steps, checklists, commands, risks, action items, …) extracted from your document, each linked to the source lines it came from.
+
+| Mode | Key | What you see |
+|---|---|---|
+| **Read** | `1` | The document only. |
+| **Split** | `2` | Reading aids listed in a resizable pane on the right. |
+| **Adaptive** | `3` | Each aid in the margin beside the section it belongs to (on narrow windows: right after that section). |
+
+- Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and in the widgets.
+- The ⓘ button on a widget explains **why it was chosen**: selector and model, confidence, how much it helps, the other candidates and any fallback. The dot in the top bar always shows the selector state (rules / jev / fake, choosing, fallback, error).
+- **Pin** a widget to keep it at the top, or **hide** it; both are remembered per document. Bring hidden ones back from *Hidden (n)* in the widget pane or the command palette.
+- While a new selection runs after an edit, the previous widgets stay visible; results for an older version of the file are never shown.
+- The rail and the widget pane can be resized by dragging the divider or by focusing it and pressing ← / →, and folded away with `[` / `]`. Mode, theme, sizes and folds are remembered across reloads.
+- **Files**: switch files across worktrees/branches (group by worktree or branch), or pick two files with the compare buttons to open a **diff** — source or rendered, unified or side by side, swappable, re-diffed live as you edit.
+- **Guided reading** (book icon, `g`) and **Generated UI** (sparkles icon) open the LLM guided-reading panel and the generated-components lens.
+- On a phone (narrow screens) the document fills the screen; Files/Outline and the reading aids open as sheets.
+
+**Keyboard shortcuts** (`?` shows them in the app; single keys work when no text field has focus):
+
+| Key | Action |
+|---|---|
+| `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, switch mode or theme, choose reading aids again, pin / hide / show widgets |
+| `1` / `2` / `3` | Read / Split / Adaptive |
+| `[` / `]` | Fold or unfold the rail / the widget pane |
+| `/` | Filter headings in the Outline |
+| `g` | Guided reading |
+| `t` | Next theme (light → dark → system) |
+| `?` | Shortcut list |
+| `←` / `→` on a focused divider | Resize the pane |
+| `Esc` | Close a dialog, sheet or popover |
+
+Reading aids are chosen offline by `rules` by default. **Jev is opt-in**: set `provider = "jev"` **and** `allow_network = true` in `[select]` and export `TYPESAFE_API_KEY` (see [Adaptive reading aids](#adaptive-reading-aids-select)); otherwise nothing leaves your machine. If Jev is unavailable the UI says so (fallback) and shows the rules choice.
+
+### Building the web UI
+
+The UI is a React 19 + Tailwind CSS v4 + shadcn/ui app in `web/`, built to `web/dist/app.{js,css}` and embedded in the binary (the built files are committed, so `cargo install` needs no Node). After changing `web/src`:
+
+```sh
+cd web && npm ci && npm run build     # rebuild web/dist (reproducible: scripts/check-web-dist.sh)
+npm run test:e2e                      # Playwright E2E against a real mdpeek (fake selector, no key, no network)
+```
+
+The E2E suite uses the system Chrome (`MDPEEK_CHROME` overrides the path; Playwright's own browser download is not used) and also refreshes the reference screenshots in `docs/design/screenshots/`.
 
 ## Preview in your terminal
 Use the `term` subcommand. On a TTY it opens an interactive full-screen viewer that live-updates as the file changes:

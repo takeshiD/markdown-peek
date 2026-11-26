@@ -10,7 +10,10 @@
 // Also: a language selector (auto / 日本語 / English, persisted) and in-panel
 // Q&A scoped to the section the reader is on.
 //
-// Deliberately imperative DOM (not Preact): the typewriter + scroll-sync are
+// Mounted by the React app (components/Guided.tsx) into its own panel; the
+// document column is the scroll container (lib/nav.ts).
+//
+// Deliberately imperative DOM (not React): the typewriter + scroll-sync are
 // easier to reason about without a vdom re-render fighting the animation, and
 // the highlight/dim works directly on the server-rendered body.
 //
@@ -18,12 +21,11 @@
 // Deferred to later slices: resumable/saved sessions, true server-side token
 // streaming, inline (anchored) commentary cards.
 
-import "./scrolly.css";
 
-const PANEL_ID = "mdpeek-scrolly-panel";
-const TOGGLE_ID = "mdpeek-scrolly-toggle";
+
+import { getArticle, getScroller } from "./lib/nav";
+
 const OPEN_CLASS = "mdpeek-scrolly-open";
-const GUI_OPEN_CLASS = "mdpeek-gui-open";
 const FOCUS_CLASS = "mdpeek-scrolly-focus";
 const LANG_KEY = "mdpeek-scrolly-lang";
 /** A heading counts as "current" once its top passes this many px from the top. */
@@ -116,7 +118,7 @@ function buildPanel(panel: HTMLElement, lang: Lang): Runtime["els"] {
   panel.textContent = "";
 
   const head = el("div", "scrolly-head");
-  const title = el("span", "scrolly-head__title", "✨ Guided Reading");
+  const title = el("span", "scrolly-head__title", "Guided reading");
   const langSel = el("select", "scrolly-lang");
   langSel.setAttribute("aria-label", "Commentary language");
   for (const opt of LANGS) {
@@ -130,8 +132,8 @@ function buildPanel(panel: HTMLElement, lang: Lang): Runtime["els"] {
   const close = el("button", "scrolly-close");
   close.type = "button";
   close.setAttribute("aria-label", "Close guided reading");
-  close.textContent = "✕";
-  close.addEventListener("click", exit);
+  close.textContent = "Close";
+  close.addEventListener("click", () => onCloseCb?.());
   head.append(title, langSel, origin, close);
 
   const body = el("div", "scrolly-body");
@@ -203,7 +205,7 @@ function buildPanel(panel: HTMLElement, lang: Lang): Runtime["els"] {
 
 /** Resolve guide sections to spans of `.markdown-body` direct children. */
 function resolveDom(sections: Section[]): DomSection[] {
-  const article = document.querySelector<HTMLElement>(".markdown-body");
+  const article = getArticle();
   if (!article) return [];
   const anchors = new Map(sections.map((s) => [s.anchor, s]));
   const out: DomSection[] = [];
@@ -228,7 +230,8 @@ function currentAnchor(): string | null {
   if (!rt || rt.dom.length === 0) return null;
   let anchor = rt.dom[0].section.anchor;
   for (const d of rt.dom) {
-    if (d.heading.getBoundingClientRect().top <= ACTIVE_OFFSET) {
+    const top = getScroller()?.getBoundingClientRect().top ?? 0;
+    if (d.heading.getBoundingClientRect().top - top <= ACTIVE_OFFSET) {
       anchor = d.section.anchor;
     } else {
       break;
@@ -368,7 +371,7 @@ async function loadGuide() {
   const els = rt.els;
 
   // Detach any previous focus/scroll wiring while we regenerate.
-  window.removeEventListener("scroll", rt.onScroll);
+  getScroller()?.removeEventListener("scroll", rt.onScroll);
   for (const d of rt.dom) for (const n of d.els) n.classList.remove(FOCUS_CLASS);
   rt.dom = [];
   rt.activeAnchor = null;
@@ -404,7 +407,7 @@ async function loadGuide() {
     return;
   }
 
-  window.addEventListener("scroll", rt.onScroll, { passive: true });
+  getScroller()?.addEventListener("scroll", rt.onScroll, { passive: true });
   setActive(currentAnchor());
 }
 
@@ -417,17 +420,12 @@ function setLang(lang: Lang) {
 
 // ---- Enter / exit ---------------------------------------------------------
 
-async function enter() {
-  const panel = document.getElementById(PANEL_ID);
-  if (!panel) return;
+let onCloseCb: (() => void) | null = null;
 
-  // Mutually exclusive with the Generated UI pane.
-  document.body.classList.remove(GUI_OPEN_CLASS);
-  document.getElementById("mdpeek-gui-toggle")?.setAttribute("aria-pressed", "false");
-
+/** Start guided reading inside `panel`; `onClose` is called by its Close button. */
+export async function enterScrolly(panel: HTMLElement, onClose: () => void) {
+  onCloseCb = onClose;
   document.body.classList.add(OPEN_CLASS);
-  document.getElementById(TOGGLE_ID)?.setAttribute("aria-pressed", "true");
-
   const lang = readLang();
   const els = buildPanel(panel, lang);
   rt = {
@@ -443,40 +441,14 @@ async function enter() {
   await loadGuide();
 }
 
-function exit() {
+export function exitScrolly() {
   document.body.classList.remove(OPEN_CLASS);
-  document.getElementById(TOGGLE_ID)?.setAttribute("aria-pressed", "false");
+  onCloseCb = null;
   if (!rt) return;
-  window.removeEventListener("scroll", rt.onScroll);
+  getScroller()?.removeEventListener("scroll", rt.onScroll);
   if (rt.typer != null) window.clearInterval(rt.typer);
   for (const d of rt.dom) {
     for (const node of d.els) node.classList.remove(FOCUS_CLASS);
   }
   rt = null;
-}
-
-export function initScrolly() {
-  const toggle = document.getElementById(TOGGLE_ID);
-  const panel = document.getElementById(PANEL_ID);
-  if (!toggle || !panel) return;
-
-  toggle.hidden = false;
-  toggle.addEventListener("click", () => {
-    if (document.body.classList.contains(OPEN_CLASS)) {
-      exit();
-    } else {
-      void enter();
-    }
-  });
-
-  document.addEventListener("keydown", (e) => {
-    // Don't hijack Escape while typing a question.
-    if (
-      e.key === "Escape" &&
-      document.body.classList.contains(OPEN_CLASS) &&
-      document.activeElement !== rt?.els.chatInput
-    ) {
-      exit();
-    }
-  });
 }

@@ -139,19 +139,19 @@ pub fn serve(
     let mut watched: Vec<PathBuf> = Vec::new();
     let mut target = WatchTarget::Single(active);
     watch_target(&mut handle, &mut watched, &target);
-    broadcast_for(&target, &tx);
-    schedule_adaptive(&target, &adaptive, &tx);
+    let rev = schedule_adaptive(&target, &adaptive, &tx);
+    broadcast_for(&target, &tx, rev);
     loop {
         while let Ok(next) = rewatch_rx.try_recv() {
             watch_target(&mut handle, &mut watched, &next);
             target = next;
-            broadcast_for(&target, &tx);
-            schedule_adaptive(&target, &adaptive, &tx);
+            let rev = schedule_adaptive(&target, &adaptive, &tx);
+            broadcast_for(&target, &tx, rev);
         }
         match rx.recv_timeout(Duration::from_millis(300)) {
             Ok(()) => {
-                broadcast_for(&target, &tx);
-                schedule_adaptive(&target, &adaptive, &tx);
+                let rev = schedule_adaptive(&target, &adaptive, &tx);
+                broadcast_for(&target, &tx, rev);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -161,13 +161,16 @@ pub fn serve(
 }
 
 /// Re-select the adaptive layout for a single-file target (not in diff mode).
+/// Returns the revision the pending selection belongs to, so the body update
+/// broadcast right after can tell the client which layout revision to expect.
 fn schedule_adaptive(
     target: &WatchTarget,
     adaptive: &Arc<adaptive::Adaptive>,
     tx: &broadcast::Sender<Message>,
-) {
-    if let WatchTarget::Single(p) = target {
-        adaptive.schedule(p.clone(), tx.clone());
+) -> u64 {
+    match target {
+        WatchTarget::Single(p) => adaptive.schedule(p.clone(), tx.clone()),
+        WatchTarget::Pair(..) => adaptive.current_revision(),
     }
 }
 
@@ -194,9 +197,9 @@ fn watch_target(
 }
 
 /// Broadcast the appropriate update for the current watch target.
-fn broadcast_for(target: &WatchTarget, tx: &broadcast::Sender<Message>) {
+fn broadcast_for(target: &WatchTarget, tx: &broadcast::Sender<Message>, revision: u64) {
     match target {
-        WatchTarget::Single(p) => broadcast_update(p, tx),
+        WatchTarget::Single(p) => broadcast_update(p, tx, revision),
         WatchTarget::Pair(a, b, opts) => {
             let msg =
                 serde_json::json!({ "type": "diff-update", "html": render_diff(a, b, *opts) })
@@ -207,16 +210,15 @@ fn broadcast_for(target: &WatchTarget, tx: &broadcast::Sender<Message>) {
 }
 
 /// Re-render `path` and broadcast an in-place update to connected clients (#16).
-fn broadcast_update(path: &Path, tx: &broadcast::Sender<Message>) {
+/// The message carries the full document payload (see [`doc_payload`]) so the
+/// client can patch only the changed blocks, plus the adaptive revision whose
+/// layout will follow (older layouts are then ignored by the client).
+fn broadcast_update(path: &Path, tx: &broadcast::Sender<Message>, revision: u64) {
     match std::fs::read_to_string(path) {
         Ok(content) => {
-            let (body, frontmatter) = render_markdown(&content);
-            let msg = serde_json::json!({
-                "type": "update",
-                "html": body,
-                "frontmatter": frontmatter.unwrap_or_default(),
-            })
-            .to_string();
+            let mut msg = doc_payload(path, &content, revision);
+            msg["type"] = serde_json::json!("update");
+            let msg = msg.to_string();
             let result = tx.send(Message::text(msg));
             debug!("Pushed live update for {}: {:#?}", path.display(), result);
         }
@@ -230,6 +232,7 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/", get(file_handler))
         .route("/ws", get(websocket_handler))
         .route("/api/tree", get(tree_handler))
+        .route("/api/doc", get(doc_handler))
         .route("/api/select", post(select_handler))
         .route("/api/diff", post(diff_handler))
         .route("/api/gui", get(gui_handler))
@@ -254,59 +257,98 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
 }
 
 async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let file_path = {
-        let file_path_guard = state.file_path.read().unwrap();
-        file_path_guard.to_path_buf()
-    };
-    let markdown_content = match tokio::fs::read_to_string(file_path.clone()).await {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let revision = state.adaptive.current_revision();
+    let boot = match tokio::fs::read_to_string(&file_path).await {
         Ok(content) => {
             info!("Loaded '{}'", file_path.display());
-            content
+            doc_payload(&file_path, &content, revision)
         }
         Err(e) => {
             error!("Failed to read file '{}': {}", file_path.display(), e);
-            // Return early with an HTML error page rather than rendering bad markdown
-            let error_html = include_str!("../../../static/index.html")
-                .replace("{{theme}}", "")
-                .replace("{{ title }}", "Error")
-                .replace(
-                    "{{ content }}",
-                    &format!(
-                        "<h1>Error</h1><p>Failed to read file <code>{}</code>: {}</p>",
-                        file_path.display(),
-                        e
-                    ),
-                )
-                .replace("{{ frontmatter }}", "");
-            return Html(error_html);
+            let mut p = doc_payload(&file_path, "", revision);
+            p["error"] = serde_json::json!(format!(
+                "Failed to read {}: {}",
+                file_path.display(),
+                e.kind()
+            ));
+            p
         }
     };
-    let (html_body, frontmatter) = render_markdown(&markdown_content);
+    let theme = match *state.theme.read().unwrap() {
+        Theme::Light => "light",
+        Theme::Dark => "dark",
+    };
+    let title = boot["title"].as_str().unwrap_or("markdown-peek").to_string();
+    Html(render_shell(&title, theme, &boot))
+}
 
-    // Front matter panel (#19): surface the leading YAML/+++ block, which the
-    // renderer otherwise hides. Escaped and stashed in a hidden element for the
-    // client to display.
-    let frontmatter_html = frontmatter
-        .map(|fm| {
-            format!(
-                "<div id=\"mdpeek-frontmatter\" hidden>{}</div>",
-                escape_html_min(&fm)
-            )
-        })
-        .unwrap_or_default();
+/// Fill the app shell template. The boot payload is embedded as JSON inside a
+/// `<script type="application/json">`, so the body renders on the first frame
+/// (no fetch) and never waits for widget selection. `</` is escaped so document
+/// text cannot close the script element.
+fn render_shell(title: &str, theme: &str, boot: &serde_json::Value) -> String {
+    let json = boot
+        .to_string()
+        .replace("</", "<\\/")
+        .replace("<!--", "<\\u0021--");
+    include_str!("../../../static/index.html")
+        .replace("{{ title }}", &escape_html_min(title).replace('"', "&quot;"))
+        .replace("{{ theme }}", theme)
+        .replace("{{ boot }}", &json)
+}
 
-    let template = include_str!("../../../static/index.html");
-    let theme = state.theme.read().unwrap().to_string();
-    let title = file_path
+/// Everything the web UI needs to show one document: rendered body HTML, raw
+/// front matter, the source line span of each top-level block (in the order the
+/// blocks appear in `html`, used for source jumps / adaptive placement), and the
+/// adaptive revision current when it was rendered.
+fn doc_payload(path: &Path, content: &str, revision: u64) -> serde_json::Value {
+    let (html, frontmatter) = render_markdown(content);
+    let title = path
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or_else(|| file_path.to_str().unwrap_or("markdown-peek"));
-    let page = template
-        .replace("{{theme}}", &theme)
-        .replace("{{ title }}", title)
-        .replace("{{ content }}", &html_body)
-        .replace("{{ frontmatter }}", &frontmatter_html);
-    Html(page)
+        .unwrap_or("markdown-peek");
+    serde_json::json!({
+        "path": path.to_string_lossy(),
+        "title": title,
+        "html": html,
+        "frontmatter": frontmatter.unwrap_or_default(),
+        "blocks": block_lines(content),
+        "revision": revision,
+    })
+}
+
+/// `[start_line, end_line]` (1-based, inclusive) of every top-level block that
+/// produces body HTML (front matter is excluded; it is shown separately).
+fn block_lines(content: &str) -> Vec<[u32; 2]> {
+    mdpeek_parser::BlockTree::parse(content)
+        .blocks
+        .iter()
+        .filter(|b| !matches!(b.kind, mdpeek_parser::BlockKind::MetadataBlock))
+        .map(|b| {
+            let r = b.range;
+            let end = if r.end_column == 1 && r.end_line > r.start_line {
+                r.end_line - 1
+            } else {
+                r.end_line
+            };
+            [r.start_line, end]
+        })
+        .collect()
+}
+
+/// `GET /api/doc` — the active document payload (same shape as the boot JSON).
+async fn doc_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let revision = state.adaptive.current_revision();
+    match tokio::fs::read_to_string(&file_path).await {
+        Ok(content) => Json(doc_payload(&file_path, &content, revision)).into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("cannot read file: {}", e.kind()) })),
+        )
+            .into_response(),
+    }
 }
 
 /// `GET /api/gui` — Layer 3 Generative UI for the currently active file.
@@ -919,41 +961,21 @@ struct StaticAsset {
 
 fn embedded_static_asset(path: &str) -> Option<StaticAsset> {
     match path.trim_start_matches('/') {
-        // Layer 3 Generated-UI island (built from web/, design 論点 C).
-        "gui/mdpeek-gui.js" => Some(StaticAsset {
-            bytes: include_bytes!("../../../web/dist/mdpeek-gui.js"),
+        // The web UI (React + Tailwind, built from web/ by `npm run build`).
+        "app.js" => Some(StaticAsset {
+            bytes: include_bytes!("../../../web/dist/app.js"),
             content_type: "application/javascript; charset=utf-8",
         }),
-        "gui/mdpeek-gui.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../web/dist/mdpeek-gui.css"),
-            content_type: "text/css; charset=utf-8",
-        }),
-        "css/github-dark.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/css/github-dark.css"),
-            content_type: "text/css; charset=utf-8",
-        }),
-        "css/github-light.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/css/github-light.css"),
+        "app.css" => Some(StaticAsset {
+            bytes: include_bytes!("../../../web/dist/app.css"),
             content_type: "text/css; charset=utf-8",
         }),
         "icons/github-mark.svg" => Some(StaticAsset {
             bytes: include_bytes!("../../../static/icons/github-mark.svg"),
             content_type: "image/svg+xml",
         }),
-        "js/highlight/github-dark.min.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/js/highlight/github-dark.min.css"),
-            content_type: "text/css; charset=utf-8",
-        }),
-        "js/highlight/github.min.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/js/highlight/github.min.css"),
-            content_type: "text/css; charset=utf-8",
-        }),
         "js/highlight/highlight.min.js" => Some(StaticAsset {
             bytes: include_bytes!("../../../static/js/highlight/highlight.min.js"),
-            content_type: "application/javascript; charset=utf-8",
-        }),
-        "js/main.js" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/js/main.js"),
             content_type: "application/javascript; charset=utf-8",
         }),
         "js/mermaid/mermaid.min.js" => Some(StaticAsset {
@@ -1039,13 +1061,10 @@ mod tests {
     #[test]
     fn static_assets_are_embedded() {
         for path in [
-            "css/github-light.css",
-            "css/github-dark.css",
+            "app.js",
+            "app.css",
             "icons/github-mark.svg",
-            "js/highlight/github.min.css",
-            "js/highlight/github-dark.min.css",
             "js/highlight/highlight.min.js",
-            "js/main.js",
             "js/mermaid/mermaid.min.js",
         ] {
             let asset = embedded_static_asset(path).expect(path);
@@ -1056,6 +1075,35 @@ mod tests {
     #[test]
     fn unknown_static_asset_is_not_found() {
         assert!(embedded_static_asset("missing.css").is_none());
+        // The old vanilla-JS viewer and its stylesheets are gone (R11).
+        for old in ["js/main.js", "css/github-light.css", "gui/mdpeek-gui.js"] {
+            assert!(embedded_static_asset(old).is_none(), "{old}");
+        }
+    }
+
+    #[test]
+    fn shell_embeds_boot_json_safely() {
+        let boot = super::doc_payload(
+            std::path::Path::new("/x/a.md"),
+            "# T\n\n</script><script>alert(1)</script>\n",
+            3,
+        );
+        let page = super::render_shell("a.md", "light", &boot);
+        // The boot element ends at the first `</script>`; everything before it
+        // must be the complete JSON payload (document text cannot close it).
+        let start = page.find("id=\"mdpeek-boot\"").expect("boot script");
+        let rest = &page[start..];
+        let body_start = rest.find('>').unwrap() + 1;
+        let close = rest.find("</script>").unwrap();
+        let json: serde_json::Value = serde_json::from_str(&rest[body_start..close]).expect("intact JSON");
+        assert!(json["html"].as_str().unwrap().contains("</script><script>alert(1)"));
+        assert_eq!(json["revision"], 3);
+    }
+
+    #[test]
+    fn block_lines_cover_top_level_blocks() {
+        let lines = super::block_lines("---\na: 1\n---\n# H\n\npara\nmore\n\n- a\n- b\n");
+        assert_eq!(lines, vec![[4, 4], [6, 7], [9, 10]]);
     }
 
     #[test]

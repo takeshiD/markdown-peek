@@ -1,35 +1,37 @@
 import { defineConfig } from "vite";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 
-// Preact via aliasing react/jsx-runtime to preact (no @preact/preset-vite dep
-// needed; keeps the toolchain minimal). Build emits to `dist/`, which the
-// server embeds with `include_bytes!` (design 論点 C: commit dist in-tree).
+// The web UI is built to two stable files, dist/app.js + dist/app.css, which
+// mdpeek-server embeds with include_bytes! (design 論点 C: dist is committed
+// and must be reproducible with `npm ci && npm run build`). No code splitting,
+// no hashed names, no external URLs.
 export default defineConfig({
-  esbuild: {
-    jsx: "automatic",
-    jsxImportSource: "preact",
-  },
+  plugins: [tailwindcss()],
+  esbuild: { jsx: "automatic" },
   resolve: {
-    alias: {
-      "react/jsx-runtime": "preact/jsx-runtime",
-    },
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
   build: {
-    // Build the Generated-UI island as a self-contained IIFE with stable file
-    // names, so mdpeek-server can embed it via include_bytes! (論点 C). The
-    // standalone dev harness (index.html → main.tsx) still runs via `vite dev`.
-    lib: {
-      entry: "src/panel.tsx",
-      formats: ["iife"],
-      name: "MdpeekGui",
-      fileName: () => "mdpeek-gui.js",
-    },
     outDir: "dist",
     emptyOutDir: true,
-    target: "es2020",
+    target: "es2022",
+    cssCodeSplit: false,
+    modulePreload: false,
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
+      // "use client" directives (radix, cmdk, lucide) are meaningless in a
+      // client-only bundle; keep the build log readable.
+      onwarn(w, warn) {
+        if (w.code === "MODULE_LEVEL_DIRECTIVE" || w.code === "SOURCEMAP_ERROR") return;
+        warn(w);
+      },
+      input: "src/main.tsx",
       output: {
-        // Stable CSS name for include_bytes! (default lib output is style.css).
-        assetFileNames: "mdpeek-gui.[ext]",
+        format: "es",
+        entryFileNames: "app.js",
+        assetFileNames: "app.[ext]",
+        inlineDynamicImports: true,
       },
     },
   },

@@ -351,3 +351,21 @@ rules = 一致率 1.000、none 適切率 1.000、widget recall 1.000、p50 0.73m
 | 14 | 空の `> [!WARNING]` が空本文の Callout になる | 本文が空なら候補にしない |
 
 未対応(既知の制約として記録): #7 親節の Timeline 特徴が入れ子見出しの変更でキャッシュキーに反映されない(影響は helps の小さな変化)、#12 Jev クライアントは独自 runtime を作るため tokio コンテキスト内から直接呼ぶと panic する(現行の呼び出し元はすべて OS スレッドで安全)。
+||||||| parent of b5d30c4 (feat(web): Tailwind v4 + shadcn/ui (React 19) adaptive viewer UI)
+
+### 11.5 発注 2(Web UI)— 納品 (2026-11-27)
+
+実装: `web/`(React 19 + Tailwind v4 + shadcn/ui ソース取り込み + lucide-react、単一 bundle `web/dist/app.{js,css}`)、`static/index.html`(app shell。初回文書を `#mdpeek-boot` に JSON で埋め込み、本文は widget 選択を待たず初回フレームで描画)、`mdpeek-server` に `GET /api/doc` と WS `update` の拡張(`path` / `blocks` / `revision`)。旧 `static/js/main.js`・`github-{light,dark}.css`・hljs テーマ CSS・`web/src/{styles,panel,scrolly}.css`・Preact island は削除。
+
+設計からの変更点と理由:
+- **本文ブロック ↔ ソース行**: server が top-level block の行範囲 `blocks: [[start,end],…]` を HTML と同じ順で返し、client が `data-line-start/-end` を付ける(GFM 変換を二重実装しない論点 G を維持)。widget の出典チップ・scrollspy・Adaptive 配置はこの属性で解決する。
+- **Adaptive の欄外注**: widget は記事内の slot に React portal で描画し、列幅 ≥ 980px では float で右余白へ(見出しと同じ高さ)、狭い列ではセクション直後に表示(CSS container query)。文書レベルの widget は欄外では折り畳み表示にし、セクションの注が自分の見出しからずれないようにした。GFM 本文のスタイルは `:not(.mp-note-slot *)` で注に及ばない。
+- **ライブ更新**: front/back trim + LCS で変更ブロックだけ差し替える(旧実装は 2 か所の編集の間を全部差し替えていた)。画面上の未変更ブロックの位置を基準に読書位置を保つ。WS `update` は次に来る layout の `revision` を持ち、client はそれより古い layout を捨てる(選択中は前回の widget を表示し続ける)。
+- **トークン**: 色・余白・タイポは `web/src/app.css` の `:root` / `.dark` だけで定義し、shadcn の semantic 名(`--primary` = cobalt accent、`--accent` = hover 面)へ写像。Tailwind のクラス走査は `source(none)` + `@source "./"` で `web/src` に限定(チェックアウト位置に依存せず `npm ci && npm run build` が同一出力になる。`scripts/check-web-dist.sh`)。
+- **テーマ既定**: 保存値が無ければ `system`。ただし mdpeek 設定の `theme = "dark"` なら dark を既定にする(従来の設定を尊重)。
+- **pane の永続化**: react-resizable-panels v4 の `onLayoutChanged` のうち `isUserInteraction` のものだけ保存(mount 時や制約再計算で保存値を潰さない)。折り畳みは `[` / `]` / ボタンで prefs に直接書く。キーボードで最小幅より縮めると折り畳まれる(ライブラリ既定)。
+- UI の文言は英語(既存 UI と README に合わせた)。文書は日本語を含めて検証している。
+
+検証: `cd web && npm run test:e2e`(Playwright 40 本、fake provider・キー無し・ネットワーク無し、システム Chrome)。axe-core(wcag2a/aa + best-practice)で serious/critical 0(light/dark × split/adaptive/popover/palette/mobile)。スクリーンショットは `docs/design/screenshots/`(light/dark × desktop(read/split/adaptive)/mobile(read/adaptive/widgets sheet)、状態: widget なし・選択中(ライブ更新直後)・更新完了・エラー・fallback)。静的検査は `scripts/check-web-assets.sh`。
+
+既知の制約: MathJax は従来どおり CDN(発注範囲外)。Guided reading は LLM 専用のため、LLM 未設定では panel に失敗理由が出る(既存挙動)。

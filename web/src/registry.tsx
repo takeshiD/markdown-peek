@@ -10,7 +10,7 @@ import type { OnJump } from "./components";
 import * as C from "./components";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type NodeComponent = (props: { node: any; onJump?: OnJump }) => preact.ComponentChild;
+type NodeComponent = (props: { node: any; onJump?: OnJump }) => React.ReactNode;
 
 const coreRegistry: Partial<Record<UiNodeKind, NodeComponent>> = {
   Tabs: C.Tabs,

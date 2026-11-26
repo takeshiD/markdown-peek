@@ -156,7 +156,7 @@ impl Adaptive {
 
     /// A file changed (or a new file was selected): bump the revision and, after
     /// the debounce, select and push — unless a newer revision arrived.
-    pub fn schedule(self: &Arc<Self>, path: PathBuf, tx: broadcast::Sender<Message>) {
+    pub fn schedule(self: &Arc<Self>, path: PathBuf, tx: broadcast::Sender<Message>) -> u64 {
         let rev = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
         let me = Arc::clone(self);
         std::thread::spawn(move || {
@@ -173,6 +173,7 @@ impl Adaptive {
             }
             me.run(&path, rev, &tx, "watch");
         });
+        rev
     }
 }
 

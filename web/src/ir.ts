@@ -201,7 +201,7 @@ export type UiNode = NodeMeta &
     | { kind: "ActionItems"; items: ActionItemT[] }
     | { kind: "OpenQuestions"; questions: OpenQuestionT[] }
     | { kind: "ApiExplorer"; endpoints: ApiEndpoint[] }
-    | { kind: "ConfigViewer"; format: "json" | "yaml" | "toml" | "env"; content: string; title?: string }
+    | { kind: "ConfigViewer"; format: "json" | "yaml" | "toml" | "env" | "shell"; content: string; title?: string }
     | { kind: "DependencyGraph"; nodes: GraphNode[]; edges: GraphEdge[] }
     | { kind: "LogTimeline"; entries: LogEntryT[] }
     | { kind: "CommitGraph"; commits: Commit[] }
