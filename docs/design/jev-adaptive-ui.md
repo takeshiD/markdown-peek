@@ -103,9 +103,10 @@ markdown ──▶ mdpeek-parser BlockTree (stable BlockId, SourceRange)
     "document": { "filename_hint": "README.md", "headings": ["Install", "Usage", "Config"], "rules_doc_type": "readme" },
     "sections": [
       { "id": "s3", "heading": "Install", "excerpt": "Run `cargo install …`", "features": { "shell_blocks": 2, "ordered_items": 0 } }
-    ]
+    ],
+    "guidance": "You choose reading aids for a Markdown viewer. Never assume facts beyond the given excerpts."
   },
-  "instructions": "You choose reading aids for a Markdown viewer. Never assume facts beyond the given excerpts.",
+  // 注: リクエスト直下に instructions は置けない(OpenAPI 0.2.0 = model/state/questions/assets。実 API は 400)。全体方針は state.guidance に入れる(§11.3)
   "questions": {
     "doc_type":  { "type": "choice", "criteria": { "readme": "Project README …", "design_doc": "…", "adr": "…", "runbook": "…", "minutes": "…", "changelog": "…", "generic": "…" } },
     "s3_helps":  { "type": "noul",   "instructions": "Section s3: would one of its candidate widgets help a reader more than the plain text?" },
@@ -311,3 +312,21 @@ rules = 一致率 1.000、none 適切率 1.000、widget recall 1.000、p50 0.73m
 - `selector.requests` は失敗時も実際の送信回数(429 再試行を含む)を表示する(`Selector::last_requests`)。
 - fake 台本の書式を README に記載し、例 `tests/fake-select.json` を追加。台本の読込/パース失敗時は理由(I/O 種別・JSON の位置)を stderr に出す。
 - 未使用依存 `tokio-stream`(mdpeek-server)を削除。
+
+### 11.3 実 Jev サービスでの検証(発注者, 2026-11-27)
+
+キーはシークレット入力カード経由のファイルからテスト時だけ `TYPESAFE_API_KEY` に渡し、出力・ログ・引数・Git には残していない(標準出力/標準エラーをキー文字列で走査して非検出を確認)。対象は無害な fixture(`tests/fixtures/select/*` と合成 runbook)。
+
+- **発見した不具合**: 受入済みの実装(と本メモ §3.3 の当初の例)はリクエスト直下に `instructions` を置いており、実 API は `400 {"detail":{"error_type":"api_usage_error","message":"Invalid request."}}` を返した(模擬サーバはスキーマを検証しないため検収で見逃された)。要素を 1 つずつ外して切り分け、OpenAPI 0.2.0 の `SystemOneRequest` が `model/state/questions/assets` だけを持つことを確認。→ 全体方針を `state.guidance` へ移し、リクエスト形を OpenAPI の形に限定する単体テスト `request_matches_system_one_schema_shape` を追加。失敗ログに HTTP ステータスを出すようにした(秘密ではない)。fallback は設計どおり働き、修正前も UI/CLI は rules で正常応答していた。
+- **疎通**: `mdpeek select <runbook> --provider jev --allow-network` → `status 200 in 145ms, attempts 1, sections 3, questions 6`、`model: jev-1.14.0`、`doc_type: runbook (0.98, by jev)`。Prerequisites → `Checklist`(helps 0.74)、Steps → `StepNavigator`(helps 0.72)、Commands / 文書レベル overview は `low_helps` で出さない。
+- **noul の応答形**: 実 API は `{"type":"noul","noul":0.57}`(確率を `noul` キーで返す)で、§11.1 の受理形に含まれる。
+- **評価**(`mdpeek select-eval tests/fixtures/select --runs 3`, 実 API, 2026-11-27):
+
+  | provider | accuracy | none_ok | widget_recall | p50 | p95 |
+  |---|---|---|---|---|---|
+  | rules | 1.000(楽観値: ラベルと rules が同一作業者) | 1.000 | 1.000 | 0.34 ms | 1.82 ms |
+  | jev (jev-1.14.0) | 0.943 | 1.000 | 0.833 | 139.7 ms | 152.3 ms |
+
+  Jev の不一致: CHANGELOG「Changelog」節(期待 Timeline → none)、README「Installation」節(期待 ConfigViewer:commands → none)。いずれも「出さない」側に倒れている(過剰表示は 0)。
+- **トークン/費用**(実 API の `usage`, 1 文書 1 リクエスト): input 588–1,606 tokens(質問 1–7 問)、output 88–238。単価 $0.042 / 1M input(output 無料, models.md)から **1 文書あたり約 $0.00002–0.00007**(計算値。請求額は未確認)。
+- 未確認: 組織別 rate limit の数値、429/529 の実挙動(模擬サーバでのみ検証)、大きな文書(64k tok 近傍)での挙動。

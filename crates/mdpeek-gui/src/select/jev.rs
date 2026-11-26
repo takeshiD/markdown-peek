@@ -25,10 +25,19 @@ use super::{
 
 pub const DOC_TYPES: &[(&str, &str)] = &[
     ("readme", "Project README: what it is, install, usage"),
-    ("design_doc", "Design document: architecture, trade-offs, risks"),
-    ("adr", "Architecture decision record: context, decision, consequences"),
+    (
+        "design_doc",
+        "Design document: architecture, trade-offs, risks",
+    ),
+    (
+        "adr",
+        "Architecture decision record: context, decision, consequences",
+    ),
     ("runbook", "Operational runbook / procedure for operators"),
-    ("minutes", "Meeting minutes: attendees, discussion, decisions, action items"),
+    (
+        "minutes",
+        "Meeting minutes: attendees, discussion, decisions, action items",
+    ),
     ("changelog", "Changelog / release notes ordered by version"),
     ("procedure", "Step-by-step work instructions / manual"),
     ("novel", "Narrative fiction"),
@@ -137,8 +146,11 @@ pub fn build_request(req: &SelectionRequest<'_>, model: &str) -> Value {
                 "rules_doc_type": req.plan.rules_doc_type,
             },
             "sections": sections,
+            // The System One request has no top-level `instructions` (OpenAPI
+            // 0.2.0: model/state/questions/assets only — the live API answers
+            // 400 otherwise), so the viewer-wide guidance travels in the state.
+            "guidance": INSTRUCTIONS,
         },
-        "instructions": INSTRUCTIONS,
         "questions": questions,
     })
 }
@@ -290,8 +302,12 @@ impl Selector for JevSelector {
             Err(e) => {
                 tracing::warn!(
                     target: "mdpeek::select",
-                    "jev: failed after {ms}ms ({}); falling back to rules",
-                    e.code()
+                    "jev: failed after {ms}ms ({}{}); falling back to rules",
+                    e.code(),
+                    match e {
+                        SelectError::Http(s) | SelectError::Server(s) => format!(", HTTP {s}"),
+                        _ => String::new(),
+                    }
                 );
                 Err(e)
             }
@@ -322,7 +338,8 @@ mod http {
             .map_err(|_| SelectError::Network)?;
         rt.block_on(async {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            match tokio::time::timeout(remaining, post_async(url, key, body, deadline, sent)).await {
+            match tokio::time::timeout(remaining, post_async(url, key, body, deadline, sent)).await
+            {
                 Ok(r) => r,
                 Err(_) => Err(SelectError::Timeout),
             }
@@ -432,7 +449,11 @@ mod tests {
         let a = mdpeek_analyzer::analyze(MD, Some("README.md"));
         let plan = sections::plan_document(MD, Some("README.md"), &a, 600);
         let cfg = SelectConfig::default();
-        let secs = plan.sections.iter().filter(|s| !s.candidates.is_empty()).collect();
+        let secs = plan
+            .sections
+            .iter()
+            .filter(|s| !s.candidates.is_empty())
+            .collect();
         let req = SelectionRequest {
             plan: &plan,
             filename: Some("README.md"),
@@ -463,6 +484,37 @@ mod tests {
     }
 
     #[test]
+    fn request_matches_system_one_schema_shape() {
+        // OpenAPI 0.2.0 SystemOneRequest = {model, state, questions, assets?};
+        // questions are {type, instructions?, criteria?}. Anything else is a
+        // live-API 400 that a lenient mock would not catch.
+        with_req(|req| {
+            let body = build_request(req, "jev-1.14.0");
+            let top: Vec<&str> = body
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            for k in &top {
+                assert!(
+                    ["model", "state", "questions", "assets"].contains(k),
+                    "unexpected top-level key {k}"
+                );
+            }
+            for (name, q) in body["questions"].as_object().unwrap() {
+                for k in q.as_object().unwrap().keys() {
+                    assert!(
+                        ["type", "instructions", "criteria"].contains(&k.as_str()),
+                        "{name}: unexpected key {k}"
+                    );
+                }
+                assert!(["choice", "noul", "score"].contains(&q["type"].as_str().unwrap()));
+            }
+        });
+    }
+
+    #[test]
     fn parses_thresholdable_answers_and_flags_invalid() {
         with_req(|req| {
             let resp = json!({ "answers": {
@@ -472,7 +524,9 @@ mod tests {
                 "s2_widget": { "choice": "EvilWidget", "confidence": 0.99 },
             }});
             let d = parse_response(&resp, req).unwrap();
-            assert!(matches!(d.sections["s1"], Answer::Raw { helps, .. } if (helps - 0.8).abs() < 1e-6));
+            assert!(
+                matches!(d.sections["s1"], Answer::Raw { helps, .. } if (helps - 0.8).abs() < 1e-6)
+            );
             assert_eq!(d.sections["s2"], Answer::Invalid("unknown_option".into()));
             assert_eq!(d.doc_type.as_ref().unwrap().0, "readme");
         });
