@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getState, setPrefs, setState, useStore } from "../lib/store";
+import { keepReadingPosition } from "../lib/nav";
 import { selectFile, setMode, setTheme } from "../lib/actions";
 import type { Group, Mode, ThemePref } from "../lib/types";
 import { SelectorStatus } from "./SelectorStatus";
@@ -298,7 +299,7 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         <IconToggle
           label={railCollapsed ? "Show files and outline" : "Hide files and outline"}
           pressed={!railCollapsed}
-          onClick={() => setPrefs({ railCollapsed: !railCollapsed })}
+          onClick={() => keepReadingPosition(() => setPrefs({ railCollapsed: !railCollapsed }))}
           icon={PanelLeft}
           shortcut="["
         />
@@ -311,7 +312,7 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         <IconToggle
           label={widgetsCollapsed ? "Show reading aids" : "Hide reading aids"}
           pressed={!widgetsCollapsed}
-          onClick={() => setPrefs({ widgetsCollapsed: !widgetsCollapsed })}
+          onClick={() => keepReadingPosition(() => setPrefs({ widgetsCollapsed: !widgetsCollapsed }))}
           icon={PanelRight}
           shortcut="]"
         />

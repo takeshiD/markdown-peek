@@ -53,3 +53,37 @@ export function jumpToHeading(id: string) {
   el.focus({ preventScroll: true });
   flash([el], "mp-source-hit", 1600);
 }
+
+/**
+ * Run `change` (a mode switch, a pane collapse) without losing the reader's
+ * place: remember the first source block at the top of the document column
+ * and its offset, then put it back once the layout has settled. The document
+ * column may be re-mounted by the change, so blocks are found again by their
+ * source line.
+ */
+export function keepReadingPosition(change: () => void) {
+  const a = article;
+  const s = scroller;
+  let restore = () => {};
+  if (a && s) {
+    const top = s.getBoundingClientRect().top;
+    const blocks = Array.from(a.querySelectorAll<HTMLElement>("[data-line-start]"));
+    const el = blocks.find((b) => b.getBoundingClientRect().bottom > top + 1);
+    if (el && s.scrollTop > 0) {
+      const line = el.dataset.lineStart;
+      const offset = el.getBoundingClientRect().top - top;
+      restore = () => {
+        const a2 = article;
+        const s2 = scroller;
+        const t = a2?.querySelector<HTMLElement>(`[data-line-start="${line}"]`);
+        if (!a2 || !s2 || !t) return;
+        s2.scrollTop += t.getBoundingClientRect().top - s2.getBoundingClientRect().top - offset;
+      };
+    }
+  }
+  change();
+  // Two frames for React to commit and layout; once more after pane
+  // animations / container queries have settled.
+  requestAnimationFrame(() => requestAnimationFrame(restore));
+  setTimeout(restore, 260);
+}

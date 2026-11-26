@@ -5,6 +5,7 @@ import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getState, setPrefs, setState, useStore, type Prefs } from "../lib/store";
+import { keepReadingPosition } from "../lib/nav";
 import { applyTheme, setMode, setTheme } from "../lib/actions";
 import { Topbar } from "./Topbar";
 import { Rail } from "./Rail";
@@ -54,10 +55,10 @@ function useShortcuts(mobile: boolean) {
           setMode("adaptive");
           break;
         case "[":
-          setPrefs({ railCollapsed: !s.prefs.railCollapsed });
+          keepReadingPosition(() => setPrefs({ railCollapsed: !s.prefs.railCollapsed }));
           break;
         case "]":
-          setPrefs({ widgetsCollapsed: !s.prefs.widgetsCollapsed });
+          keepReadingPosition(() => setPrefs({ widgetsCollapsed: !s.prefs.widgetsCollapsed }));
           break;
         case "g":
           setState({ guidedOpen: !s.guidedOpen });

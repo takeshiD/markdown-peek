@@ -1,5 +1,6 @@
 // Server I/O and user actions. Components call these; they update the store.
 import { announce, getState, setPrefs, setState, updateDocPrefs } from "./store";
+import { keepReadingPosition } from "./nav";
 import type { AdaptiveLayout, DiffState, DocPayload, Mode, Placement, ThemePref, TreeResponse } from "./types";
 import { fallbackText, kindLabel, widgetKey } from "./types";
 
@@ -7,7 +8,7 @@ const MODE_LABEL: Record<Mode, string> = { read: "Read", split: "Split", adaptiv
 
 export function setMode(mode: Mode) {
   if (getState().prefs.mode === mode) return;
-  setPrefs({ mode });
+  keepReadingPosition(() => setPrefs({ mode }));
   announce(`${MODE_LABEL[mode]} mode`);
 }
 

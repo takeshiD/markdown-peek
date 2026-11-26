@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Kbd } from "@/components/ui/kbd";
 import { getState, setPrefs, setState, useStore } from "../lib/store";
+import { keepReadingPosition } from "../lib/nav";
 import { fetchAdaptive, hideWidget, selectFile, setMode, setTheme, showWidget, togglePin } from "../lib/actions";
 import { jumpToHeading } from "../lib/nav";
 import { kindLabel, widgetKey } from "../lib/types";
@@ -80,8 +81,8 @@ export function CommandPalette() {
     { id: "t:light", group: "View", label: "Light theme", icon: <Sun />, action: () => setTheme("light") },
     { id: "t:dark", group: "View", label: "Dark theme", icon: <Moon />, action: () => setTheme("dark") },
     { id: "t:system", group: "View", label: "System theme", icon: <Monitor />, action: () => setTheme("system") },
-    { id: "v:rail", group: "View", label: "Show or hide files and outline", shortcut: "[", action: () => setPrefs({ railCollapsed: !getState().prefs.railCollapsed }) },
-    { id: "v:widgets", group: "View", label: "Show or hide the reading-aid pane", shortcut: "]", action: () => setPrefs({ widgetsCollapsed: !getState().prefs.widgetsCollapsed }) },
+    { id: "v:rail", group: "View", label: "Show or hide files and outline", shortcut: "[", action: () => keepReadingPosition(() => setPrefs({ railCollapsed: !getState().prefs.railCollapsed })) },
+    { id: "v:widgets", group: "View", label: "Show or hide the reading-aid pane", shortcut: "]", action: () => keepReadingPosition(() => setPrefs({ widgetsCollapsed: !getState().prefs.widgetsCollapsed })) },
     { id: "v:guided", group: "View", label: "Guided reading", shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
     { id: "v:lens", group: "View", label: "Generated UI", action: () => setState({ lensOpen: true }) },
     { id: "v:follow", group: "View", label: "Follow live changes on or off", extras: ["autoscroll"], action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },

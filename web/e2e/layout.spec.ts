@@ -175,3 +175,16 @@ test.describe("R3 panes", () => {
     await expect.poll(async () => (await page.getByTestId("widgets-pane").boundingBox())!.width).toBeGreaterThan(200);
   });
 });
+
+test("switching modes and panes keeps the reading position", async ({ page, server }) => {
+  await openApp(page, server);
+  const heading = page.locator("article h2", { hasText: "ロールバック" });
+  await heading.evaluate((h) => h.scrollIntoView({ block: "start" }));
+  const topOf = () => heading.evaluate((h) => Math.round(h.getBoundingClientRect().top));
+  const start = await topOf();
+  for (const key of ["3", "1", "2", "[", "]"]) {
+    await page.keyboard.press(key);
+    await expect.poll(topOf, { timeout: 2000 }).toBeGreaterThan(start - 12);
+    await expect.poll(topOf, { timeout: 2000 }).toBeLessThan(start + 12);
+  }
+});
