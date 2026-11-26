@@ -369,3 +369,54 @@ rules = 一致率 1.000、none 適切率 1.000、widget recall 1.000、p50 0.73m
 検証: `cd web && npm run test:e2e`(Playwright 40 本、fake provider・キー無し・ネットワーク無し、システム Chrome)。axe-core(wcag2a/aa + best-practice)で serious/critical 0(light/dark × split/adaptive/popover/palette/mobile)。スクリーンショットは `docs/design/screenshots/`(light/dark × desktop(read/split/adaptive)/mobile(read/adaptive/widgets sheet)、状態: widget なし・選択中(ライブ更新直後)・更新完了・エラー・fallback)。静的検査は `scripts/check-web-assets.sh`。
 
 既知の制約: MathJax は従来どおり CDN(発注範囲外)。Guided reading は LLM 専用のため、LLM 未設定では panel に失敗理由が出る(既存挙動)。
+
+### 11.6 受入後の自己批評と独立 UX レビュー(発注者, 2026-11-27)
+
+kenshu-loop で受入済みの UI を、frontend-design の「批評」手順と ui-ux-pro-max のチェックリストでスクリーンショットから批評し、さらに私の結論を渡さない独立レビュー(実ブラウザで 1440/1280/900/390px、light/dark、キーボード、ライブ編集を試行)を 1 回入れた。
+
+自己批評で直した点(`83ede85`, `1ecd13c`):
+- 読書補助が本文の写しになっていた → **操作できる補助**に: Checklist / Action items はチェックと進捗(ブラウザ内のみ保存。ファイルは変更しない。「Reset to file」)、Steps は Step n of N のステッパー、Commands は行ごと / 全部コピー(実行はしない)、表はソートと絞り込み。
+- 行番号チップを graphite にし、項目単位のチップは行 hover / focus 時のみ。上部バーの補助トグル 4 つを「View」メニューに集約。選択器状態に短い理由と `pending` を表示。document.title をファイル切替に追従。
+- 文書レベルの補助が節の補助と同じ行を指すときは出さない(`covered_by_section`)。
+- モード / ペイン切替で読書位置が先頭に戻るバグ → 先頭に見えているブロックを source 行で覚えて復元。
+
+独立レビュー(初回 6.5/10)の指摘と対応(`dbd9de4`):
+
+| 重要度 | 指摘 | 対応 |
+|---|---|---|
+| High | 補助を非表示にすると文書内の全チェック・ステップ位置が消える | `hideWidget` が他の per-document 設定を落としていた。修正 + E2E |
+| High | 900px / スマホで上部バーが重なる | shadcn Button の `shrink-0` を解除、<1024px でリポジトリ区画を隠しモード / View をアイコン化、<1280px で状態はドットのみ |
+| High | 1280px + レールで Adaptive が本文直下の重複表示になる | 820px 以上の文書列で 232px の欄外注を使う中間段、インライン fallback は折り畳み開始 |
+| High | 本文を言い換えるだけの補助(README の Outline by role、alert の重複 Callout、定義のない Glossary、17 個の補助) | 本文で強調済みの alert には Callout を出さない / 意味のある outline のみ / 定義のある用語のみ / ほぼ完了済みの一覧は Action items にしない / 文書レベル 2・合計 8 個まで(`over_limit`) |
+| Medium | ライブ更新の強調が強すぎる | 左の細いバー + 薄い背景のフェード |
+| Medium | リスク・問いが赤太字 | 本文色・通常の太さ、error のみ細い danger 罫線 |
+| Medium | ボタンのフォーカスリングが薄い(約 2.2:1) | 2px の solid outline(Tailwind v4 の `outline-none` 対策で `outline-solid` を併記) |
+| Medium | 日本語の組版(lang=en、見出しの分割) | かなを含む文書は `lang="ja"`、見出しは `word-break: auto-phrase`、`line-break: strict`、CJK フォント優先 |
+| Medium | Files / パレットが `.gitignore` を無視(node_modules の README が混入) | `ignore` crate で gitignore を尊重。本リポジトリで 190 件 → 23 件(うち 167 件が node_modules) |
+| Low | 注記ごとの操作アイコンが多い / 用語の不統一 / 表のバッククォート / エラー時に古い補助が最新に見える | hover・focus 時のみ表示、隣接時は節名を省略、「reading aid」に統一、表セルのインラインコード、エラー時は薄く表示し「前回の補助を表示中」 |
+
+未対応(後続): 補助と本文の状態の同期(チェックを本文側にも反映するか)、パレットでのファイル切替がサーバ全体(全タブ)に効く既存仕様、MathJax の CDN 依存(KaTeX 置換は論点 H の後続)、§11.4 の #7 / #12。
+
+## 12. ベンチマーク(実測, 2026-11-27)
+
+環境: NixOS / Chrome 158(Playwright, headless)/ release ビルド。ベースライン = `308e537`(起点ブランチ)。数値は 7 回の中央値。`docs/sample-design-doc.md`、rules。
+
+| 指標 | ベースライン | 本ブランチ |
+|---|---|---|
+| release バイナリ | 20.59 MB | 21.94 MB(+1.35 MB: React + Tailwind + shadcn の埋め込み) |
+| ページ転送量(初回表示, MathJax CDN 含む) | 4,891 KB | 4,406 KB |
+| 外部リクエスト数 | 5(MathJax 一式) | 1(MathJax 本体のみ) |
+| 本文が見えるまで | 25 ms(SSR) | 78 ms(hljs / mermaid のオンデマンド読込後。読込前は 284 ms) |
+| First Contentful Paint | 28 ms | 84 ms |
+| DOMContentLoaded | 289 ms | 36 ms |
+| Web バンドル | 30.5 kB JS + 10.2 kB CSS(island のみ) + main.js 44.7 kB | 539 kB JS(gzip 171 kB) + 76 kB CSS(gzip 14 kB) |
+
+選択の遅延(`mdpeek select-eval`、§11.3): rules p50 0.34 ms / p95 1.82 ms、Jev(実 API)p50 139.7 ms / p95 152.3 ms。UI では GET はネットワークを待たず(rules を `pending` で即時表示)、Jev の結果は WebSocket で後から差し替わる(実測: 選択 149–153 ms)。
+
+注: 本文表示はベースラインの SSR より約 50 ms 遅い(React バンドルの解析)。100 ms 未満で体感上は即時だが、SSR 相当に戻すにはサーバ側の初回本文プリレンダが必要(後続)。
+
+## 13. 使用したスキルと手順の記録
+
+- **kenshu-loop**(`~/.claude/skills/kenshu-loop`, home-manager 管理): 発注 1(選択バックエンド)は 2 ラウンドで受入($35.67 / 47 分)、発注 2(Web UI)は 4 ラウンドで反復上限 → 1 ラウンド追加して 5 ラウンド目で受入($138.67 / 132 分)。受注 AI と別セッションの検収 AI が利用者試行と技術審査を行い、各ラウンドで実在の不具合(Callout 本文空、パレットの誤実行、シートの重なり、フォーカス不可視)を差し戻した。納品・受入記録は `docs/design/kenshu/`。git worktree では `.git` がファイルのため `init` が失敗する不具合があり、専用 clone で回避した(スキル側の修正候補)。
+- **frontend-design**(公式 marketplace の plugin。未導入だったため `claude plugin install frontend-design@claude-plugins-official` で導入, v1.1.1): §6.2 の計画 → ブリーフ照合(カード積みや ALL CAPS ラベル等の既定を排除)→ 実装 → スクリーンショットでの批評(§11.6)の手順で使用。受注 AI のセッションでも利用可能だった。
+- **ui-ux-pro-max**(`~/.claude/skills/ui-ux-pro-max`): `--design-system`(Minimalism & Swiss を採用、配色と Google Fonts は不採用、§6.2)と、keyboard / focus / line length / reduced motion / tap target の各ルール検索を設計と検収の基準に使用。

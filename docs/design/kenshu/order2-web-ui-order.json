@@ -1,0 +1,105 @@
+{
+  "schema": "kenshu-loop/order@1",
+  "title": "markdown-peek: Tailwind + shadcn/ui による Adaptive Markdown viewer UI",
+  "summary": "mdpeek serve のブラウザ UI を、落ち着いた高密度で読みやすい独自デザインの Web アプリに作り直したい。Read / Split / Adaptive の 3 モードで、Jev(または rules/fake)が選んだ読書補助 widget を出典つきで本文の横に出し、既存のファイル explorer・diff・ライブ更新・GFM 表示を失わずに、キーボードだけでも快適に使えるようにする。",
+  "deliverable_type": "other",
+  "context": "既存 Rust workspace(markdown-peek, バイナリ mdpeek)の web/ と mdpeek-server の配信部分。設計は docs/design/jev-adaptive-ui.md §6(UI 方式決定 §6.1: Tailwind CSS v4 + shadcn/ui のソース取り込み + React 19 + lucide-react。Preact/compat では shadcn のキーボード操作が壊れることを実測済み)と §6.2(色・タイポ・レイアウト・原則)、§6.3(UX 要件)、選択結果の API は §3.6 の AdaptiveLayout(GET /api/adaptive と WebSocket {type:\"adaptive\"})。バックエンド(/api/adaptive, [select] 設定, fake provider)は前回発注で実装済みなのでそれを使う。現在の本体ビューは static/index.html + static/js/main.js(約1300行の素の JS)で、テーマ・TOC(fuzzy filter/scrollspy)・front matter・#16 ブロック差分パッチ+変更 flash+autoscroll・mermaid/hljs/MathJax・worktree/branch explorer+breadcrumb・#15 diff(source/rendered × unified/split, swap, live re-diff)・Generated UI(/api/gui)・Guided reading(/api/scrolly)を担う。これらを新しい単一の React アプリに移す。利用者はローカルリポジトリの設計書/README/手順書を PC(1280〜1920px)とスマホ(390px 幅)で読む開発者で、日本語の文書も多い。UI デザインは利用可能な frontend-design skill と ui-ux-pro-max skill の手順(計画→ブリーフ照合→実装→スクリーンショットで自己批評)で行うこと。ブラウザ確認は NixOS 上のシステム Chrome(/home/tkcd/.nix-profile/bin/google-chrome、環境変数で上書き可)を Playwright から使う(Playwright のブラウザダウンロードは NixOS では動かない)。Jev の API キーは渡さないので、E2E は fake provider で行う。git commit / push は発注者が行う。",
+  "requirements": [
+    {
+      "id": "R1",
+      "kind": "goal",
+      "text": "mdpeek serve <file> を開くと、上部バー(リポジトリ/ファイルの breadcrumb、Read/Split/Adaptive 切替、コマンドパレット起動、テーマ切替 light/dark/system)、左のレール(Files と Outline)、本文、widget 領域からなる画面が表示され、本文(GFM)は widget 選択を待たずに即座に表示される。",
+      "must": true
+    },
+    {
+      "id": "R2",
+      "kind": "goal",
+      "text": "Read=本文のみ、Split=右ペインに widget 一覧、Adaptive=各 widget がそれが参照するセクションの横(狭い幅ではそのセクションの直後)に並ぶ。キー 1/2/3・画面上の切替・パレットで切り替えられ、再読み込み後もモードが保たれる。",
+      "must": true
+    },
+    {
+      "id": "R3",
+      "kind": "goal",
+      "text": "左レールと右ペインはマウスのドラッグとキーボード(区切りにフォーカスして矢印キー)で幅を変えられ、折り畳み/展開でき、幅と折り畳み状態は再読み込み後も保たれる。",
+      "must": true
+    },
+    {
+      "id": "R4",
+      "kind": "usage",
+      "text": "390x844 のスマホ幅では単一ペインで横スクロールが無く、Files/Outline/Widgets はシートで開閉でき、タップ対象は 44px 以上ある。",
+      "must": true
+    },
+    {
+      "id": "R5",
+      "kind": "goal",
+      "text": "Ctrl+K(mac は ⌘K)でコマンドパレットが開き、ファイル切替・見出しへのジャンプ・モード切替・テーマ切替・widget の再選択を文字入力で絞り込んで Enter で実行できる。",
+      "must": true
+    },
+    {
+      "id": "R6",
+      "kind": "goal",
+      "text": "各 widget に出典の行範囲が表示され、それを押すと本文の該当ブロックへスクロールして一時的に強調される。本文をスクロールすると、Outline と widget 側で現在のセクションが強調される。",
+      "must": true
+    },
+    {
+      "id": "R7",
+      "kind": "goal",
+      "text": "各 widget の『なぜこの widget か』を開くと、選択した provider/model、confidence、helps、他の候補、fallback 理由が読める。画面上に選択器の状態(rules/jev/fake、選択中、fallback、エラー)が常に分かる表示がある。",
+      "must": true
+    },
+    {
+      "id": "R8",
+      "kind": "goal",
+      "text": "widget を固定(pin)・非表示(hide)でき、文書ごとに再読み込み後も保たれ、非表示にした widget を戻せる。",
+      "must": true
+    },
+    {
+      "id": "R9",
+      "kind": "goal",
+      "text": "ファイルを外部エディタで編集すると、本文は変更ブロックだけがその場で更新・強調され、スクロール位置は保たれ、widget は選択中も前回の結果を表示し続け、新しい結果が来たら置き換わる。古い revision の結果は表示されない。",
+      "must": true
+    },
+    {
+      "id": "R10",
+      "kind": "constraint",
+      "text": "既存機能が使える: explorer(worktree/branch グループ切替、breadcrumb からのファイル/グループ切替)、2 ファイル比較の diff(source/rendered、unified/split、入れ替え、編集時の再 diff)、見出しの絞り込み、front matter 表示、mermaid 図・コードハイライト・数式、Guided reading、Generated UI(/api/gui のレンズ)。GFM の本文の見た目(表、タスクリスト、脚注、alert、コード)が Tailwind の reset で崩れない。",
+      "must": true
+    },
+    {
+      "id": "R11",
+      "kind": "constraint",
+      "text": "Tailwind CSS v4 と shadcn/ui のコンポーネント(ソース取り込み)と lucide のアイコンを実際に使う。色・余白などのデザイントークンは CSS 変数の 1 か所にまとまり、旧 styles.css/panel.css/static/js/main.js の重複は残さない。すべての JS/CSS/フォントは単一バイナリに埋め込まれ、新たな外部 CDN/ネットワーク依存を追加しない。web/dist は npm ci && npm run build で差分なく再現できる。",
+      "must": true
+    },
+    {
+      "id": "R12",
+      "kind": "constraint",
+      "text": "全機能にキーボードで到達でき、フォーカスが常に見え、skip link とランドマークがあり、選択状態の変化がスクリーンリーダーに通知され、axe-core で serious/critical の違反が無く(light/dark とも)、prefers-reduced-motion ではアニメーションが止まる。",
+      "must": true
+    },
+    {
+      "id": "R13",
+      "kind": "goal",
+      "text": "見た目は docs/design/jev-adaptive-ui.md §6.2 の方針(本文が主役、ニュートラル+アクセント1色、欄外注のような widget、カードの羅列・装飾グラデーション・全大文字ラベルを使わない)に沿った、洗練された独自デザインである。light/dark × desktop/mobile と、widget なし・選択中・エラー/fallback・ライブ更新直後の各状態のスクリーンショットが決まった場所に保存されている。",
+      "must": true
+    },
+    {
+      "id": "R14",
+      "kind": "constraint",
+      "text": "上記を検査する Playwright の E2E テストがリポジトリにあり、キー無し(fake provider)で 1 コマンドで実行できる。",
+      "must": true
+    },
+    {
+      "id": "R15",
+      "kind": "usage",
+      "text": "README に新しい UI の使い方(モード、ショートカット一覧、Jev の opt-in)が書かれている。",
+      "must": false
+    }
+  ],
+  "out_of_scope": [
+    "Jev 実サービスでの検証(発注者が実施)",
+    "TUI(mdpeek term)の変更",
+    "MathJax の CDN 依存の撤去(既存のまま可)",
+    "git commit / push / PR 作成"
+  ]
+}
