@@ -81,6 +81,8 @@ fn jev_serve_reuses_unchanged_sections_and_pushes_over_ws() {
     assert_eq!(mock.count(), 1, "GETs must not re-ask Jev; single-flight");
     assert_eq!(second["selector"]["provider"], "jev");
     assert_eq!(second, third);
+    // Drain any revision-1 pushes (on-demand and/or watch) before editing.
+    let _ = ws.adaptive_for(Duration::from_millis(1500));
 
     // Edit only the Install section → exactly one new request with one section.
     // The poll watcher compares mtimes at 1 s granularity.
