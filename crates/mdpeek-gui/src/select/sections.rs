@@ -206,7 +206,11 @@ pub fn plan_document(
     analysis: &Analysis,
     excerpt_chars: usize,
 ) -> DocPlan {
-    let lines: Vec<&str> = markdown.split('\n').collect();
+    // Tolerate CRLF files: widget text (e.g. copyable commands) must not carry `\r`.
+    let lines: Vec<&str> = markdown
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
     let total_lines = crate::ir::LineIndex::new(markdown).line_count();
     let blocks = &analysis.tree.blocks;
 
@@ -550,6 +554,8 @@ pub fn plan_document(
                 }),
             });
         }
+        // An alert with no text (`> [!WARNING]` alone) is not worth a callout.
+        let alert = alert.clone().filter(|(t, _)| !t.trim().is_empty());
         if let Some((text, r)) = alert.clone().or(risk_para.clone()) {
             let s = if alert.is_some() { 0.7 } else { 0.55 };
             cands.push(Candidate {

@@ -44,6 +44,9 @@ pub const DOC_TYPES: &[(&str, &str)] = &[
     ("generic", "None of the above"),
 ];
 
+/// Max characters per heading sent to Jev (document list and per section).
+pub const HEADING_CHARS: usize = 120;
+
 const INSTRUCTIONS: &str = "You choose reading aids for a Markdown viewer. \
 Each section lists candidate widgets that were pre-validated against its content. \
 Prefer plain text unless a widget clearly helps a reader. \
@@ -108,7 +111,22 @@ pub fn build_request(req: &SelectionRequest<'_>, model: &str) -> Value {
             }
         }
     }
+    // Headings count toward the same state budget as excerpts and are clipped,
+    // so long or numerous headings cannot carry body text past the cap.
+    let clip = |s: &str| -> String { s.chars().take(HEADING_CHARS).collect() };
+    let mut doc_headings = Vec::new();
+    for h in req.plan.headings.iter().take(80) {
+        let h = clip(h);
+        let n = h.chars().count();
+        if used + n > cfg.max_state_chars {
+            break;
+        }
+        used += n;
+        doc_headings.push(h);
+    }
     for s in &req.sections {
+        let heading = clip(&s.heading);
+        used += heading.chars().count();
         let excerpt = if used + s.excerpt.chars().count() <= cfg.max_state_chars {
             used += s.excerpt.chars().count();
             Some(s.excerpt.clone())
@@ -117,7 +135,7 @@ pub fn build_request(req: &SelectionRequest<'_>, model: &str) -> Value {
         };
         let mut sec = json!({
             "id": s.id,
-            "heading": s.heading,
+            "heading": heading,
             "level": s.level,
             "features": s.features,
             "candidates": s.candidates.iter().map(|c| c.id).collect::<Vec<_>>(),
@@ -142,7 +160,7 @@ pub fn build_request(req: &SelectionRequest<'_>, model: &str) -> Value {
         "state": {
             "document": {
                 "filename_hint": req.filename.unwrap_or(""),
-                "headings": req.plan.headings.iter().take(80).collect::<Vec<_>>(),
+                "headings": doc_headings,
                 "rules_doc_type": req.plan.rules_doc_type,
             },
             "sections": sections,
@@ -214,12 +232,17 @@ fn answer(
         };
     }
     match choice(answers.get(widget_q)) {
-        Ok((c, conf, alts)) if cands.iter().any(|x| x.id == c) => Answer::Raw {
-            candidate: c,
-            confidence: conf,
-            helps,
-            alternatives: alts,
-        },
+        Ok((c, conf, mut alts)) if cands.iter().any(|x| x.id == c) => {
+            // Only enumerated candidate ids may reach the client: any other
+            // `probabilities` key is untrusted model text and is dropped.
+            alts.retain(|(k, _)| cands.iter().any(|x| x.id == k));
+            Answer::Raw {
+                candidate: c,
+                confidence: conf,
+                helps,
+                alternatives: alts,
+            }
+        }
         Ok(_) => Answer::Invalid("unknown_option".into()),
         Err(e) => Answer::Invalid(e),
     }
@@ -398,18 +421,23 @@ mod http {
                     if attempt >= 2 {
                         return Err(err);
                     }
-                    let wait = resp
+                    let secs = resp
                         .headers()
                         .get("retry-after")
                         .and_then(|v| v.to_str().ok())
                         .and_then(|s| s.trim().parse::<f64>().ok())
                         .filter(|s| s.is_finite() && *s >= 0.0)
-                        .map(Duration::from_secs_f64)
-                        .unwrap_or(Duration::from_millis(500));
-                    // Do not retry if the server asks us to wait past our deadline.
-                    if Instant::now() + wait >= deadline {
+                        .unwrap_or(0.5);
+                    // Compare in f64 *before* building a Duration, so a malformed
+                    // or hostile header (e.g. 1e300) can neither panic nor
+                    // overflow, and we never wait past our own deadline.
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if secs >= remaining.as_secs_f64() {
                         return Err(err);
                     }
+                    let Ok(wait) = Duration::try_from_secs_f64(secs) else {
+                        return Err(err);
+                    };
                     tokio::time::sleep(wait).await;
                 }
                 500..=599 => return Err(SelectError::Server(status)),

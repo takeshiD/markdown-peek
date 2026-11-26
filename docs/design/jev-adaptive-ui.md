@@ -330,3 +330,24 @@ rules = 一致率 1.000、none 適切率 1.000、widget recall 1.000、p50 0.73m
   Jev の不一致: CHANGELOG「Changelog」節(期待 Timeline → none)、README「Installation」節(期待 ConfigViewer:commands → none)。いずれも「出さない」側に倒れている(過剰表示は 0)。
 - **トークン/費用**(実 API の `usage`, 1 文書 1 リクエスト): input 588–1,606 tokens(質問 1–7 問)、output 88–238。単価 $0.042 / 1M input(output 無料, models.md)から **1 文書あたり約 $0.00002–0.00007**(計算値。請求額は未確認)。
 - 未確認: 組織別 rate limit の数値、429/529 の実挙動(模擬サーバでのみ検証)、大きな文書(64k tok 近傍)での挙動。
+
+### 11.4 独立レビュー(バックエンド)と修正(発注者, 2026-11-27)
+
+私の結論を渡さずに、別エージェントへ読み取り専用のレビューを依頼した。報告 14 件のうち次を修正し、回帰テストを追加した(`tests/select_jev.rs` / `tests/select_cli.rs` / `tests/adaptive_serve.rs`)。
+
+| # | 内容 | 対応 |
+|---|---|---|
+| 1 | Jev の `probabilities` キー(モデル由来の任意文字列)が `why.alternatives` としてブラウザまで届く | 候補 id だけを残す(jev.rs の回答解析 + composer の二重防御)。`<img onerror>` を混ぜた模擬応答で非出力を検証 |
+| 2 | `retry-after: 1e300` などで `Duration` 変換が panic(exit 101) | deadline と f64 で比較してから `try_from_secs_f64`。1e300 / 1e18 / NaN / -5 / inf で exit 0 を検証 |
+| 3 | 見出しが状態上限に数えられず無制限(1.86 MB の request を確認) | 見出しを 120 文字に切り、文書見出し・節見出しも `max_state_chars` に計上 |
+| 4 | `GET /api/adaptive` が Jev を同期待ちし、最大 3 回再計算・重複送信 | GET はネットワークを待たない: 計算済みならそれを、無ければ rules レイアウト(`fallback: "pending"`)を即返し、Jev 結果は WS で push。選択は single-flight |
+| 5 | 1 回の失敗で、未変更節のキャッシュ済み判断まで rules に戻る | 失敗時は今回質問した節だけ rules に戻す |
+| 6 | 設定パースエラーで値(秘密の可能性)が stderr に出る | エラーメッセージ内の引用部分を伏せる |
+| 8 | 閾値の NaN / 範囲外 | NaN は既定値、範囲外は 0..1 に clamp |
+| 9 | `max_questions` が文書レベル質問に効かない | 予算内に入らなければ文書レベルは rules |
+| 10 | CRLF の `\r` がコピー用コマンドに残る | 行末 `\r` を除去 |
+| 11 | ブラウザ未接続でも保存のたびに Jev を呼ぶ | 接続クライアントが無いときは延期(次の GET で選択) |
+| 13 | `http://` の base_url に Bearer キーを平文送信しうる | https 以外は loopback のみ許可(`insecure_base_url` で fallback、送信 0 回) |
+| 14 | 空の `> [!WARNING]` が空本文の Callout になる | 本文が空なら候補にしない |
+
+未対応(既知の制約として記録): #7 親節の Timeline 特徴が入れ子見出しの変更でキャッシュキーに反映されない(影響は helps の小さな変化)、#12 Jev クライアントは独自 runtime を作るため tokio コンテキスト内から直接呼ぶと panic する(現行の呼び出し元はすべて OS スレッドで安全)。

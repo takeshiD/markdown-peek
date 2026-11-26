@@ -238,6 +238,8 @@ pub enum SelectError {
     MissingKey,
     #[error("jev support not built (built without the `llm` feature)")]
     NotBuilt,
+    #[error("base_url must use https (plain http is allowed only for loopback)")]
+    InsecureBaseUrl,
     #[error("timed out")]
     Timeout,
     #[error("unauthorized")]
@@ -267,6 +269,7 @@ impl SelectError {
             SelectError::Disabled => "disabled".into(),
             SelectError::MissingKey => "missing_key".into(),
             SelectError::NotBuilt => "not_built".into(),
+            SelectError::InsecureBaseUrl => "insecure_base_url".into(),
             SelectError::Timeout => "timeout".into(),
             SelectError::Unauthorized => "unauthorized".into(),
             SelectError::RateLimited => "rate_limited".into(),
@@ -309,6 +312,9 @@ pub fn build_selector(cfg: &SelectConfig) -> Result<Box<dyn Selector>, SelectErr
                 return Err(SelectError::Disabled);
             }
             let key = std::env::var(API_KEY_ENV).ok().filter(|k| !k.trim().is_empty());
+            if !base_url_is_safe(&cfg.base_url) {
+                return Err(SelectError::InsecureBaseUrl);
+            }
             let Some(key) = key else {
                 return Err(SelectError::MissingKey);
             };
@@ -319,6 +325,33 @@ pub fn build_selector(cfg: &SelectConfig) -> Result<Box<dyn Selector>, SelectErr
 
 /// Deterministic rules selector: highest-scoring candidate, `helps = score`.
 pub struct RulesSelector;
+
+/// The Bearer key must not travel in cleartext: https, or http to loopback
+/// (local mock servers in tests).
+pub fn base_url_is_safe(url: &str) -> bool {
+    let u = url.trim().to_ascii_lowercase();
+    if u.starts_with("https://") {
+        return true;
+    }
+    let Some(rest) = u.strip_prefix("http://") else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or("");
+    let host = host.rsplit_once('@').map(|(_, h)| h).unwrap_or(host);
+    let host = if host.starts_with('[') {
+        host.split(']').next().map(|h| &h[1..]).unwrap_or("")
+    } else {
+        host.split(':').next().unwrap_or("")
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+}
+
+/// Keep only alternatives that name one of `cands` (model output is untrusted).
+fn only_candidates(alts: Vec<(String, f32)>, cands: &[Candidate]) -> Vec<(String, f32)> {
+    alts.into_iter()
+        .filter(|(k, _)| cands.iter().any(|c| c.id == k))
+        .collect()
+}
 
 pub fn rules_answer(cands: &[Candidate]) -> Option<Answer> {
     let best = cands
@@ -439,9 +472,19 @@ pub fn adaptive_layout_with(
             }
 
             // Question cap: doc_type (1) + doc questions + per-section questions.
-            let mut budget = cfg.max_questions.saturating_sub(1);
-            if ask_document && !plan.doc_candidates.is_empty() {
-                budget = budget.saturating_sub(q_count(plan.doc_candidates.len()));
+            let mut budget = cfg.max_questions;
+            if ask_document {
+                let doc_q = 1 + if plan.doc_candidates.is_empty() {
+                    0
+                } else {
+                    q_count(plan.doc_candidates.len())
+                };
+                if doc_q <= budget {
+                    budget -= doc_q;
+                } else {
+                    // Not enough room: document-level stays on rules.
+                    ask_document = false;
+                }
             }
             to_ask.sort_by(|a, b| b.strength().total_cmp(&a.strength()));
             let mut over_limit = Vec::new();
@@ -520,10 +563,24 @@ pub fn adaptive_layout_with(
                     Err(e) => {
                         requests = sel.last_requests().unwrap_or_else(|| e_requests(&e));
                         fallback = Some(e.code());
-                        answers.clear();
-                        doc_answer = None;
-                        doc_type = None;
-                        ("rules".to_string(), format!("rules-v{REGISTRY_VERSION}"))
+                        // Only the sections that were asked fall back to rules;
+                        // decisions already cached for unchanged sections stay
+                        // (design §3.7), so one timeout does not reshuffle the
+                        // whole layout. Over-limit sections are rules already.
+                        for s in &asked {
+                            answers.remove(&s.id);
+                        }
+                        if ask_document {
+                            doc_answer = None;
+                            doc_type = None;
+                        }
+                        let kept_external = answers.values().any(|(_, by, _, _)| by != "rules")
+                            || doc_answer.is_some();
+                        if kept_external {
+                            (pid.to_string(), model)
+                        } else {
+                            ("rules".to_string(), format!("rules-v{REGISTRY_VERSION}"))
+                        }
                     }
                 }
             } else {
@@ -591,7 +648,7 @@ pub fn adaptive_layout_with(
                             confidence,
                             helps,
                             reason_code: "chosen".into(),
-                            alternatives,
+                            alternatives: only_candidates(alternatives, &plan.doc_candidates),
                             cached,
                         },
                     }),
@@ -659,6 +716,8 @@ pub fn adaptive_layout_with(
         let Answer::Raw { candidate, confidence, helps, alternatives } = ans else {
             unreachable!()
         };
+        // Defence in depth: only enumerated candidate ids leave the server.
+        let alternatives = only_candidates(alternatives, &s.candidates);
         if helps < ht || confidence < ct {
             skipped.push(Skipped {
                 scope: "section".into(),
@@ -757,6 +816,7 @@ fn e_requests(e: &SelectError) -> u32 {
         SelectError::Disabled
         | SelectError::MissingKey
         | SelectError::NotBuilt
+        | SelectError::InsecureBaseUrl
         | SelectError::FakeScript
         | SelectError::Scripted(_) => 0,
         _ => 1,

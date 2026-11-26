@@ -577,27 +577,20 @@ fn escape_html_min(s: &str) -> String {
 
 /// `GET /api/tree` — the discovered repo/worktree markdown tree plus the
 /// currently active file, for the explorer sidebar (#14).
-/// `GET /api/adaptive` — the current file's AdaptiveLayout (R6). Selection
-/// runs on a plain OS thread (the Jev client drives its own runtime). If the
-/// file changes while selecting, the stale result is dropped and recomputed.
+/// `GET /api/adaptive` — the current file's AdaptiveLayout (R6). Never waits on
+/// the network: see [`adaptive::Adaptive::for_get`] (a `pending` rules layout
+/// is returned while a networked selection runs and is pushed over the WS).
 async fn adaptive_handler(State(state): State<AppState>) -> impl IntoResponse {
     let file_path = { state.file_path.read().unwrap().to_path_buf() };
     let adaptive = Arc::clone(&state.adaptive);
-    let (otx, orx) = tokio::sync::oneshot::channel();
-    std::thread::spawn(move || {
-        let mut result = None;
-        for _ in 0..3 {
-            let rev = adaptive.current_revision();
-            let r = adaptive.compute(&file_path, rev);
-            let fresh = adaptive.current_revision() == rev;
-            result = Some(r);
-            if fresh {
-                break;
-            }
-        }
-        let _ = otx.send(result.unwrap());
-    });
-    match orx.await {
+    let tx = state.tx.clone();
+    // Never waits on the network (rules/fake are sub-millisecond; a networked
+    // selector answers with a `pending` rules layout and pushes the real one
+    // over the WebSocket). Run off the async runtime anyway: it reads the file
+    // and the Jev client drives its own runtime.
+    let result =
+        tokio::task::spawn_blocking(move || adaptive.for_get(&file_path, &tx)).await;
+    match result {
         Ok(Ok(layout)) => Json(serde_json::to_value(layout).unwrap_or_default()).into_response(),
         Ok(Err(e)) => (
             StatusCode::NOT_FOUND,

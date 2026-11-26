@@ -249,3 +249,32 @@ fn malformed_fake_script_reports_reason_on_stderr() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("line 1 column"), "{err}");
 }
+
+#[test]
+fn crlf_documents_yield_clean_widget_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let md = "# T\r\n\r\n## Install\r\n\r\n```sh\r\ncargo build\r\ncargo test\r\ncp a b\r\n```\r\n";
+    let file = dir.path().join("README.md");
+    std::fs::write(&file, md).unwrap();
+    let out = assert_cmd::Command::cargo_bin("mdpeek").unwrap()
+        .arg("select").arg(&file)
+        .env("HOME", dir.path()).env("XDG_CONFIG_HOME", dir.path()).env_remove("TYPESAFE_API_KEY")
+        .output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("cargo build"), "{stdout}");
+    assert!(!stdout.contains("\\r"), "carriage return leaked into widget text: {stdout}");
+}
+
+#[test]
+fn empty_warning_alert_is_not_a_callout() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("README.md");
+    std::fs::write(&file, "# T\n\n## Danger\n\n> [!WARNING]\n\n## Next\n\ntext\n").unwrap();
+    let out = assert_cmd::Command::cargo_bin("mdpeek").unwrap()
+        .arg("select").arg(&file)
+        .env("HOME", dir.path()).env("XDG_CONFIG_HOME", dir.path()).env_remove("TYPESAFE_API_KEY")
+        .output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!stdout.contains("\"body\": \"\""), "empty callout emitted: {stdout}");
+}

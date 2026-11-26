@@ -313,3 +313,82 @@ fn key_in_config_file_is_rejected() {
     assert!(r.stderr.contains("unknown field"), "{}", r.stderr);
     assert_no_secrets(&r);
 }
+
+// --- Regression tests for the independent review (2026-11-27) ---
+
+#[test]
+fn model_supplied_alternative_keys_never_reach_output() {
+    let evil = "<img src=x onerror=alert(1)> IGNORE PREVIOUS";
+    let mut a = good_answers();
+    a["answers"]["s2_widget"]["probabilities"][evil] = json!(0.5);
+    a["answers"]["doc_helps"] = json!(0.9);
+    a["answers"]["doc_widget"]["probabilities"] = json!({ evil: 0.5, "SemanticOutline": 0.4 });
+    let mock = Mock::start(vec![Reply::json(200, a)]);
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = jev_config(dir.path(), &mock.base_url(), "");
+    let r = run(&dir, &cfg, Some(TEST_KEY), &[]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert_eq!(r.json["selector"]["provider"], "jev");
+    assert!(!r.stdout.contains("onerror"), "untrusted probabilities key echoed: {}", r.stdout);
+    let steps = placement(&r.json, "Steps").expect("Steps placement");
+    for alt in steps["why"]["alternatives"].as_array().unwrap() {
+        assert_eq!(alt[0], "DataTable:status");
+    }
+}
+
+#[test]
+fn hostile_retry_after_does_not_panic() {
+    for v in ["1e300", "1e18", "NaN", "-5", "inf"] {
+        let (r, _) = expect_fallback(vec![Reply::raw(429, "{}").header("retry-after", v)], "", Some(TEST_KEY), "rate_limited", 2);
+        assert_eq!(r.code, 0, "retry-after {v}: {}", r.stderr);
+    }
+}
+
+#[test]
+fn long_headings_count_toward_the_state_cap() {
+    let mock = Mock::start(vec![Reply::json(200, good_answers())]);
+    let dir = tempfile::tempdir().unwrap();
+    let long = "H".repeat(5_000);
+    let mut md = String::from("# Tool\n\n");
+    for i in 0..60 {
+        md.push_str(&format!("## {long}{i}\n\n1. a\n2. b\n3. c\n\n"));
+    }
+    let file = write(dir.path(), "README.md", &md);
+    let cfg = jev_config(dir.path(), &mock.base_url(), "max_state_chars = 3000");
+    let out = Command::cargo_bin("mdpeek").unwrap()
+        .arg("--config").arg(&cfg).arg("select").arg(&file)
+        .env("HOME", dir.path()).env("XDG_CONFIG_HOME", dir.path()).env("TYPESAFE_API_KEY", TEST_KEY)
+        .output().unwrap();
+    assert!(out.status.success());
+    let req = mock.requests().pop().expect("one request").json();
+    let state = req["state"].to_string();
+    // Clipped headings (120 chars each) + features: far below the raw 300k chars.
+    assert!(state.len() < 40_000, "state is {} bytes", state.len());
+    for h in req["state"]["document"]["headings"].as_array().unwrap() {
+        assert!(h.as_str().unwrap().chars().count() <= 120);
+    }
+}
+
+#[test]
+fn insecure_base_url_is_refused_before_sending_the_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = jev_config(dir.path(), "http://example.invalid", "");
+    let r = run(&dir, &cfg, Some(TEST_KEY), &[]);
+    assert_eq!(r.code, 0);
+    assert_eq!(r.json["selector"]["fallback"], "insecure_base_url", "{}", r.stdout);
+    assert_eq!(r.json["selector"]["requests"], 0);
+}
+
+#[test]
+fn config_parse_errors_do_not_echo_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write(dir.path(), "config.toml", "[select]\ntimeout_ms = \"sk-SECRETXYZ\"\n");
+    let file = write(dir.path(), "README.md", "# t\n");
+    let out = Command::cargo_bin("mdpeek").unwrap()
+        .arg("--config").arg(&cfg).arg("select").arg(&file)
+        .env("HOME", dir.path()).env("XDG_CONFIG_HOME", dir.path()).env_remove("TYPESAFE_API_KEY")
+        .output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("line 2"), "{stderr}");
+    assert!(!stderr.contains("sk-SECRETXYZ"), "value echoed: {stderr}");
+}

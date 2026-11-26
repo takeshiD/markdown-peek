@@ -184,8 +184,8 @@ impl Config {
             model: s.model.clone().unwrap_or(d.model),
             base_url: s.base_url.clone().unwrap_or(d.base_url),
             timeout_ms: s.timeout_ms.unwrap_or(d.timeout_ms).clamp(100, 30_000),
-            confidence_threshold: s.confidence_threshold.unwrap_or(d.confidence_threshold),
-            helps_threshold: s.helps_threshold.unwrap_or(d.helps_threshold),
+            confidence_threshold: unit_or(s.confidence_threshold, d.confidence_threshold),
+            helps_threshold: unit_or(s.helps_threshold, d.helps_threshold),
             max_questions: s.max_questions.unwrap_or(d.max_questions).max(1),
             excerpt_chars: s.excerpt_chars.unwrap_or(d.excerpt_chars),
             max_state_chars: s.max_state_chars.unwrap_or(d.max_state_chars),
@@ -218,12 +218,45 @@ impl Config {
                     "mdpeek: warning: failed to parse {}{}: {}",
                     path.display(),
                     line.map(|l| format!(" (line {l})")).unwrap_or_default(),
-                    e.message().trim_end()
+                    redact_quoted(e.message().trim_end())
                 );
                 Self::default()
             }
         }
     }
+}
+
+/// A probability threshold from config: NaN / out-of-range values would make
+/// every comparison pass or fail silently, so they fall back to the default
+/// (NaN) or are clamped into `0.0..=1.0`.
+fn unit_or(v: Option<f32>, default: f32) -> f32 {
+    match v {
+        Some(x) if x.is_nan() => default,
+        Some(x) => x.clamp(0.0, 1.0),
+        None => default,
+    }
+}
+
+/// Replace quoted fragments in a TOML error message (`invalid type: string
+/// "sk-…"`) so a secret pasted into the wrong key is never echoed to stderr.
+fn redact_quoted(msg: &str) -> String {
+    let mut out = String::with_capacity(msg.len());
+    let mut inside = false;
+    for ch in msg.chars() {
+        match (ch, inside) {
+            ('"', false) => {
+                inside = true;
+                out.push_str("\"…");
+            }
+            ('"', true) => {
+                inside = false;
+                out.push('"');
+            }
+            (_, true) => {}
+            (c, false) => out.push(c),
+        }
+    }
+    out
 }
 
 /// Resolve the path to `config.toml` following the XDG Base Directory spec:

@@ -54,21 +54,35 @@ fn jev_serve_reuses_unchanged_sections_and_pushes_over_ws() {
     let cfg = jev_config(dir.path(), &mock.base_url(), "debounce_ms = 200");
     let srv = spawn_serve(dir.path(), &file, &cfg, &[("TYPESAFE_API_KEY", TEST_KEY)]);
 
-    // Startup selection (1 request) completes; GETs are then served from cache.
+    // GET never waits on the network: until the Jev selection for the current
+    // revision exists it answers with a rules layout marked `pending`, and the
+    // real layout arrives over the WebSocket.
+    let mut ws = Ws::connect(srv.port);
+    let first = get_layout(srv.port);
+    assert!(!first.to_string().contains(TEST_KEY));
+    if first["selector"]["fallback"] == "pending" {
+        assert_eq!(first["selector"]["provider"], "rules");
+        assert_eq!(first["selector"]["requested"], "jev");
+        let pushed = ws
+            .wait_adaptive(Duration::from_secs(10))
+            .expect("jev layout pushed after a pending GET");
+        assert_eq!(pushed["layout"]["selector"]["provider"], "jev");
+    } else {
+        assert_eq!(first["selector"]["provider"], "jev");
+    }
     let end = Instant::now() + Duration::from_secs(10);
     while mock.count() < 1 && Instant::now() < end {
         std::thread::sleep(Duration::from_millis(50));
     }
     std::thread::sleep(Duration::from_millis(500));
-    let first = get_layout(srv.port);
+    // Later GETs reuse the computed layout: no new external request.
     let second = get_layout(srv.port);
-    assert_eq!(mock.count(), 1, "GETs must reuse cached decisions");
-    assert_eq!(first["selector"]["provider"], "jev");
-    assert_eq!(second["cache"]["misses"], 0);
-    assert!(!first.to_string().contains(TEST_KEY));
+    let third = get_layout(srv.port);
+    assert_eq!(mock.count(), 1, "GETs must not re-ask Jev; single-flight");
+    assert_eq!(second["selector"]["provider"], "jev");
+    assert_eq!(second, third);
 
     // Edit only the Install section → exactly one new request with one section.
-    let mut ws = Ws::connect(srv.port);
     // The poll watcher compares mtimes at 1 s granularity.
     std::thread::sleep(Duration::from_millis(1100));
     std::fs::write(&file, DOC.replace("cp a b", "cp a b\nmake check")).unwrap();
