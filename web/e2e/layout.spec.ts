@@ -2,6 +2,8 @@
 import { test, expect, openApp } from "./server";
 
 test.describe("R1 shell", () => {
+  // Hold back the server's startup WebSocket push too, so "selecting" is observable.
+  test.use({ serverOptions: { debounceMs: 60_000 } });
   test("top bar, rail, body and widgets render; body does not wait for selection", async ({ page, server }) => {
     // Hold /api/adaptive back: the document must already be readable.
     let release!: () => void;

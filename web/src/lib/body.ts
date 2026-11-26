@@ -98,6 +98,23 @@ export function patchArticle(article: HTMLElement, oldHtml: string, newHtml: str
   return { nodes, indices };
 }
 
+// highlight.js and mermaid are embedded but loaded on demand: as blocking
+// <script>s they held the first paint back by ~250 ms (mermaid alone is
+// ~2.7 MB), and many documents need neither.
+const HLJS_SRC = "/static/js/highlight/highlight.min.js";
+const MERMAID_SRC = "/static/js/mermaid/mermaid.min.js";
+const loading: Record<string, Promise<void>> = {};
+function loadScript(src: string): Promise<void> {
+  return (loading[src] ??= new Promise<void>((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = src;
+    el.async = true;
+    el.onload = () => resolve();
+    el.onerror = () => reject(new Error(`failed to load ${src}`));
+    document.head.appendChild(el);
+  }));
+}
+
 let mermaidReady = false;
 function ensureMermaid(dark: boolean) {
   if (!window.mermaid) return false;
@@ -125,14 +142,23 @@ export function enhance(nodes: Element[]) {
       cb.setAttribute("aria-label", text || "task");
     });
   }
-  if (window.hljs) codes.forEach((c) => window.hljs!.highlightElement(c));
-  if (diagrams.length && ensureMermaid(document.documentElement.classList.contains("dark"))) {
-    try {
-      const r = window.mermaid!.run({ nodes: diagrams });
-      if (r && typeof (r as Promise<void>).catch === "function") (r as Promise<void>).catch(() => {});
-    } catch {
-      /* a broken diagram stays as its source */
-    }
+  if (codes.length) {
+    const run = () => codes.forEach((c) => c.isConnected && window.hljs!.highlightElement(c));
+    if (window.hljs) run();
+    else loadScript(HLJS_SRC).then(run, () => {});
+  }
+  if (diagrams.length) {
+    const draw = () => {
+      if (!ensureMermaid(document.documentElement.classList.contains("dark"))) return;
+      try {
+        const r = window.mermaid!.run({ nodes: diagrams.filter((d) => d.isConnected) });
+        if (r && typeof (r as Promise<void>).catch === "function") (r as Promise<void>).catch(() => {});
+      } catch {
+        /* a broken diagram stays as its source */
+      }
+    };
+    if (window.mermaid) draw();
+    else loadScript(MERMAID_SRC).then(draw, () => {});
   }
   const mj = window.MathJax;
   if (mj?.typesetPromise) {

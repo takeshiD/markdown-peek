@@ -44,7 +44,9 @@ The preview updates **in place** as you edit — only the blocks that changed re
 
 ### The browser UI
 
-The window has a top bar (repository / file breadcrumb, view mode, selector status, command palette, theme), a left rail with **Outline** and **Files**, the document, and — depending on the mode — *reading aids*: small widgets (steps, checklists, commands, risks, action items, …) extracted from your document, each linked to the source lines it came from.
+![Adaptive mode: ticking a checklist, stepping through steps, copying commands, the command palette and a live edit](docs/design/media/adaptive-tour.gif)
+
+The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), a left rail with **Outline** and **Files**, the document, and — depending on the mode — *reading aids*: small widgets (steps, checklists, commands, risks, action items, …) extracted from your document, each linked to the source lines it came from.
 
 | Mode | Key | What you see |
 |---|---|---|
@@ -52,13 +54,15 @@ The window has a top bar (repository / file breadcrumb, view mode, selector stat
 | **Split** | `2` | Reading aids listed in a resizable pane on the right. |
 | **Adaptive** | `3` | Each aid in the margin beside the section it belongs to (on narrow windows: right after that section). |
 
+- Reading aids are **operable**, not copies of the text: tick checklist / action items (with a progress meter), step through a procedure (Step n of N, previous / next), copy one command or all of them (commands are never run), sort and filter tables. Ticks and the current step are kept per document in this browser only; **the Markdown file is never modified**, and *Reset to file* returns to what the file says.
 - Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and in the widgets.
 - The ⓘ button on a widget explains **why it was chosen**: selector and model, confidence, how much it helps, the other candidates and any fallback. The dot in the top bar always shows the selector state (rules / jev / fake, choosing, fallback, error).
 - **Pin** a widget to keep it at the top, or **hide** it; both are remembered per document. Bring hidden ones back from *Hidden (n)* in the widget pane or the command palette.
 - While a new selection runs after an edit, the previous widgets stay visible; results for an older version of the file are never shown.
 - The rail and the widget pane can be resized by dragging the divider or by focusing it and pressing ← / →, and folded away with `[` / `]`. Mode, theme, sizes and folds are remembered across reloads.
 - **Files**: switch files across worktrees/branches (group by worktree or branch), or pick two files with the compare buttons to open a **diff** — source or rendered, unified or side by side, swappable, re-diffed live as you edit.
-- **Guided reading** (book icon, `g`) and **Generated UI** (sparkles icon) open the LLM guided-reading panel and the generated-components lens.
+- The **View** menu holds **Guided reading** (`g`), **Generated UI** (the LLM / rules lens), *Follow live changes* and the shortcut list.
+- Switching modes or folding a pane keeps your place in the document.
 - On a phone (narrow screens) the document fills the screen; Files/Outline and the reading aids open as sheets.
 
 **Keyboard shortcuts** (`?` shows them in the app; single keys work when no text field has focus):

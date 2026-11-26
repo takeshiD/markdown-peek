@@ -111,18 +111,23 @@ test.describe("selector states", () => {
     });
   });
 
-  test("R7: an error loading reading aids is shown, the text stays, and retry recovers", async ({ page, server }) => {
-    let fail = true;
-    await page.route("**/api/adaptive", (route) => (fail ? route.fulfill({ status: 500, body: "{}" }) : route.continue()));
-    await page.goto(server.url);
-    const status = page.getByTestId("selector-status");
-    await expect(status).toHaveAttribute("data-state", "error");
-    await expect(page.getByTestId("widgets-pane").getByRole("alert")).toContainText("Reading aids could not be loaded");
-    await expect(page.locator("article h1")).toBeVisible();
-    fail = false;
-    await page.getByTestId("widgets-pane").getByRole("button", { name: "Try again" }).click();
-    await expect(status).toHaveAttribute("data-state", "ready");
-  });
+  test.describe("without a startup push", () => {
+    // Keep the server's WebSocket push out of the way so this test only sees
+    // what GET /api/adaptive returns (the app connects within ~100 ms).
+    test.use({ serverOptions: { debounceMs: 60_000 } });
+    test("R7: an error loading reading aids is shown, the text stays, and retry recovers", async ({ page, server }) => {
+      let fail = true;
+      await page.route("**/api/adaptive", (route) => (fail ? route.fulfill({ status: 500, body: "{}" }) : route.continue()));
+      await page.goto(server.url);
+      const status = page.getByTestId("selector-status");
+      await expect(status).toHaveAttribute("data-state", "error");
+      await expect(page.getByTestId("widgets-pane").getByRole("alert")).toContainText("Reading aids could not be loaded");
+      await expect(page.locator("article h1")).toBeVisible();
+      fail = false;
+      await page.getByTestId("widgets-pane").getByRole("button", { name: "Try again" }).click();
+      await expect(status).toHaveAttribute("data-state", "ready");
+    });
+    });
 
   test("a document with nothing to add says so", async ({ page, server }) => {
     await openApp(page, server);

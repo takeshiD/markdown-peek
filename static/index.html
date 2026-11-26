@@ -30,8 +30,7 @@
     <div id="root"></div>
     <noscript>mdpeek needs JavaScript to show the document.</noscript>
     <script id="mdpeek-boot" type="application/json">{{ boot }}</script>
-    <script src="/static/js/highlight/highlight.min.js"></script>
-    <script src="/static/js/mermaid/mermaid.min.js"></script>
+    <!-- highlight.js and mermaid are loaded on demand by the app (lib/body.ts). -->
     <!-- MathJax still comes from the CDN (existing behaviour, out of scope). -->
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@4.0.0/tex-mml-chtml.js"></script>
     <script type="module" src="/static/app.js"></script>
