@@ -7,34 +7,41 @@ import { RefreshCw } from "lucide-react";
 import { cn } from "cn";
 import { useStore } from "../lib/store";
 import { fetchAdaptive } from "../lib/actions";
-import { fallbackText } from "../lib/types";
+import { fallbackShort, fallbackText } from "../lib/types";
+
+const NAME: Record<string, string> = { rules: "Rules", jev: "Jev", fake: "Fake" };
+const nameOf = (p: string) => NAME[p] ?? p;
 
 export function SelectorStatus({ compact }: { compact?: boolean }) {
   const layout = useStore((s) => s.layout);
   const sel = useStore((s) => s.select);
   const err = useStore((s) => s.selectError);
   const provider = layout?.selector.provider ?? "…";
+  const requested = layout?.selector.requested ?? provider;
   const fallback = layout?.selector.fallback ?? null;
+  // The server answers GET immediately with a rules layout while a networked
+  // selector is still working; that is "choosing", not a failure.
+  const pending = fallback === "pending";
   const titleId = useId();
   const state =
-    sel === "error" ? "error" : sel === "selecting" ? "selecting" : fallback ? "fallback" : "ready";
+    sel === "error" ? "error" : sel === "selecting" || pending ? "selecting" : fallback ? "fallback" : "ready";
   const label =
     state === "error"
       ? "Reading aids unavailable"
       : state === "selecting"
         ? layout
-          ? `${provider}, updating`
+          ? `${nameOf(requested)}, choosing`
           : "Choosing"
         : state === "fallback"
-          ? `${provider}, fallback`
-          : provider;
+          ? `${nameOf(provider)}, fallback (${fallbackShort(fallback!)})`
+          : nameOf(provider);
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
-          className={cn("h-8 gap-2 px-2 font-normal text-muted-foreground", compact && "size-11 px-0")}
+          className={cn("h-8 min-w-0 shrink gap-2 px-2 font-normal text-muted-foreground", compact && "size-11 px-0")}
           data-testid="selector-status"
           data-state={state}
           data-provider={layout?.selector.provider ?? ""}
@@ -50,28 +57,45 @@ export function SelectorStatus({ compact }: { compact?: boolean }) {
               state === "selecting" && "bg-primary motion-safe:animate-pulse",
             )}
           />
-          {!compact && <span className="max-w-40 truncate">{label}</span>}
+          {/* Below xl the dot alone carries the state (the label is in aria-label
+              and the popover), so the breadcrumb never collides with it. */}
+          {!compact && <span className="max-w-48 truncate max-xl:sr-only">{label}</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 text-[13px] leading-relaxed" aria-labelledby={titleId}>
         <h3 id={titleId} className="mb-2 font-semibold">Reading-aid selector</h3>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
           <dt className="text-muted-foreground">Status</dt>
-          <dd>{state === "selecting" ? "Choosing (previous result stays visible)" : state === "error" ? "Failed" : state === "fallback" ? "Fell back" : "Ready"}</dd>
+          <dd>
+            {state === "selecting"
+              ? "Choosing (the current aids stay visible)"
+              : state === "error"
+                ? "Failed"
+                : state === "fallback"
+                  ? "Fell back to rules"
+                  : "Ready"}
+          </dd>
           <dt className="text-muted-foreground">Decided by</dt>
-          <dd>{layout ? `${layout.selector.provider}, model ${layout.selector.model}` : "not yet"}</dd>
+          <dd>{layout ? `${nameOf(layout.selector.provider)}, model ${layout.selector.model}` : "not yet"}</dd>
           <dt className="text-muted-foreground">Configured</dt>
-          <dd>{layout?.selector.requested ?? "unknown"}</dd>
+          <dd>{layout ? nameOf(requested) : "unknown"}</dd>
           {fallback && (
             <>
-              <dt className="text-muted-foreground">Fallback</dt>
-              <dd data-testid="selector-fallback">{fallbackText(fallback)}. Showing the rules choice.</dd>
+              <dt className="text-muted-foreground">{pending ? "Meanwhile" : "Fallback"}</dt>
+              <dd data-testid="selector-fallback">
+                {fallbackText(fallback)}
+                {pending ? "." : ". Showing the rules choice."}
+              </dd>
             </>
           )}
           {layout && (
             <>
               <dt className="text-muted-foreground">Sent to Jev</dt>
-              <dd>{layout.selector.requests === 0 ? "nothing" : `${layout.selector.requests} request(s)`}</dd>
+              <dd>
+                {layout.selector.requests === 0
+                  ? "nothing"
+                  : `${layout.selector.requests} request${layout.selector.requests > 1 ? "s" : ""} (headings, short excerpts, counts)`}
+              </dd>
               <dt className="text-muted-foreground">Revision</dt>
               <dd>{layout.revision}</dd>
             </>

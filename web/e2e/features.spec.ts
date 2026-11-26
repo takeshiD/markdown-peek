@@ -114,7 +114,8 @@ test("outline filter, front matter, code highlighting, mermaid, math source, GFM
 
 test("guided reading opens beside the text and closes", async ({ page, server }) => {
   await openApp(page, server);
-  await page.getByRole("button", { name: "Guided reading" }).click();
+  await page.getByTestId("view-menu").click();
+  await page.getByRole("menuitemcheckbox", { name: /Guided reading/ }).click();
   const panel = page.getByTestId("guided-panel");
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Guided reading");
@@ -126,7 +127,8 @@ test("guided reading opens beside the text and closes", async ({ page, server })
 
 test("Generated UI lens renders /api/gui components", async ({ page, server }) => {
   await openApp(page, server);
-  await page.getByRole("button", { name: "Generated UI" }).click();
+  await page.getByTestId("view-menu").click();
+  await page.getByRole("menuitemcheckbox", { name: /Generated UI/ }).click();
   const sheet = page.getByRole("dialog", { name: "Generated UI" });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByTestId("lens-body").locator(".gui-panel").first()).toBeVisible({ timeout: 15_000 });

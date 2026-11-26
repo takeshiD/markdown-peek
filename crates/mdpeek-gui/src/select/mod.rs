@@ -758,6 +758,36 @@ pub fn adaptive_layout_with(
         });
     }
 
+    // A document-level aid whose items all come from one section that already
+    // has its own aid (e.g. ActionItems built from the only task list, next to
+    // that section's Checklist) would show the same lines twice: keep the
+    // section one, which sits beside its text.
+    let section_ranges: Vec<_> = placements
+        .iter()
+        .filter(|p| p.scope == "section")
+        .filter_map(|p| p.node.meta().source_range)
+        .collect();
+    let (dupes, rest): (Vec<_>, Vec<_>) = placements.into_iter().partition(|p| {
+        p.scope == "document"
+            && p.node.meta().source_range.is_some_and(|d| {
+                section_ranges
+                    .iter()
+                    .any(|s| s.start_line <= d.start_line && d.end_line <= s.end_line)
+            })
+    });
+    placements = rest;
+    for p in dupes {
+        skipped.push(Skipped {
+            scope: p.scope,
+            anchor: p.anchor,
+            reason_code: "covered_by_section".into(),
+            by: p.why.by,
+            helps: Some(p.why.helps),
+            confidence: Some(p.why.confidence),
+            fallback: None,
+        });
+    }
+
     // Validate every node (allowlist + sourceRange bounds); drop failures.
     let mut kept = Vec::new();
     for mut p in placements {

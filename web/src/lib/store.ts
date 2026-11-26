@@ -17,7 +17,15 @@ import type {
 
 export const STORAGE_KEY = "mdpeek.ui.v1";
 
-export interface DocPrefs { pinned: string[]; hidden: string[] }
+export interface DocPrefs {
+  pinned: string[];
+  hidden: string[];
+  /** Reader-side ticks for checklist / action items, keyed by widget + item text.
+   *  Kept in this browser only; the Markdown file is never modified. */
+  marks?: Record<string, boolean>;
+  /** Current step per StepNavigator widget. */
+  steps?: Record<string, number>;
+}
 export interface Prefs {
   mode: Mode;
   theme: ThemePref;

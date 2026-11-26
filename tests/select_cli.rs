@@ -278,3 +278,22 @@ fn empty_warning_alert_is_not_a_callout() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(!stdout.contains("\"body\": \"\""), "empty callout emitted: {stdout}");
 }
+
+#[test]
+fn document_aid_covered_by_a_section_aid_is_not_shown_twice() {
+    // In the E2E sample runbook the only task list lives in one section, so
+    // document-level ActionItems and that section's Checklist would list the
+    // same lines: only the section aid (beside its text) is kept.
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web/e2e/docs/deploy-guide.md");
+    let dir = tempfile::tempdir().unwrap();
+    let out = assert_cmd::Command::cargo_bin("mdpeek").unwrap()
+        .arg("select").arg(&file)
+        .env("HOME", dir.path()).env("XDG_CONFIG_HOME", dir.path()).env_remove("TYPESAFE_API_KEY")
+        .output().unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let kinds: Vec<String> = v["placements"].as_array().unwrap().iter().map(|p| format!("{}:{}", p["scope"].as_str().unwrap(), p["node"]["kind"].as_str().unwrap())).collect();
+    assert!(kinds.contains(&"section:Checklist".to_string()), "{kinds:?}");
+    assert!(!kinds.contains(&"document:ActionItems".to_string()), "duplicate shown: {kinds:?}");
+    assert!(v["skipped"].as_array().unwrap().iter().any(|s| s["reason_code"] == "covered_by_section"), "{}", v["skipped"]);
+}

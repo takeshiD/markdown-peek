@@ -85,15 +85,37 @@ export function kindLabel(kind: string): string {
 }
 
 const FALLBACK_TEXT: Record<string, string> = {
-  timeout: "Jev did not answer in time",
-  offline: "Jev could not be reached",
-  rate_limited: "Jev rate limit reached",
-  invalid_answer: "Jev returned an answer that could not be used",
+  pending: "Still choosing; the rules choice is shown until the answer arrives",
+  timeout: "The selector did not answer in time",
+  offline: "The selector could not be reached",
+  rate_limited: "The selector rate limit was reached",
+  overloaded: "The selector service is overloaded",
+  unauthorized: "The API key was rejected",
+  server_error: "The selector service returned an error",
+  http_error: "The selector rejected the request",
+  invalid_response: "The selector sent a response that could not be read",
+  invalid_answer: "The selector returned an answer that could not be used",
   disabled: "Network use is off (allow_network = false)",
   missing_key: "No TYPESAFE_API_KEY was set",
+  insecure_base_url: "base_url must use https",
   not_built: "This build has no Jev support",
   fake_script_error: "The fake selector script could not be read",
 };
+
+/** A few words for the top bar (the popover has the full sentence). */
+const FALLBACK_SHORT: Record<string, string> = {
+  disabled: "network off",
+  missing_key: "no key",
+  timeout: "timed out",
+  offline: "offline",
+  rate_limited: "rate limited",
+  overloaded: "overloaded",
+  unauthorized: "key rejected",
+  not_built: "not built",
+};
+export function fallbackShort(code: string): string {
+  return FALLBACK_SHORT[code] ?? "fallback";
+}
 export function fallbackText(code: string): string {
   return FALLBACK_TEXT[code] ?? code.replace(/_/g, " ");
 }

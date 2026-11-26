@@ -222,9 +222,18 @@ function DesktopPanes() {
   );
 }
 
+/** Keep the tab title on the open file (it changes without a page load). */
+function useDocTitle() {
+  const title = useStore((s) => s.doc.title);
+  useEffect(() => {
+    if (title) document.title = `${title} - mdpeek`;
+  }, [title]);
+}
+
 export function App() {
   const mobile = useMobile();
   useTheme();
+  useDocTitle();
   useShortcuts(mobile);
   return (
     <TooltipProvider delayDuration={400}>

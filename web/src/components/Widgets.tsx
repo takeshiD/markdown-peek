@@ -17,6 +17,7 @@ import { Render } from "../registry";
 import { docPrefs, useStore } from "../lib/store";
 import { fetchAdaptive, hideWidget, showWidget, togglePin } from "../lib/actions";
 import { jumpToRange } from "../lib/nav";
+import { WidgetKeyCtx } from "../lib/progress";
 import type { AdaptiveLayout, Placement } from "../lib/types";
 import { fallbackText, kindLabel, widgetKey } from "../lib/types";
 
@@ -91,7 +92,9 @@ export function WidgetNote({
 }) {
   const layout = useStore((s) => s.layout)!;
   const [open, setOpen] = useState(!collapsible);
-  const title = kindLabel(p.node.kind);
+  // A shell block reads better as "Commands" than the generic kind label.
+  const title =
+    p.node.kind === "ConfigViewer" && (p.node as { format?: string }).format === "shell" ? "Commands" : kindLabel(p.node.kind);
   const r = p.node.sourceRange ?? p.anchor.range;
   return (
     <section
@@ -141,7 +144,9 @@ export function WidgetNote({
       </header>
       {open && (
         <PanelChrome.Provider value="bare">
-          <Render node={p.node} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
+          <WidgetKeyCtx.Provider value={widgetKey(p)}>
+            <Render node={p.node} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
+          </WidgetKeyCtx.Provider>
         </PanelChrome.Provider>
       )}
     </section>

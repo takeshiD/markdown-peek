@@ -5,8 +5,10 @@
 // nodes (auto-escaped) and code/config renders inside <pre>. Nothing here
 // evaluates content.
 
-import { createContext, useContext } from "react";
-import { Check } from "lucide-react";
+import { createContext, useContext, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronLeft, ChevronRight, Copy } from "lucide-react";
+import { WidgetKeyCtx, copyText, useMark, useStep, useWidgetMarks } from "../lib/progress";
+import { announce, docPrefs, useStore } from "../lib/store";
 import type {
   UiNode,
   NodeMeta,
@@ -37,15 +39,6 @@ function MetaBadges({ meta }: { meta: NodeMeta }) {
     <span className="gui-badges">
       {meta.origin === "llm" && <span className="gui-badge">generated, verify</span>}
       {meta.lowConfidence && <span className="gui-badge">low confidence</span>}
-    </span>
-  );
-}
-
-/** A non-interactive check mark (widgets are read-only views of the source). */
-function CheckMark({ on }: { on: boolean }) {
-  return (
-    <span className={on ? "gui-check is-on" : "gui-check"} role="img" aria-label={on ? "done" : "not done"}>
-      {on ? <Check aria-hidden="true" /> : null}
     </span>
   );
 }
@@ -134,54 +127,6 @@ export function Tabs({ node, onJump }: NodeProps<Extract<UiNode, { kind: "Tabs" 
   );
 }
 
-export function Checklist({ node, onJump }: NodeProps<Extract<UiNode, { kind: "Checklist" }>>) {
-  // In a margin note the section is already named in the note header.
-  const bare = useContext(PanelChrome) === "bare";
-  const done = node.items.filter((i) => i.checked).length;
-  return (
-    <Panel title={`Checklist (${done}/${node.items.length})`} meta={node}>
-      <ul className="gui-checklist">
-        {node.items.map((item, i) => (
-          <li key={i} className={item.checked ? "is-checked" : ""}>
-            <CheckMark on={item.checked} />
-            <span><InlineText text={item.title} /></span>
-            {item.category && !bare && <span className="gui-tag">{item.category}</span>}
-            <SourceLink range={item.sourceRange} onJump={onJump} />
-          </li>
-        ))}
-      </ul>
-    </Panel>
-  );
-}
-
-export function DataTable({ node, onJump }: NodeProps<Extract<UiNode, { kind: "DataTable" }>>) {
-  return (
-    <Panel title="Table" meta={node}>
-      <div className="gui-tablewrap">
-        <table className="gui-table">
-          <thead>
-            <tr>
-              {node.columns.map((c) => (
-                <th key={c.key}>{c.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {node.rows.map((row, i) => (
-              <tr key={i}>
-                {node.columns.map((c) => (
-                  <td key={c.key}>{String(row[c.key] ?? "")}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <SourceLink range={node.sourceRange} onJump={onJump} />
-    </Panel>
-  );
-}
-
 export function Callout({ node, onJump }: NodeProps<Extract<UiNode, { kind: "Callout" }>>) {
   const chrome = useContext(PanelChrome);
   if (chrome === "bare") {
@@ -218,10 +163,272 @@ export function Diagram({ node, onJump }: NodeProps<Extract<UiNode, { kind: "Dia
   );
 }
 
+// --- operable widgets: progress, stepper, copy, sort ---------------------
+// These add an action the plain text cannot offer. Ticks and the current
+// step are kept per document in this browser (lib/progress); the Markdown
+// file is never modified.
+
+/** A tick-able row: the whole label toggles; the source chip stays separate. */
+function TickRow({
+  text,
+  fromSource,
+  extra,
+  range,
+  onJump,
+}: {
+  text: string;
+  fromSource: boolean;
+  extra?: React.ReactNode;
+  range?: SourceRange;
+  onJump?: OnJump;
+}) {
+  const [on, toggle] = useMark(text, fromSource);
+  return (
+    <li className={on ? "is-checked" : ""}>
+      <button type="button" role="checkbox" aria-checked={on} className="gui-tick" onClick={toggle}>
+        <span className={on ? "gui-check is-on" : "gui-check"} aria-hidden="true">
+          {on ? <Check /> : null}
+        </span>
+        <span className="gui-tick__label">
+          <InlineText text={text} />
+        </span>
+      </button>
+      {extra}
+      <SourceLink range={range} onJump={onJump} />
+    </li>
+  );
+}
+
+/** "2 of 4 done" with a thin meter, plus a reset when ticks differ from the file. */
+function Progress({ done, total }: { done: number; total: number }) {
+  const { changed, reset } = useWidgetMarks();
+  return (
+    <div className="gui-progress">
+      <span className="gui-progress__text">
+        {done} of {total} done
+      </span>
+      <span className="gui-meter" aria-hidden="true">
+        <span className="gui-meter__fill" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
+      </span>
+      {changed && (
+        <button type="button" className="gui-linkish gui-progress__reset" onClick={reset} title="Ticks are kept in this browser only. Reset returns to what the file says.">
+          Reset to file
+        </button>
+      )}
+    </div>
+  );
+}
+
+function useDoneCount(items: { text: string; fromSource: boolean }[]): number {
+  const wk = useContext(WidgetKeyCtx);
+  return useStore((s) => {
+    const marks = docPrefs(s).marks ?? {};
+    return items.filter((it) => (wk ? (marks[`${wk}|${it.text}`] ?? it.fromSource) : it.fromSource)).length;
+  });
+}
+
+export function Checklist({ node, onJump }: NodeProps<Extract<UiNode, { kind: "Checklist" }>>) {
+  const bare = useContext(PanelChrome) === "bare";
+  const done = useDoneCount(node.items.map((i) => ({ text: i.title, fromSource: i.checked })));
+  return (
+    <Panel title="Checklist" meta={node}>
+      <Progress done={done} total={node.items.length} />
+      <ul className="gui-checklist">
+        {node.items.map((item, i) => (
+          <TickRow
+            key={i}
+            text={item.title}
+            fromSource={item.checked}
+            extra={item.category && !bare ? <span className="gui-tag">{item.category}</span> : null}
+            range={item.sourceRange}
+            onJump={onJump}
+          />
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+export function ActionItems({ node, onJump }: NodeProps<Extract<UiNode, { kind: "ActionItems" }>>) {
+  const done = useDoneCount(node.items.map((i) => ({ text: i.task, fromSource: i.status === "done" })));
+  return (
+    <Panel title="Action items" meta={node}>
+      <Progress done={done} total={node.items.length} />
+      <ul className="gui-checklist">
+        {node.items.map((it, i) => (
+          <TickRow
+            key={i}
+            text={it.task}
+            fromSource={it.status === "done"}
+            extra={
+              <>
+                {it.assignee && <span className="gui-tag">{it.assignee}</span>}
+                {it.dueDate && <span className="gui-tag">{it.dueDate}</span>}
+                <ConfBadge c={it.confidence} />
+              </>
+            }
+            range={it.sourceRange}
+            onJump={onJump}
+          />
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+export function StepNavigator({ node, onJump }: NodeProps<Extract<UiNode, { kind: "StepNavigator" }>>) {
+  const n = node.steps.length;
+  const [cur, setCur] = useStep(n);
+  return (
+    <Panel title="Steps" meta={node}>
+      <div className="gui-stepper" role="group" aria-label={`Step ${cur + 1} of ${n}`}>
+        <span className="gui-progress__text" aria-live="polite">
+          Step {cur + 1} of {n}
+        </span>
+        <span className="gui-meter" aria-hidden="true">
+          <span className="gui-meter__fill" style={{ width: `${((cur + 1) / n) * 100}%` }} />
+        </span>
+        <span className="gui-stepper__nav">
+          <button type="button" className="gui-iconbtn" aria-label="Previous step" disabled={cur === 0} onClick={() => setCur(cur - 1)}>
+            <ChevronLeft aria-hidden="true" />
+          </button>
+          <button type="button" className="gui-iconbtn" aria-label="Next step" disabled={cur >= n - 1} onClick={() => setCur(cur + 1)}>
+            <ChevronRight aria-hidden="true" />
+          </button>
+        </span>
+      </div>
+      <ol className="gui-steps">
+        {node.steps.map((s, i) => (
+          <li key={i} className={i === cur ? "is-current" : i < cur ? "is-done" : ""} aria-current={i === cur ? "step" : undefined}>
+            <button type="button" className="gui-step" onClick={() => setCur(i)}>
+              <span className="gui-step__num" aria-hidden="true">
+                {i < cur ? <Check /> : i + 1}
+              </span>
+              <span className="gui-step__title">
+                <InlineText text={s.title} />
+                {i < cur && <span className="sr-only"> (done)</span>}
+              </span>
+            </button>
+            {s.duration && <span className="gui-tag">{s.duration}</span>}
+            <SourceLink range={s.sourceRange} onJump={onJump} />
+            {i === cur && s.body && <p className="gui-step__body">{s.body}</p>}
+            {i === cur && s.prerequisites && s.prerequisites.length > 0 && <small>Before this: {s.prerequisites.join(", ")}</small>}
+          </li>
+        ))}
+      </ol>
+    </Panel>
+  );
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="gui-iconbtn"
+      aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+      onClick={async () => {
+        const ok = await copyText(text);
+        setCopied(ok);
+        announce(ok ? `Copied ${label}` : "Copy failed");
+        if (ok) setTimeout(() => setCopied(false), 1500);
+      }}
+    >
+      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+    </button>
+  );
+}
+
 export function ConfigViewer({ node, onJump }: NodeProps<Extract<UiNode, { kind: "ConfigViewer" }>>) {
+  const isShell = (node.format as string) === "shell";
+  const lines = node.content.split("\n").filter((l) => l.trim().length > 0);
+  if (isShell) {
+    // Commands are shown and copied, never run (design §8).
+    return (
+      <Panel title={node.title ?? "Commands"} meta={node}>
+        <div className="gui-commands">
+          <div className="gui-commands__head">
+            <span className="gui-progress__text">{lines.length} commands</span>
+            <CopyButton text={lines.join("\n")} label="all commands" />
+          </div>
+          <ol className="gui-commands__list">
+            {lines.map((l, i) => (
+              <li key={i}>
+                <code>{l}</code>
+                <CopyButton text={l} label={`command ${i + 1}`} />
+              </li>
+            ))}
+          </ol>
+        </div>
+      </Panel>
+    );
+  }
   return (
     <Panel title={node.title ?? `Config (${node.format})`} meta={node}>
+      <div className="gui-commands__head">
+        <span className="gui-progress__text">{node.format}</span>
+        <CopyButton text={node.content} label={node.format} />
+      </div>
       <pre className="gui-code">{node.content}</pre>
+      <SourceLink range={node.sourceRange} onJump={onJump} />
+    </Panel>
+  );
+}
+
+export function DataTable({ node, onJump }: NodeProps<Extract<UiNode, { kind: "DataTable" }>>) {
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
+  const [q, setQ] = useState("");
+  const rows = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    let r = node.rows.filter((row) => !needle || node.columns.some((c) => String(row[c.key] ?? "").toLowerCase().includes(needle)));
+    if (sort) {
+      const num = (v: unknown) => Number(String(v ?? "").replace(/[^0-9.+-]/g, ""));
+      r = [...r].sort((a, b) => {
+        const x = a[sort.key], y = b[sort.key];
+        const nx = num(x), ny = num(y);
+        const cmp = !isNaN(nx) && !isNaN(ny) && String(x ?? "").trim() !== "" && String(y ?? "").trim() !== ""
+          ? nx - ny
+          : String(x ?? "").localeCompare(String(y ?? ""), undefined, { numeric: true });
+        return cmp * sort.dir;
+      });
+    }
+    return r;
+  }, [node.rows, node.columns, sort, q]);
+  const cycle = (key: string) => setSort((s) => (!s || s.key !== key ? { key, dir: 1 } : s.dir === 1 ? { key, dir: -1 } : null));
+  return (
+    <Panel title="Table" meta={node}>
+      {node.rows.length > 5 && (
+        <input className="gui-filter" type="search" placeholder="Filter rows" aria-label="Filter table rows" value={q} onChange={(e) => setQ(e.target.value)} />
+      )}
+      <div className="gui-tablewrap">
+        <table className="gui-table">
+          <thead>
+            <tr>
+              {node.columns.map((c) => {
+                const dir = sort?.key === c.key ? sort.dir : 0;
+                return (
+                  <th key={c.key} aria-sort={dir === 1 ? "ascending" : dir === -1 ? "descending" : "none"}>
+                    <button type="button" className="gui-sortbtn" onClick={() => cycle(c.key)}>
+                      {c.label}
+                      {dir === 1 ? <ArrowUp aria-hidden="true" /> : dir === -1 ? <ArrowDown aria-hidden="true" /> : <ArrowUpDown aria-hidden="true" className="opacity-40" />}
+                    </button>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i}>
+                {node.columns.map((c) => (
+                  <td key={c.key}>{String(row[c.key] ?? "")}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {q && <p className="gui-tag">{rows.length} of {node.rows.length} rows</p>}
       <SourceLink range={node.sourceRange} onJump={onJump} />
     </Panel>
   );
@@ -324,26 +531,6 @@ export function DecisionLog({ node, onJump }: NodeProps<Extract<UiNode, { kind: 
           {d.impact && <div className="gui-sub">Impact: {d.impact}</div>}
         </div>
       ))}
-    </Panel>
-  );
-}
-
-export function ActionItems({ node, onJump }: NodeProps<Extract<UiNode, { kind: "ActionItems" }>>) {
-  const done = node.items.filter((i) => i.status === "done").length;
-  return (
-    <Panel title={`Action Items (${done}/${node.items.length})`} meta={node}>
-      <ul className="gui-checklist">
-        {node.items.map((it, i) => (
-          <li key={i} className={it.status === "done" ? "is-checked" : ""}>
-            <CheckMark on={it.status === "done"} />
-            <span><InlineText text={it.task} /></span>
-            {it.assignee && <span className="gui-tag">{it.assignee}</span>}
-            {it.dueDate && <span className="gui-tag">{it.dueDate}</span>}
-            <ConfBadge c={it.confidence} />
-            <SourceLink range={it.sourceRange} onJump={onJump} />
-          </li>
-        ))}
-      </ul>
     </Panel>
   );
 }
@@ -480,26 +667,6 @@ export function CharacterRoster({ node, onJump }: NodeProps<Extract<UiNode, { ki
           </li>
         ))}
       </ul>
-    </Panel>
-  );
-}
-
-export function StepNavigator({ node, onJump }: NodeProps<Extract<UiNode, { kind: "StepNavigator" }>>) {
-  return (
-    <Panel title="Steps" meta={node}>
-      <ol className="gui-steps">
-        {node.steps.map((s, i) => (
-          <li key={i}>
-            <strong><InlineText text={s.title} /></strong>
-            {s.duration && <span className="gui-tag">{s.duration}</span>}
-            {s.body && <p>{s.body}</p>}
-            {s.prerequisites && s.prerequisites.length > 0 && (
-              <small>prereq: {s.prerequisites.join(", ")}</small>
-            )}
-            <SourceLink range={s.sourceRange} onJump={onJump} />
-          </li>
-        ))}
-      </ol>
     </Panel>
   );
 }

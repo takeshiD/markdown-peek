@@ -351,14 +351,83 @@
   li.is-checked > span:not(.gui-check):not(.gui-tag) { color: var(--muted-foreground); text-decoration: line-through; }
   .gui-tag { font-size: 12px; color: var(--muted-foreground); }
   .gui-sub { color: var(--muted-foreground); font-size: 12.5px; width: 100%; }
+  /* Source chips are quiet (graphite) until pointed at: cobalt is for actions,
+     and a column of blue line numbers competes with the text. */
   .gui-srclink {
-    font-size: 12px; font-variant-numeric: tabular-nums; color: var(--primary);
+    font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted-foreground);
     border-radius: 4px; padding: 0 4px; cursor: pointer; white-space: nowrap;
+    text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px;
+  }
+  .gui-srclink:hover, .gui-srclink:focus-visible { color: var(--primary); text-decoration-color: currentColor; }
+  /* Item-level chips only show on row hover/focus; the note header chip stays. */
+  @media (hover: hover) {
+    .gui-panel li .gui-srclink { opacity: 0; transition: opacity 120ms; }
+    .gui-panel li:hover .gui-srclink, .gui-panel li:focus-within .gui-srclink { opacity: 1; }
   }
   @media (max-width: 767px) {
     .gui-srclink, .gui-linkish { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; }
   }
-  .gui-srclink:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+  .gui-srclink:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+
+  /* Operable widgets ------------------------------------------------------ */
+  .gui-progress { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+  .gui-progress__text { font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .gui-progress .gui-meter, .gui-stepper .gui-meter { flex: 1; min-width: 40px; display: block; }
+  .gui-meter__fill { display: block; transition: width 160ms ease-out; }
+  .gui-progress__reset { font-size: 12px; white-space: nowrap; }
+  /* Row model for tick-able and step lists: text in a flexible first column,
+     tags and the source chip in auto columns, so a long line wraps inside its
+     own column and the (hover-revealed) chip never drops onto an empty row. */
+  .gui-checklist > li, .gui-steps > li {
+    padding-left: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-columns: max-content;
+    grid-auto-flow: column; column-gap: 6px; align-items: baseline;
+  }
+  .gui-checklist > li > * + *, .gui-steps > li > * + * { margin-left: 0; }
+  .gui-steps > li > .gui-step__body, .gui-steps > li > small { grid-row: 2; grid-column: 1 / -1; }
+  .gui-tick { display: inline-flex; align-items: baseline; gap: 8px; flex: 1 1 auto; min-width: 0; text-align: left; cursor: pointer; border-radius: 3px; }
+  .gui-tick > .gui-check { position: static; transform: translateY(2px); }
+  @media (max-width: 767px) {
+    .gui-tick, .gui-step { min-height: 44px; align-items: center; }
+    .gui-tick > .gui-check, .gui-step__num { transform: none; }
+  }
+  .gui-tick:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .gui-tick:hover .gui-check { border-color: var(--foreground); }
+  .gui-check.is-on { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+  li.is-checked .gui-tick__label { color: var(--muted-foreground); text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 50%, transparent); }
+
+  .gui-stepper { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+  .gui-stepper__nav { display: inline-flex; gap: 2px; }
+  .gui-iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 5px; color: var(--muted-foreground); }
+  .gui-iconbtn:hover:not(:disabled) { background: var(--muted); color: var(--foreground); }
+  .gui-iconbtn:disabled { opacity: 0.35; cursor: default; }
+  .gui-iconbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .gui-iconbtn svg { width: 15px; height: 15px; }
+  @media (max-width: 767px) { .gui-iconbtn { width: 44px; height: 44px; } }
+  /* Same row model as the checklist: the (hover-revealed) chip stays on the
+     line it belongs to instead of wrapping into an empty gap. */
+
+  .gui-steps > li::before { content: none; }
+  .gui-step { display: inline-flex; align-items: baseline; gap: 8px; text-align: left; border-radius: 4px; cursor: pointer; }
+  .gui-step:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .gui-step__num { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); border: 1px solid var(--border); transform: translateY(-1px); }
+  .gui-step__num svg { width: 11px; height: 11px; stroke-width: 3; }
+  .gui-steps > li.is-done .gui-step__title { color: var(--muted-foreground); }
+  .gui-steps > li.is-done .gui-step__num { border-color: transparent; background: var(--muted); }
+  .gui-steps > li.is-current .gui-step__num { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+  .gui-steps > li.is-current .gui-step__title { font-weight: 600; }
+  .gui-step__body { margin: 4px 0 2px 26px; color: var(--muted-foreground); }
+
+  .gui-commands__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .gui-commands__list { gap: 2px; }
+  .gui-commands__list > li { display: flex !important; align-items: center; gap: 4px; background: var(--muted); border-radius: 4px; padding: 2px 2px 2px 8px; }
+  .gui-commands__list > li > code { flex: 1; min-width: 0; overflow-x: auto; white-space: pre; background: none !important; padding: 0 !important; font-size: 12.5px; }
+  .gui-commands__list > li > * + * { margin-left: 0; }
+
+  .gui-sortbtn { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; cursor: pointer; border-radius: 3px; }
+  .gui-sortbtn svg { width: 12px; height: 12px; }
+  .gui-sortbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .gui-filter { width: 100%; font-size: 12.5px; padding: 3px 8px; margin-bottom: 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+  .gui-filter:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
   .gui-code { font-family: var(--font-code); font-size: 12.5px; line-height: 1.5; background: var(--muted); border-radius: 4px; padding: 8px 10px; overflow: auto; white-space: pre; max-height: 260px; }
   .gui-tablewrap { overflow: auto; max-width: 100%; }
   .gui-table { border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }

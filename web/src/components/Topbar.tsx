@@ -3,6 +3,7 @@
 import {
   BookOpenText,
   ChevronDown,
+  Eye,
   Columns2,
   Command as CommandIcon,
   FileText,
@@ -28,8 +29,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Kbd } from "@/components/ui/kbd";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -194,6 +197,38 @@ function IconToggle({ label, pressed, onClick, icon: Icon, shortcut }: { label: 
   );
 }
 
+/** Secondary views and toggles, grouped so the bar stays quiet. */
+function ViewMenu({ autoscroll, guided, lens }: { autoscroll: boolean; guided: boolean; lens: boolean }) {
+  const active = autoscroll || guided || lens;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className={cn("h-8 gap-1.5 px-2 font-normal", active ? "text-foreground" : "text-muted-foreground")} data-testid="view-menu">
+          <Eye aria-hidden="true" /> View
+          <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuCheckboxItem checked={guided} onCheckedChange={(v) => setState({ guidedOpen: !!v, lensOpen: false })}>
+          <BookOpenText aria-hidden="true" /> Guided reading
+          <DropdownMenuShortcut>G</DropdownMenuShortcut>
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={lens} onCheckedChange={(v) => setState({ lensOpen: !!v })}>
+          <Sparkles aria-hidden="true" /> Generated UI
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={autoscroll} onCheckedChange={(v) => setPrefs({ autoscroll: !!v })}>
+          <LocateFixed aria-hidden="true" /> Follow live changes
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setState({ shortcutsOpen: true })}>
+          <Keyboard aria-hidden="true" /> Keyboard shortcuts
+          <DropdownMenuShortcut>?</DropdownMenuShortcut>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function Topbar({ mobile }: { mobile: boolean }) {
   const mode = useStore((s) => s.prefs.mode);
   const railCollapsed = useStore((s) => s.prefs.railCollapsed);
@@ -282,9 +317,7 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         />
       )}
       <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-      <IconToggle label="Follow live changes" pressed={autoscroll} onClick={() => setPrefs({ autoscroll: !autoscroll })} icon={LocateFixed} />
-      <IconToggle label="Guided reading" pressed={guided} onClick={() => setState({ guidedOpen: !guided, lensOpen: false })} icon={BookOpenText} shortcut="g" />
-      <IconToggle label="Generated UI" pressed={lens} onClick={() => setState({ lensOpen: !lens })} icon={Sparkles} />
+      <ViewMenu autoscroll={autoscroll} guided={guided} lens={lens} />
       <Button
         variant="outline"
         size="sm"
@@ -297,7 +330,6 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         <Kbd>{MOD} K</Kbd>
       </Button>
       <ThemeMenu />
-      <IconToggle label="Keyboard shortcuts" pressed={false} onClick={() => setState({ shortcutsOpen: true })} icon={Keyboard} shortcut="?" />
     </header>
   );
 }
