@@ -88,6 +88,14 @@ fn nested_ranges(node: &UiNode) -> Vec<SourceRange> {
         UiNode::Glossary(n) => n.terms.iter().filter_map(|t| t.source_range).collect(),
         UiNode::StepNavigator(n) => n.steps.iter().filter_map(|s| s.source_range).collect(),
         UiNode::CharacterRoster(n) => n.characters.iter().filter_map(|c| c.first_seen).collect(),
+        UiNode::ActionItems(n) => n.items.iter().filter_map(|i| i.source_range).collect(),
+        UiNode::OpenQuestions(n) => n.questions.iter().filter_map(|q| q.source_range).collect(),
+        UiNode::DecisionLog(n) => n.decisions.iter().filter_map(|d| d.source_range).collect(),
+        UiNode::SemanticOutline(n) => n
+            .groups
+            .iter()
+            .flat_map(|g| g.items.iter().filter_map(|i| i.source_range))
+            .collect(),
         UiNode::ObligationMatrix(n) => {
             n.obligations.iter().filter_map(|o| o.source_range).collect()
         }

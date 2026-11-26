@@ -279,3 +279,35 @@ ui-ux-pro-max(ローカル DB)で確認した適用ルール: Keyboard Navigatio
 - 既存 `/api/gui` のディスクキャッシュ(論点 E 不整合)は後続 issue。
 
 ## 11. 実装記録(kenshu-loop の結果をここに追記)
+
+### 11.1 発注 1(選択バックエンド)— 第1回納品 (2026-11-27)
+
+実装: `crates/mdpeek-gui/src/select/`(`sections`=①②、`mod`=③④⑤ + wire format、`jev`、`fake`、`cache`、`eval`)、`crates/mdpeek-server/src/adaptive.rs`(`GET /api/adaptive` + WS push)、`mdpeek select` / `mdpeek select-eval`、`[select]` 設定。
+
+設計からの変更点と理由:
+
+- **selector.provider は「実際に決めた側」**を表し、設定値は `selector.requested` に分けた(fallback 時に `provider:"rules", requested:"jev", fallback:"timeout"` となり UI が誤解しない)。`selector.requests` に外部送信回数を出す(送信有無を UI/テストで観察可能にするため)。
+- **キャッシュは raw 回答(noul/confidence/choice)を保存**し、閾値は composer で毎回適用する(閾値変更でキャッシュ無効化が不要)。キーは §3.7 の要素 + 候補 id 列。文書レベル質問(doc_type / doc_widget)は「見出し列 + rules doc_type + doc 候補 + ファイル名」のハッシュをキーにし、本文だけの変更では再質問しない。Jev 失敗時の rules 結果はキャッシュしない(次回は Jev を再試行)。
+- **未変更セクションは質問自体を送らない**: 全セクションがキャッシュ命中なら HTTP 0 回、一部変更なら変更セクションだけを 1 リクエストで送る。
+- **Jev の文書レベルは 1 widget**(`doc_helps` + `doc_widget`)。rules は従来どおり最大 3。複数選択を noul×候補で聞く案は質問数が増えるため見送り。
+- **`noul` 回答形**は一次資料で「確率」とだけあり形が未確定のため、数値そのもの / `{noul|probability|yes|p: 数値}` を受理し、それ以外は型違い(`invalid_answer`)とした。**実 API での形確認は発注者の疎通試験で要確認**。
+- **429/529**: `retry-after`(秒)が全体 deadline 内に収まるときだけ 1 回再試行。無ければ 500ms 待機で 1 回。deadline を超える場合は即 fallback。SDK 既定(10s, 2 回)より短いのは対話用途(§4 DoS/UX)のため。
+- `ConfigViewer` に `format: "shell"` を追加(`ConfigViewer:commands` 用。コマンドは表示/コピーのみで実行しない)。web registry 側の表示対応は発注 2。
+- `validate_nodes` の入れ子 range 検査に ActionItems / OpenQuestions / DecisionLog / SemanticOutline を追加。文書レベル widget の `meta.sourceRange` は項目 range の包含範囲。
+- list/heading 由来の widget テキストは parser の平坦化テキストではなく**ソース行から marker を除いた原文**を使う(インライン markup を保持し、言い換えを生まない)。
+- 設定ファイルのパースエラー表示は**メッセージと行番号のみ**に変更(従来は該当行を表示しており、誤って書かれた秘密値が stderr に出るため)。`api_key` は `[select]` の未知キーとしてエラー(従来どおり警告 + 既定値)。
+- HTTP クライアント内部(hyper/reqwest/h2/rustls)の tracing は `RUST_LOG` に関わらず off(ヘッダ・本文をログに出さないため)。select/eval の tracing は stderr(stdout は純 JSON)。
+
+検証(すべてキー無し・ローカル模擬サーバ): `tests/select_jev.rs`(送信内容・閾値・invalid/missing・401/5xx/壊れた JSON/timeout 既定 4s/429 再試行 1 回・retry-after 尊重/529 deadline 超過/接続不可/キー無し/未許可/設定にキー)、`tests/adaptive_serve.rs`(GET・WS push・debounce・旧 revision 破棄・キャッシュ再利用で再送信は変更節のみ・ディスク非保存・ログに本文/キー無し)、`tests/select_cli.rs`(wire format・fake・eval・原文抽出 + range)。`cargo build --no-default-features` では `jev` が `fallback:"not_built"` で rules に degrade。
+
+評価(`mdpeek select-eval tests/fixtures/select`, 8 fixture: README / 設計書 / ADR / 手順書(runbook)/ 議事録 / changelog / 小説抜粋 / 製造指示書, ラベル付き 36 節):
+rules = 一致率 1.000、none 適切率 1.000、widget recall 1.000、p50 0.73ms / p95 1.01ms(release, 5 runs/doc, 2026-11-27 受注側環境)。**注意: fixture・ラベル・rules スコアを同一作業者が作成しており楽観的な値**。独立したラベル付けと実文書での再評価が必要。**Jev は未実行**(キー無し)— 数値なし。
+
+既知の制約: watcher(既存 PollWatcher)は mtime を秒単位で比較するため、同一秒内の連続保存は 1 回の変更として扱われる(既存挙動、未変更)。
+
+### 11.2 第2回納品(差し戻し対応, 2026-11-27)
+
+- **R10 不適合の修正**: `Callout:risk` の body が空だった(GFM alert ブロックの parser 平坦化テキストが空のため)。alert はソース行から `>` と `[!WARNING]` 等の marker 行を除いた原文、risk 段落はソース行そのものを body にした。sourceRange は引用ブロック/段落の行範囲。抽出テスト(`tests/select_cli.rs`)に Callout(非空・原文・range が本文行を含む)と RiskPanel(非空・原文)を追加。
+- `selector.requests` は失敗時も実際の送信回数(429 再試行を含む)を表示する(`Selector::last_requests`)。
+- fake 台本の書式を README に記載し、例 `tests/fake-select.json` を追加。台本の読込/パース失敗時は理由(I/O 種別・JSON の位置)を stderr に出す。
+- 未使用依存 `tokio-stream`(mdpeek-server)を削除。

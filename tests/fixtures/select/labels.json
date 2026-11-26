@@ -1,0 +1,53 @@
+{
+  "README.md": {
+    "fastgrep": "none",
+    "Features": "none",
+    "Installation": "ConfigViewer:commands",
+    "Usage": "none",
+    "Configuration": "ConfigViewer:config",
+    "License": "none"
+  },
+  "design-doc.md": {
+    "Overview": "none",
+    "Architecture": "none",
+    "Components": "DataTable:status",
+    "Risks": "Callout:risk",
+    "Open Questions": "none"
+  },
+  "adr-0007-cache.md": {
+    "Status": "none",
+    "Context": "none",
+    "Decision": "none",
+    "Consequences": "none"
+  },
+  "runbook-deploy.md": {
+    "Prerequisites": "Checklist",
+    "Steps": "StepNavigator",
+    "Commands": "ConfigViewer:commands",
+    "Rollback": "Callout:risk",
+    "Contacts": "none"
+  },
+  "minutes-2026-11-20.md": {
+    "Attendees": "none",
+    "Discussion": "none",
+    "Decisions": "none",
+    "Action Items": "Checklist"
+  },
+  "CHANGELOG.md": {
+    "Changelog": "Timeline",
+    "[1.3.0] - 2026-11-01": "none",
+    "[1.2.0] - 2026-09-14": "none",
+    "[1.0.0] - 2026-05-20": "none"
+  },
+  "novel-excerpt.md": {
+    "第一章 雨の駅": "none",
+    "第二章 手紙": "none",
+    "第三章 再会": "none"
+  },
+  "production-order.md": {
+    "概要": "none",
+    "材料": "none",
+    "工程": "StepNavigator",
+    "注意事項": "Callout:risk"
+  }
+}

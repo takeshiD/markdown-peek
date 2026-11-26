@@ -13,6 +13,7 @@ use crate::cli::ThemeChoice;
 use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 use mdpeek_analyzer::generation::DEFAULT_CONFIDENCE_THRESHOLD;
 use mdpeek_analyzer::{GenerationConfig, GenerationStrategy};
+use mdpeek_gui::select::{Provider, SelectConfig};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -29,6 +30,33 @@ pub struct Config {
     /// Generative-UI / LLM settings (rules-first vs LLM-first). Consumed by the
     /// generator (Layer 3); read here at startup.
     pub llm: LlmConfig,
+    /// Adaptive reading-aid selection (`mdpeek select`, `/api/adaptive`).
+    pub select: SelectSection,
+}
+
+/// `[select]` section (design `docs/design/jev-adaptive-ui.md` §5). There is
+/// deliberately **no key field**: the Jev API key is read only from the
+/// `TYPESAFE_API_KEY` environment variable, so `api_key = …` here is rejected
+/// as an unknown key.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SelectSection {
+    /// `"rules"` (default, offline) | `"jev"` | `"fake"` (scripted, tests/E2E).
+    pub provider: Option<Provider>,
+    /// Must be `true` for `provider = "jev"` to send anything over the network.
+    pub allow_network: Option<bool>,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+    pub timeout_ms: Option<u64>,
+    pub confidence_threshold: Option<f32>,
+    pub helps_threshold: Option<f32>,
+    pub max_questions: Option<usize>,
+    pub excerpt_chars: Option<usize>,
+    pub max_state_chars: Option<usize>,
+    pub debounce_ms: Option<u64>,
+    pub cache_entries: Option<usize>,
+    /// Scripted answers for `provider = "fake"` (JSON file).
+    pub fake_script: Option<PathBuf>,
 }
 
 /// `[server]` section: browser previewer defaults.
@@ -145,6 +173,28 @@ impl Config {
         }
     }
 
+    /// Resolve `[select]` onto the built-in defaults (timeout clamped to
+    /// 100..=30000 ms so a request always ends within a bounded time).
+    pub fn select_config(&self) -> SelectConfig {
+        let s = &self.select;
+        let d = SelectConfig::default();
+        SelectConfig {
+            provider: s.provider.unwrap_or(d.provider),
+            allow_network: s.allow_network.unwrap_or(d.allow_network),
+            model: s.model.clone().unwrap_or(d.model),
+            base_url: s.base_url.clone().unwrap_or(d.base_url),
+            timeout_ms: s.timeout_ms.unwrap_or(d.timeout_ms).clamp(100, 30_000),
+            confidence_threshold: s.confidence_threshold.unwrap_or(d.confidence_threshold),
+            helps_threshold: s.helps_threshold.unwrap_or(d.helps_threshold),
+            max_questions: s.max_questions.unwrap_or(d.max_questions).max(1),
+            excerpt_chars: s.excerpt_chars.unwrap_or(d.excerpt_chars),
+            max_state_chars: s.max_state_chars.unwrap_or(d.max_state_chars),
+            debounce_ms: s.debounce_ms.unwrap_or(d.debounce_ms),
+            cache_entries: s.cache_entries.unwrap_or(d.cache_entries).max(1),
+            fake_script: s.fake_script.clone(),
+        }
+    }
+
     /// Whether the `[llm]` section opted into LLM generation.
     pub fn llm_enabled(&self) -> bool {
         self.llm.enabled
@@ -159,7 +209,17 @@ impl Config {
         match toml::from_str(&content) {
             Ok(config) => config,
             Err(e) => {
-                eprintln!("mdpeek: warning: failed to parse {}: {e}", path.display());
+                // Print only the message (not the offending source line), so a
+                // secret mistakenly pasted into config.toml is never echoed.
+                let line = e
+                    .span()
+                    .map(|s| content[..s.start.min(content.len())].matches('\n').count() + 1);
+                eprintln!(
+                    "mdpeek: warning: failed to parse {}{}: {}",
+                    path.display(),
+                    line.map(|l| format!(" (line {l})")).unwrap_or_default(),
+                    e.message().trim_end()
+                );
                 Self::default()
             }
         }
@@ -218,6 +278,32 @@ mod tests {
         assert_eq!(config.server.port.as_deref(), Some("9999"));
         assert!(config.server.host.is_none());
         assert!(config.default_mode.is_none());
+    }
+
+    #[test]
+    fn select_defaults_are_offline_rules() {
+        let config: Config = toml::from_str("").unwrap();
+        let s = config.select_config();
+        assert_eq!(s.provider, Provider::Rules);
+        assert!(!s.allow_network);
+        assert_eq!(s.timeout_ms, 4000);
+        assert_eq!(s.debounce_ms, 800);
+        assert!((s.helps_threshold - 0.5).abs() < f32::EPSILON);
+        assert!((s.confidence_threshold - 0.6).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn select_section_parses_and_rejects_key_fields() {
+        let config: Config = toml::from_str(
+            "[select]\nprovider = \"jev\"\nallow_network = true\nbase_url = \"http://127.0.0.1:9\"\ntimeout_ms = 999999\n",
+        )
+        .unwrap();
+        let s = config.select_config();
+        assert_eq!(s.provider, Provider::Jev);
+        assert!(s.allow_network);
+        assert_eq!(s.timeout_ms, 30_000);
+        assert!(toml::from_str::<Config>("[select]\napi_key = \"x\"").is_err());
+        assert!(toml::from_str::<Config>("[select]\nbogus = 1").is_err());
     }
 
     #[test]

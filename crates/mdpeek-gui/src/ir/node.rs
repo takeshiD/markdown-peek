@@ -385,6 +385,9 @@ pub enum ConfigFormat {
     Yaml,
     Toml,
     Env,
+    /// Shell commands (copy-only; never executed). Used by the adaptive
+    /// selector's `ConfigViewer:commands` widget.
+    Shell,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

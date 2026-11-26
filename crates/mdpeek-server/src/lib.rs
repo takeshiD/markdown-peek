@@ -1,3 +1,4 @@
+mod adaptive;
 mod explorer;
 mod scrolly;
 
@@ -26,6 +27,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use mdpeek_gui::generator::llm::LlmBackendConfig;
+use mdpeek_gui::select::SelectConfig;
 use mdpeek_render_html::HtmlEmitter;
 use mdpeek_watcher::watch_channel;
 
@@ -43,6 +45,8 @@ struct AppState {
     /// Layer 3 Generative-UI backend for `/api/gui`. `None` = rules-only
     /// (offline default); `Some` = the LLM backend resolved from `[llm]` config.
     llm: Arc<Option<LlmBackendConfig>>,
+    /// Adaptive reading-aid selection (`/api/adaptive` + WS `adaptive`).
+    adaptive: Arc<adaptive::Adaptive>,
 }
 
 /// What the server watches and re-renders on change: a single file (normal
@@ -100,6 +104,7 @@ pub fn serve(
     port: String,
     theme: Theme,
     llm: Option<LlmBackendConfig>,
+    select: SelectConfig,
 ) {
     // Discover the enclosing repo/worktrees from where the user ran mdpeek so
     // the explorer sidebar (#14) works regardless of the file argument.
@@ -110,6 +115,7 @@ pub fn serve(
     let active = explorer::initial_active(&watch_path, &scan_root).unwrap_or(watch_path);
 
     let (tx, _) = broadcast::channel::<Message>(16);
+    let adaptive = Arc::new(adaptive::Adaptive::new(select));
     let file_path = Arc::new(RwLock::new(active.clone()));
     let theme = Arc::new(RwLock::new(theme));
     let (rewatch_tx, rewatch_rx) = std::sync::mpsc::channel::<WatchTarget>();
@@ -121,6 +127,7 @@ pub fn serve(
         scan_root: Arc::new(scan_root),
         rewatch: rewatch_tx,
         llm: Arc::new(llm),
+        adaptive: Arc::clone(&adaptive),
     };
     let server = std::thread::spawn(move || run_server(state, host, port));
 
@@ -133,19 +140,35 @@ pub fn serve(
     let mut target = WatchTarget::Single(active);
     watch_target(&mut handle, &mut watched, &target);
     broadcast_for(&target, &tx);
+    schedule_adaptive(&target, &adaptive, &tx);
     loop {
         while let Ok(next) = rewatch_rx.try_recv() {
             watch_target(&mut handle, &mut watched, &next);
             target = next;
             broadcast_for(&target, &tx);
+            schedule_adaptive(&target, &adaptive, &tx);
         }
         match rx.recv_timeout(Duration::from_millis(300)) {
-            Ok(()) => broadcast_for(&target, &tx),
+            Ok(()) => {
+                broadcast_for(&target, &tx);
+                schedule_adaptive(&target, &adaptive, &tx);
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     let _ = server.join();
+}
+
+/// Re-select the adaptive layout for a single-file target (not in diff mode).
+fn schedule_adaptive(
+    target: &WatchTarget,
+    adaptive: &Arc<adaptive::Adaptive>,
+    tx: &broadcast::Sender<Message>,
+) {
+    if let WatchTarget::Single(p) = target {
+        adaptive.schedule(p.clone(), tx.clone());
+    }
 }
 
 fn target_paths(target: &WatchTarget) -> Vec<PathBuf> {
@@ -210,6 +233,7 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/select", post(select_handler))
         .route("/api/diff", post(diff_handler))
         .route("/api/gui", get(gui_handler))
+        .route("/api/adaptive", get(adaptive_handler))
         .route("/api/scrolly", get(scrolly_handler))
         .route("/api/scrolly/ask", post(scrolly_ask_handler))
         .route("/static/{*path}", get(static_handler))
@@ -553,6 +577,37 @@ fn escape_html_min(s: &str) -> String {
 
 /// `GET /api/tree` — the discovered repo/worktree markdown tree plus the
 /// currently active file, for the explorer sidebar (#14).
+/// `GET /api/adaptive` — the current file's AdaptiveLayout (R6). Selection
+/// runs on a plain OS thread (the Jev client drives its own runtime). If the
+/// file changes while selecting, the stale result is dropped and recomputed.
+async fn adaptive_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let adaptive = Arc::clone(&state.adaptive);
+    let (otx, orx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let mut result = None;
+        for _ in 0..3 {
+            let rev = adaptive.current_revision();
+            let r = adaptive.compute(&file_path, rev);
+            let fresh = adaptive.current_revision() == rev;
+            result = Some(r);
+            if fresh {
+                break;
+            }
+        }
+        let _ = otx.send(result.unwrap());
+    });
+    match orx.await {
+        Ok(Ok(layout)) => Json(serde_json::to_value(layout).unwrap_or_default()).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("cannot read file: {}", e.kind()) })),
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 async fn tree_handler(State(state): State<AppState>) -> impl IntoResponse {
     let tree = explorer::build_tree(state.scan_root.as_ref());
     let active = state

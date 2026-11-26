@@ -1,5 +1,6 @@
 use crate::config::{BrowserTheme, Config, DefaultMode};
 use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
+use mdpeek_gui::select::{Provider, SelectConfig};
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
@@ -41,6 +42,44 @@ pub enum Commands {
     Term(TermArg),
     /// Generate Generative-UI IR (JSON) from a markdown file (Layer 3)
     Gen(GenArg),
+    /// Choose reading-aid widgets per section and print the AdaptiveLayout JSON
+    Select(SelectArg),
+    /// Evaluate widget selection against labelled fixtures (accuracy, none, p50/p95)
+    SelectEval(SelectEvalArg),
+}
+
+#[derive(Debug, Args)]
+pub struct SelectArg {
+    #[arg(value_name = "FILE")]
+    pub file: PathBuf,
+    /// Selector override: rules | jev | fake (default: `[select] provider`, else rules).
+    #[arg(long, value_enum)]
+    pub provider: Option<Provider>,
+    /// Explicitly allow sending excerpts to the external selector (Jev) for this run.
+    #[arg(long)]
+    pub allow_network: bool,
+    /// Scripted answers for the `fake` provider (JSON file).
+    #[arg(long, value_name = "FILE")]
+    pub fake_script: Option<PathBuf>,
+    /// Accepted for symmetry with the design doc; output is always JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SelectEvalArg {
+    /// Directory with `*.md` fixtures and `labels.json`.
+    #[arg(value_name = "DIR", default_value = "tests/fixtures/select")]
+    pub dir: PathBuf,
+    /// Cold-cache runs per document for the latency percentiles.
+    #[arg(long, default_value_t = 5)]
+    pub runs: usize,
+    /// Also evaluate Jev (needs TYPESAFE_API_KEY); otherwise reported as not run.
+    #[arg(long)]
+    pub allow_network: bool,
+    /// Print the report as JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -75,6 +114,9 @@ pub struct ServeArg {
     pub host: Option<String>,
     #[arg(long, value_name = "PORT")]
     pub port: Option<String>,
+    /// Selector override for `/api/adaptive`: rules | jev | fake.
+    #[arg(long = "select", value_enum, value_name = "PROVIDER")]
+    pub select: Option<Provider>,
 }
 
 #[derive(Debug, Args)]
@@ -104,6 +146,7 @@ pub enum Mode {
         host: String,
         port: String,
         theme: BrowserTheme,
+        select: SelectConfig,
     },
     Term {
         file: PathBuf,
@@ -119,6 +162,16 @@ pub enum Mode {
         no_cache: bool,
         /// Resolved LLM backend to use, or `None` for rules-only generation.
         llm: Option<LlmBackendConfig>,
+    },
+    Select {
+        file: PathBuf,
+        select: SelectConfig,
+    },
+    SelectEval {
+        dir: PathBuf,
+        runs: usize,
+        select: SelectConfig,
+        json: bool,
     },
 }
 
@@ -144,6 +197,7 @@ impl Cli {
         let cfg_port = config.server.port.clone();
         let browser_theme = config.server.theme.unwrap_or(BrowserTheme::Light);
         let pager = config.term.pager.clone();
+        let select_cfg = config.select_config();
 
         // `term` watches (interactive TUI) by default on a TTY; `--no-watch`
         // forces a one-shot render and `-w` forces watching (e.g. over a pipe).
@@ -169,6 +223,13 @@ impl Cli {
                     .or(cfg_port)
                     .unwrap_or_else(|| DEFAULT_PORT.to_string()),
                 theme: browser_theme,
+                select: {
+                    let mut s = select_cfg.clone();
+                    if let Some(p) = arg.select {
+                        s.provider = p;
+                    }
+                    s
+                },
             }),
             Some(Commands::Term(arg)) => Ok(Mode::Term {
                 file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
@@ -192,6 +253,34 @@ impl Cli {
                     file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
                     no_cache: arg.no_cache,
                     llm,
+                })
+            }
+            Some(Commands::Select(arg)) => {
+                let mut s = select_cfg;
+                if let Some(p) = arg.provider {
+                    s.provider = p;
+                }
+                if arg.allow_network {
+                    s.allow_network = true;
+                }
+                if let Some(f) = arg.fake_script {
+                    s.fake_script = Some(f);
+                }
+                Ok(Mode::Select {
+                    file: arg.file,
+                    select: s,
+                })
+            }
+            Some(Commands::SelectEval(arg)) => {
+                let mut s = select_cfg;
+                if arg.allow_network {
+                    s.allow_network = true;
+                }
+                Ok(Mode::SelectEval {
+                    dir: arg.dir,
+                    runs: arg.runs,
+                    select: s,
+                    json: arg.json,
                 })
             }
             None => {
@@ -219,6 +308,7 @@ impl Cli {
                         host,
                         port,
                         theme: browser_theme,
+                        select: select_cfg,
                     }),
                     DefaultMode::Term => Ok(Mode::Term {
                         file: root,

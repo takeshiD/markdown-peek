@@ -36,7 +36,8 @@ fn main() -> Result<()> {
             host,
             port,
             theme,
-        } => handle_serve(file, host, port, theme, generation, gui_llm),
+            select,
+        } => handle_serve(file, host, port, theme, generation, gui_llm, select),
         Mode::Term {
             file,
             watch,
@@ -48,8 +49,66 @@ fn main() -> Result<()> {
             no_cache,
             llm,
         } => handle_gen(file, no_cache, llm)?,
+        Mode::Select { file, select } => handle_select(file, select)?,
+        Mode::SelectEval {
+            dir,
+            runs,
+            select,
+            json,
+        } => handle_select_eval(dir, runs, select, json)?,
     }
     Ok(())
+}
+
+/// `mdpeek select`: print the AdaptiveLayout JSON for `file` on stdout. Never
+/// fails because of the selector — problems degrade to rules and are reported
+/// in `selector.fallback` (plus a one-line note on stderr, without content).
+fn handle_select(file: PathBuf, select: mdpeek_gui::select::SelectConfig) -> Result<()> {
+    init_stderr_tracing();
+    if !file.is_file() {
+        anyhow::bail!("'{}' is not a file.", file.display());
+    }
+    let markdown = std::fs::read_to_string(&file)?;
+    let filename = file.file_name().and_then(|n| n.to_str());
+    let cache = mdpeek_gui::select::SelectionCache::new(select.cache_entries);
+    let layout = mdpeek_gui::select::adaptive_layout(&markdown, filename, &select, &cache, 1);
+    if let Some(f) = &layout.selector.fallback {
+        eprintln!(
+            "mdpeek: select: {} unavailable ({f}); using rules",
+            layout.selector.requested
+        );
+    }
+    println!("{}", mdpeek_gui::select::layout_json(&layout));
+    Ok(())
+}
+
+/// `mdpeek select-eval`: accuracy / none-appropriateness / p50-p95 per provider.
+fn handle_select_eval(
+    dir: PathBuf,
+    runs: usize,
+    select: mdpeek_gui::select::SelectConfig,
+    json: bool,
+) -> Result<()> {
+    init_stderr_tracing();
+    let report = mdpeek_gui::select::eval::evaluate(&dir, &select, runs)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!("{}", mdpeek_gui::select::eval::render_text(&report));
+    }
+    Ok(())
+}
+
+/// Tracing for the JSON-printing commands: stderr only (stdout stays pure JSON),
+/// `warn` unless `RUST_LOG` says otherwise.
+fn init_stderr_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            quiet_http(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))),
+        )
+        .with_writer(std::io::stderr)
+        .without_time()
+        .try_init();
 }
 
 /// Generate Generative-UI IR (Layer 3) for `root` and print the JSON to stdout.
@@ -83,6 +142,7 @@ fn handle_serve(
     theme: BrowserTheme,
     generation: GenerationConfig,
     gui_llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
+    select: mdpeek_gui::select::SelectConfig,
 ) {
     init_tracing();
     tracing::info!(
@@ -104,7 +164,7 @@ fn handle_serve(
     // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
     // picks a valid active file, so we hand off even when `root` doesn't exist
     // (e.g. the default README.md is absent) rather than bailing out here.
-    serve(root, host, port, theme, gui_llm);
+    serve(root, host, port, theme, gui_llm, select);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {
@@ -243,12 +303,26 @@ fn clear_terminal() {
     let _ = stdout.flush();
 }
 
+/// HTTP client internals never log (they could carry request headers/bodies,
+/// i.e. the API key or document excerpts), whatever `RUST_LOG` says.
+fn quiet_http(f: EnvFilter) -> EnvFilter {
+    [
+        "hyper=off",
+        "hyper_util=off",
+        "reqwest=off",
+        "h2=off",
+        "rustls=off",
+    ]
+    .iter()
+    .fold(f, |f, d| f.add_directive(d.parse().unwrap()))
+}
+
 fn init_tracing() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         tracing_subscriber::fmt()
             .with_env_filter(
-                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+                quiet_http(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))),
             )
             .with_ansi(true)
             .without_time()

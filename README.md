@@ -141,6 +141,84 @@ theme = "glow"
 pager = "less -R"
 ```
 
+## Adaptive reading aids (`[select]`)
+
+`mdpeek select <file>` prints an **AdaptiveLayout** JSON: for each section, which
+reading-aid widget to show (step navigator, checklist, table view, command list,
+timeline, risk callout, …) or why nothing is shown (`skipped`). `mdpeek serve`
+exposes the same layout at `GET /api/adaptive` and pushes
+`{"type":"adaptive","revision":N,"layout":{…}}` over the WebSocket after each file
+change (debounced, default 800 ms; results for outdated revisions are dropped,
+unchanged sections reuse in-memory decisions — nothing is written to disk).
+
+Widget *content* is always extracted deterministically from your document and
+carries its source line range; a selector only picks among candidates that
+already fit the section.
+
+| Key (`[select]`) | Default | Description |
+|---|---|---|
+| `provider` | `rules` | `rules` (offline), `jev` (TypeSafe AI Jev), `fake` (scripted, for tests / E2E) |
+| `allow_network` | `false` | Must be `true` for `jev` to send anything |
+| `model` / `base_url` | `jev-1.14.0` / `https://api.typesafe.ai` | Jev model and endpoint |
+| `timeout_ms` | `4000` | Whole-request deadline (≤ 1 retry on 429/529, honouring `retry-after`) |
+| `helps_threshold` / `confidence_threshold` | `0.5` / `0.6` | Hide widgets Jev considers unhelpful / is unsure about |
+| `debounce_ms` | `800` | `serve`: delay before re-selecting after a change |
+| `fake_script` | – | JSON script for `provider = "fake"` |
+
+**External sending is opt-in.** Nothing leaves your machine unless
+`provider = "jev"` **and** `allow_network = true` (or `mdpeek select --provider jev
+--allow-network`). Jev then receives one request per document with headings, a
+short excerpt per section (≤ 600 chars) and numeric features — never the full text.
+Keep confidential documents on `rules`.
+
+**The API key is read only from the `TYPESAFE_API_KEY` environment variable** of
+the `mdpeek` process. It cannot be set in `config.toml` or on the command line,
+and it is never printed, logged or returned to the browser. Without a key — or on
+timeout, 401, 429/529, 5xx, malformed responses or no network — `mdpeek` falls
+back to `rules` and reports why in `selector.fallback`.
+
+```sh
+mdpeek select README.md                                  # rules, offline
+TYPESAFE_API_KEY=… mdpeek select README.md --provider jev --allow-network
+mdpeek select README.md --provider fake --fake-script tests/fake-select.json   # scripted
+mdpeek select-eval tests/fixtures/select                 # accuracy / none / p50-p95
+```
+
+### Fake provider script (`provider = "fake"`)
+
+For tests and web E2E without a key, `fake` answers from a JSON script
+(example: [`tests/fake-select.json`](tests/fake-select.json)). It never touches the
+network and gives the same answer for the same document every time.
+
+```json
+{
+  "model": "fake-e2e",
+  "delay_ms": 0,
+  "fail": null,
+  "doc_type": { "value": "runbook", "confidence": 0.95 },
+  "document": { "widget": "ActionItems", "confidence": 0.9, "helps": 0.9 },
+  "sections": {
+    "Steps": { "widget": "StepNavigator", "confidence": 0.9, "helps": 0.9 },
+    "Commands": { "helps": 0.1 }
+  },
+  "default": "rules"
+}
+```
+
+- `sections` keys are section headings (or positional ids `s0`, `s1`, …). Each entry
+  has optional `widget` (a candidate id such as `StepNavigator`,
+  `ConfigViewer:commands`, `DataTable:status`, `Callout:risk`; omitted = the rules
+  choice), `helps` and `confidence` (0–1, default 1). The usual thresholds apply, so a
+  low `helps` / `confidence` hides the widget; an id that is not a candidate for that
+  section falls back to rules (`fallback_invalid_answer`).
+- `document`: the document-level panel (`SemanticOutline`, `ActionItems`, `RiskPanel`, …).
+- `default`: for unlisted sections — `"rules"` (default), `"missing"` (treated as an
+  invalid answer), or an entry object.
+- `fail`: make every call fail with that fallback code (e.g. `"timeout"`);
+  `delay_ms`: simulated latency (exceeding `timeout_ms` yields `timeout`).
+- A missing or malformed script gives `selector.fallback = "fake_script_error"`, and
+  the reason (I/O error kind or JSON error position) is printed on stderr.
+
 
 # Status
 ## Viewer

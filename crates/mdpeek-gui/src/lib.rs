@@ -16,6 +16,7 @@ pub mod complete;
 pub mod generator;
 pub mod ir;
 pub mod planner;
+pub mod select;
 
 pub use complete::complete_text_blocking;
 pub use generator::llm::{Effort, LlmBackendConfig, LlmProvider};

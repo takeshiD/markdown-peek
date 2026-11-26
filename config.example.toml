@@ -78,3 +78,47 @@ effort = "medium"
 
 # Override for a single run from the CLI, without editing this file:
 #   mdpeek gen doc.md --llm --provider codex --model gpt-5-codex --effort high
+
+# ---------------------------------------------------------------------------
+# [select] — adaptive reading aids (`mdpeek select`, `GET /api/adaptive`,
+# WebSocket `{type:"adaptive"}` pushes from `mdpeek serve`).
+#
+# Picks, per section, which reading-aid widget to show (or none). Widget
+# *content* is always extracted deterministically from the document with a
+# source line range; a selector only chooses among pre-validated candidates.
+#
+# External sending is OPT-IN: nothing leaves your machine unless
+# provider = "jev" AND allow_network = true. With "jev", one request per
+# document carries headings, a bounded excerpt per section (excerpt_chars) and
+# numeric features — never the full text. Keep confidential documents on
+# "rules".
+#
+# The API key is read ONLY from the environment variable TYPESAFE_API_KEY of
+# the mdpeek process. There is no key setting here (an `api_key` entry is
+# rejected as an unknown key), and the key is never printed, logged or sent to
+# the browser. Any Jev problem (no key, not allowed, timeout, 401, 429/529,
+# 5xx, broken JSON, offline) falls back to "rules" and is reported in
+# `selector.fallback`.
+# ---------------------------------------------------------------------------
+[select]
+# "rules" (default, offline) | "jev" (TypeSafe AI) | "fake" (scripted, for tests/E2E)
+provider = "rules"
+# Must be true for provider = "jev" to send anything.
+allow_network = false
+model = "jev-1.14.0"
+base_url = "https://api.typesafe.ai"
+# Whole-request deadline incl. at most one 429/529 retry (clamped 100..=30000).
+timeout_ms = 4000
+# Hide a widget when Jev's companion yes/no ("does a widget help?") is below
+# helps_threshold, or its choice confidence is below confidence_threshold.
+helps_threshold = 0.5
+confidence_threshold = 0.6
+max_questions = 40
+excerpt_chars = 600
+max_state_chars = 24000
+# serve: wait this long after a file change before re-selecting.
+debounce_ms = 800
+# In-memory decision cache size (never written to disk).
+cache_entries = 256
+# Scripted answers for provider = "fake" (format: README "Fake provider script").
+# fake_script = "tests/fake-select.json"
