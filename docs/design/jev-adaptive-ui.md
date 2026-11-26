@@ -28,7 +28,7 @@
 
 目的
 - 文書・セクションごとに「どの読書補助 widget を出すか/出さないか」を **Jev の型付き選択**で決め、内容は決定的抽出で作る。
-- Web UI を Tailwind CSS + shadcn/ui(Preact 上)で作り直し、Read / Split / Adaptive の 3 モードで落ち着いた高密度 UI を提供する。
+- Web UI を Tailwind CSS + shadcn/ui(React 19、§6.1)で作り直し、Read / Split / Adaptive の 3 モードで落ち着いた高密度 UI を提供する。
 - オフライン・単一バイナリ・既存機能(diff, watch, explorer, GFM, scrolly, TUI)を壊さない。
 
 非目的
@@ -65,7 +65,7 @@ markdown ──▶ mdpeek-parser BlockTree (stable BlockId, SourceRange)
                      ▼
         ⑤ validate_nodes(allowlist + sourceRange 検証) ─▶ AdaptiveLayout (versioned wire format)
                      ▼
-            Web (Preact registry) / TUI(要約 fallback)
+            Web (React registry) / TUI(要約 fallback)
 ```
 
 ### 3.1 Section split
@@ -197,10 +197,29 @@ debounce_ms = 800
 
 ## 6. Web UI 設計
 
-### 6.1 方式決定: Tailwind + shadcn/ui を Preact 上で
+### 6.1 方式決定: Tailwind + shadcn/ui、UI ランタイムは React 19(Preact から変更)
 - **Tailwind CSS v4**(`@tailwindcss/vite`、ビルド時に静的 CSS を生成 → `web/dist` に embed。ランタイム/CDN 依存なし)。
-- **shadcn/ui はソース取り込み**(`components/ui/*`)。Radix 依存は `preact/compat` alias(`react`, `react-dom`, `react/jsx-runtime`)で動かす。**互換性を実測**(Dialog/Command/Tabs/Tooltip/DropdownMenu/Resizable のキーボード操作・フォーカストラップ・portal)し、問題があれば React 移行とのコスト比較を §11 に記録して最小変更を選ぶ。
-- アイコンは `lucide`(Preact 版 `lucide-preact` もしくは shadcn 標準の `lucide-react` を compat 経由)に統一。インライン SVG の手書きは廃止。
+- **shadcn/ui はソース取り込み**(公式 CLI `shadcn@4.23.1` の `add` で `components/ui/*` を生成。依存: `radix-ui@1.8.1`、`cmdk@1.1.1`、`react-resizable-panels@4.24.3`、`class-variance-authority`、`cn@0.5.2`(shadcn 公式 = clsx + tailwind-merge 互換)、`lucide-react`)。
+- アイコンは `lucide-react` に統一。インライン SVG の手書きは廃止。
+
+**互換性の実測(2026-11-27, Chrome 158 + Playwright, 同一のテストアプリ・同一のキーボード操作シナリオ)**
+
+| 検査 | Preact 10.29 + compat | Preact 10 + ref-as-prop shim | Preact 11.2 + compat | Preact 11.2 + shim | React 19.2.9 |
+|---|---|---|---|---|---|
+| Dialog が開く | ✗ `getComputedStyle` 例外(Radix Presence が ref を prop で受ける前提) | ✓ | ✓ | ✓ | ✓ |
+| Dialog focus trap / Esc / focus 復帰 | ✗ | ✓ | 不安定(1 回目 ✗, 2 回目 ✓) | ✓ | ✓ |
+| Tabs 矢印キー(automatic activation) | — | — | ✓ | ✓ | ✓ |
+| DropdownMenu Enter→↓→Enter で選択 + focus 復帰 | — | ✗ | 不安定(1 回目 ✓, 2 回目 ✗) | ✗ | ✓ |
+| Tooltip がキーボード focus で開く | — | ✗ | ✗ | ✗ | ✓ |
+| Command(cmdk)入力で絞り込み → Enter | — | ✓ | 不安定 | ✗(絞り込まれない) | ✓ |
+| Resizable separator を矢印キーでリサイズ | — | ✓ | ✓ | ✓ | ✓ |
+| JS(minified / gzip) | — | 234 kB / 81 kB | 234 kB / 81 kB | 235 kB / 81 kB | 410 kB / 133 kB |
+
+結論と根拠:
+- shadcn v4 系(`radix-ui` 1.x の React 19 前提: ref-as-prop、focus/pointer イベント順序)は `preact/compat` で **複数のキーボード操作が壊れ、しかも実行ごとに結果が揺れる**。shim で一部は直るが Tooltip/Dropdown/cmdk が残る。アクセシビリティ要件(キーボード完結)を満たせない。
+- 代替案のコスト比較: (a) Preact のまま Radix を使わず primitives を自作 → shadcn を「採用」できず、focus trap / roving focus / typeahead を自前実装・保守(高コスト・高リスク)。(b) Preact + compat + shim で個別回避 → 上表のとおり未解決項目が残り、上流更新のたびに再検証が必要。(c) **React 19 へ移行** → 既存 web/src は約 1.7k 行(Preact + signals)で、`class`→`className` と signals → `useSyncExternalStore` ベースの小さな store への置換が主。増分は JS +176 kB(gzip +52 kB)だが、localhost から単一バイナリ埋め込みで配信するため実害は小さい。
+- **(c) を選択**。論点 A の「全面 Preact」は「全面 React(単一の component tree)」に読み替える(単一描画系統という意図は維持)。AGENTS.md §0.1 に追記した。
+- 生データ: スクラッチ領域の `spike-result-*.json`(テストスクリプトと共に、本メモの記録として要約を残す)。
 - Tailwind preflight は **アプリ chrome にのみ**効かせ、`.markdown-body`(GFM 本文)には GitHub 由来の本文スタイルを維持(`@layer` 順序と `:where()` で隔離)。
 - tokens は CSS variables(semantic: `--background`, `--foreground`, `--muted`, `--border`, `--ring`, `--accent`, `--change` …)を **単一ソース**にし、Tailwind `@theme` に写像。`styles.css`/`panel.css` の重複は撤去。
 
@@ -248,7 +267,7 @@ ui-ux-pro-max(ローカル DB)で確認した適用ルール: Keyboard Navigatio
 ## 8. 段階的実装計画と受入条件
 
 1. 発注 1(kenshu-loop): Jev 選択バックエンド — selector trait、rules/jev/fake、composer、validate、`/api/adaptive` + WS push、revision/debounce/cache、config、`mdpeek select`。受入: cargo test、fake/mock HTTP による timeout/429/invalid/旧 revision/ログに本文なし の検証、実 API(key があれば)疎通。
-2. 発注 2(kenshu-loop): Web UI — Tailwind + shadcn(Preact)、3 モード、explorer/outline、palette、source jump、why、pin/hide、永続化、既存機能の移植。受入: Playwright(desktop/mobile, light/dark, keyboard, offline, live edit, diff, explorer)+ スクリーンショット + 独立レビュー。
+2. 発注 2(kenshu-loop): Web UI — Tailwind + shadcn(React 19)、3 モード、explorer/outline、palette、source jump、why、pin/hide、永続化、既存機能の移植。受入: Playwright(desktop/mobile, light/dark, keyboard, offline, live edit, diff, explorer)+ スクリーンショット + 独立レビュー。
 3. 統合・検収: README / config.example 更新、ベンチ(バンドルサイズ、選択遅延)、PR。
 
 ## 9. json-render を導入しない理由

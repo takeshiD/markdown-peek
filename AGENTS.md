@@ -33,6 +33,8 @@
 | **K** confidence 閾値 | **定数 default + config** | LLM を呼ぶ/低信頼バッジのしきい値は既定 **0.6**、`[llm] confidence_threshold` で上書き可。 |
 | **L** E の運用方針 | **許容(標準化しない)** | 永続化しない(E)結果、`serve` 再起動ごとに LLM を再実行することを**許容する**。`mdpeek gen` は任意手段にとどめ、標準ワークフローとして強制しない。rules-first の即描画があるため実用上問題ないと判断。 |
 
+> **2026-11-27 追記(論点 A の実装変更)**: web UI ランタイムを Preact から **React 19** に変更した。Tailwind CSS v4 + shadcn/ui(radix-ui)を採用するにあたり、`preact/compat` 上で Dialog/Dropdown/Tooltip/cmdk のキーボード操作が壊れる・結果が実行ごとに揺れることを実測したため(比較表は [`docs/design/jev-adaptive-ui.md`](docs/design/jev-adaptive-ui.md) §6.1)。「単一の component tree で本文も生成 UI も描画する」という論点 A の意図は維持する。
+>
 > **E と F の整合**: 恒久キャッシュを持たない(E)ため、`serve` 再起動や別プロセスでは LLM を再実行する。これは *rules-first(LLM 依存ノードだけ生成)* と *同一プロセス内メモリ再利用* で吸収する、というトレードオフを受け入れる。`mdpeek gen` はユーザーが出力先を指定する一回きりのエクスポートであり、自動管理される cache ではない。
 
 ---
