@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["tkcd <goriponikeike55@gmail.com>"]
 repository = "https://github.com/takeshid/markdown-peek"
 license-file = "../../LICENSE"
-description = "Layer 3 Generative-UI core (UI IR + generators + cache) for markdown-peek"
+description = "UI IR and adaptive reading-aid selection for markdown-peek"
 
 [dependencies]
 mdpeek-analyzer = { path = "../mdpeek-analyzer" }
@@ -26,8 +26,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"]
 
 [features]
 default = []
-# Enables the Anthropic-API generator backend (generator::llm::anthropic).
-# The claude_code / codex CLI backends need no extra features.
+# HTTP models (select::http) and Guided reading's Anthropic API completion.
+# The claude_code / codex CLIs need no extra features.
 llm = ["dep:reqwest", "dep:tokio"]
 
 [dev-dependencies]

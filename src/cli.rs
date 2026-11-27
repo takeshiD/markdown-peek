@@ -1,7 +1,6 @@
 use crate::config::{BrowserTheme, Config, DefaultMode};
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
-use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 use mdpeek_gui::select::{ModelSpec, SelectConfig};
 use serde::Deserialize;
 use std::{io::IsTerminal, path::PathBuf};
@@ -40,8 +39,6 @@ pub enum Commands {
     Serve(ServeArg),
     /// Display pretty rendered markdown on your terminal
     Term(TermArg),
-    /// Generate Generative-UI IR (JSON) from a markdown file (Layer 3)
-    Gen(GenArg),
     /// Choose reading-aid widgets per section and print the AdaptiveLayout JSON
     Select(SelectArg),
     /// Evaluate widget selection against labelled fixtures (accuracy, none, p50/p95)
@@ -75,27 +72,6 @@ pub struct SelectEvalArg {
     /// Print the report as JSON instead of a table.
     #[arg(long)]
     pub json: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct GenArg {
-    #[arg(value_name = "FILE")]
-    pub file: Option<PathBuf>,
-    /// Skip the on-disk cache and always regenerate.
-    #[arg(long)]
-    pub no_cache: bool,
-    /// Use the LLM backend (overrides `[llm] enabled = false`).
-    #[arg(long)]
-    pub llm: bool,
-    /// LLM backend override: anthropic_api | claude_code | codex.
-    #[arg(long, value_enum)]
-    pub provider: Option<LlmProvider>,
-    /// Model id override (backend-specific).
-    #[arg(long)]
-    pub model: Option<String>,
-    /// Reasoning effort override: low | medium | high.
-    #[arg(long, value_enum)]
-    pub effort: Option<Effort>,
 }
 
 // Subcommand arguments are optional so that an unset flag can fall back to
@@ -152,13 +128,6 @@ pub enum Mode {
         /// Pager override from config: `None` uses `$PAGER`/`less -R`, `Some("")`
         /// disables paging, `Some(cmd)` runs `cmd`.
         pager: Option<String>,
-    },
-    /// Generate Generative-UI IR JSON (Layer 3) and print it to stdout.
-    Gen {
-        file: PathBuf,
-        no_cache: bool,
-        /// Resolved LLM backend to use, or `None` for rules-only generation.
-        llm: Option<LlmBackendConfig>,
     },
     Select {
         file: PathBuf,
@@ -230,24 +199,6 @@ impl Cli {
                 theme: arg.theme.or(config.term.theme).unwrap_or(ThemeChoice::Glow),
                 pager,
             }),
-            Some(Commands::Gen(arg)) => {
-                // Use the LLM when `--llm` is passed or `[llm] enabled = true`.
-                // CLI flags override the corresponding config fields.
-                let use_llm = arg.llm || config.llm_enabled();
-                let llm = use_llm.then(|| {
-                    let base = config.llm_backend_config();
-                    LlmBackendConfig {
-                        provider: arg.provider.unwrap_or(base.provider),
-                        model: arg.model.or(base.model),
-                        effort: arg.effort.or(base.effort),
-                    }
-                });
-                Ok(Mode::Gen {
-                    file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
-                    no_cache: arg.no_cache,
-                    llm,
-                })
-            }
             Some(Commands::Select(arg)) => {
                 let models = config.models();
                 let name = arg.model.unwrap_or_else(|| models.default.clone());

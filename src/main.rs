@@ -5,7 +5,6 @@ mod tui;
 use crate::cli::{Cli, Mode, ThemeChoice};
 use crate::config::{BrowserTheme, Config};
 use anyhow::Result;
-use mdpeek_analyzer::GenerationConfig;
 use mdpeek_render_term::{TerminalEmitter, Theme};
 use mdpeek_server::serve;
 use mdpeek_watcher::notify_on_change;
@@ -23,12 +22,8 @@ fn main() -> Result<()> {
         None => Config::load(),
     };
     let mode = cmd.resolve_mode(&config)?;
-    // Generation policy (rules-first vs LLM-first) is read from config at startup;
-    // Layer 3's generator will consult it. Server mode is the generative-UI path,
-    // so it is where the policy takes effect.
-    let generation = config.generation_config();
-    // The `/api/gui` LLM backend: only when `[llm] enabled = true`; otherwise the
-    // server generates rules-only (offline, no key needed).
+    // Guided reading's LLM: only when `[llm] enabled = true`; otherwise its
+    // commentary comes from rules (offline, no key needed).
     let gui_llm = config.llm_enabled().then(|| config.llm_backend_config());
     match mode {
         Mode::Serve {
@@ -39,7 +34,7 @@ fn main() -> Result<()> {
             model,
         } => {
             let aids = adaptive_setup(&config, model);
-            handle_serve(file, host, port, theme, generation, gui_llm, aids)
+            handle_serve(file, host, port, theme, gui_llm, aids)
         }
         Mode::Term {
             file,
@@ -47,11 +42,6 @@ fn main() -> Result<()> {
             theme,
             pager,
         } => handle_term(file, watch, theme, pager),
-        Mode::Gen {
-            file,
-            no_cache,
-            llm,
-        } => handle_gen(file, no_cache, llm)?,
         Mode::Select {
             file,
             select,
@@ -168,50 +158,15 @@ fn init_stderr_tracing() {
         .try_init();
 }
 
-/// Generate Generative-UI IR (Layer 3) for `root` and print the JSON to stdout.
-/// The cache lives under `.cache/mdpeek/` in the current directory. When `llm`
-/// is set, the configured LLM backend is used (with a rules fallback).
-fn handle_gen(
-    root: PathBuf,
-    no_cache: bool,
-    llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
-) -> Result<()> {
-    if !root.is_file() {
-        anyhow::bail!("'{}' is not a file.", root.display());
-    }
-    let markdown = std::fs::read_to_string(&root)?;
-    let cache_root = if no_cache {
-        None
-    } else {
-        Some(std::path::Path::new("."))
-    };
-    // Filename sharpens Layer 2 document-type inference (e.g. README.md).
-    let filename = root.file_name().and_then(|n| n.to_str());
-    let json = mdpeek_gui::generate_json(&markdown, filename, cache_root, llm.as_ref())?;
-    println!("{json}");
-    Ok(())
-}
-
 fn handle_serve(
     root: PathBuf,
     host: String,
     port: String,
     theme: BrowserTheme,
-    generation: GenerationConfig,
-    gui_llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
+    gui_llm: Option<mdpeek_gui::LlmBackendConfig>,
     aids: mdpeek_server::AdaptiveSetup,
 ) {
     init_tracing();
-    tracing::info!(
-        "generation policy: {:?} (llm {}, confidence_threshold {})",
-        generation.strategy,
-        if generation.is_rules_only() {
-            "disabled — rules only"
-        } else {
-            "enabled"
-        },
-        generation.confidence_threshold,
-    );
     // Map the binary's config theme onto the server crate's own theme so the
     // server stays independent of the binary's config types.
     let theme = match theme {

@@ -1,8 +1,7 @@
 //! Planner — turns Layer 2's analysis into **reading lenses** (design doc §8).
 //!
-//! This is the deterministic *rules fallback* for lens generation (the LLM is
-//! primary under LLM-first; see [`crate::generate_with_llm`]). Unlike the old
-//! structural extractor, it emits only *derived reading aids* — never a reprint
+//! The lenses are document-level reading-aid candidates for [`crate::select`]
+//! (a model chooses among them). Unlike the old structural extractor, it emits only *derived reading aids* — never a reprint
 //! of body content (tables / code / diagrams stay in the Markdown Body, design
 //! §7.2). Every item carries a `sourceRange` + `confidence` (§14).
 //!

@@ -27,7 +27,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
-use mdpeek_gui::generator::llm::LlmBackendConfig;
+use mdpeek_gui::LlmBackendConfig;
 use mdpeek_render_html::HtmlEmitter;
 use mdpeek_watcher::watch_channel;
 
@@ -42,8 +42,7 @@ struct AppState {
     scan_root: Arc<PathBuf>,
     /// Tells the watch loop to re-point at a newly selected file.
     rewatch: StdSender<WatchTarget>,
-    /// Layer 3 Generative-UI backend for `/api/gui`. `None` = rules-only
-    /// (offline default); `Some` = the LLM backend resolved from `[llm]` config.
+    /// Guided reading's LLM backend (`[llm]`). `None` = rules commentary only.
     llm: Arc<Option<LlmBackendConfig>>,
     /// Adaptive reading-aid selection (`/api/adaptive` + WS `adaptive`).
     adaptive: Arc<adaptive::Adaptive>,
@@ -196,7 +195,6 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/tree", get(tree_handler))
         .route("/api/doc", get(doc_handler))
         .route("/api/select", post(select_handler))
-        .route("/api/gui", get(gui_handler))
         .route("/api/adaptive", get(adaptive_handler))
         .route("/api/adaptive/run", post(adaptive_run_handler))
         .route("/api/adaptive/stop", post(adaptive_stop_handler))
@@ -323,97 +321,6 @@ async fn doc_handler(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// `GET /api/gui` — Layer 3 Generative UI for the currently active file.
-/// Returns `{ nodes, markdown }`: validated UI IR (rules by default, or the
-/// configured LLM backend) plus the source, which the Preact island renders in
-/// the Generated UI pane. Generation runs on a blocking thread (LLM backends
-/// may spawn a subprocess).
-async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let file_path = { state.file_path.read().unwrap().to_path_buf() };
-
-    // Describe the backend so the terminal shows what generation will run.
-    let backend_desc = match state.llm.as_ref() {
-        Some(b) => {
-            let model = b.model.as_deref().unwrap_or("default");
-            match b.effort {
-                Some(e) => format!("LLM {:?} (model={model}, effort={e:?})", b.provider),
-                None => format!("LLM {:?} (model={model})", b.provider),
-            }
-        }
-        None => "rules (offline)".to_string(),
-    };
-    info!(
-        "gui: generating UI for '{}' [{}]",
-        file_path.display(),
-        backend_desc
-    );
-
-    let markdown = match tokio::fs::read_to_string(&file_path).await {
-        Ok(content) => content,
-        Err(e) => {
-            error!("gui: failed to read '{}': {e}", file_path.display());
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-
-    let started = std::time::Instant::now();
-    let llm = (*state.llm).clone();
-    let md_for_task = markdown.clone();
-    // Filename sharpens Layer 2 document-type inference (e.g. README.md).
-    let filename = file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(str::to_string);
-    let result = tokio::task::spawn_blocking(move || {
-        // Cache under the cwd's `.cache/mdpeek/`, matching `mdpeek gen`.
-        let cache_root = Some(Path::new("."));
-        let filename = filename.as_deref();
-        match &llm {
-            Some(backend) => {
-                mdpeek_gui::generate_with_llm(&md_for_task, filename, cache_root, backend)
-            }
-            None => mdpeek_gui::generate(&md_for_task, filename, cache_root),
-        }
-    })
-    .await;
-
-    match result {
-        Ok(Ok(entry)) => {
-            info!(
-                "gui: generated {} node(s) for '{}' in {} ms [{}]",
-                entry.ui_ir.len(),
-                file_path.display(),
-                started.elapsed().as_millis(),
-                node_kind_summary(&entry.ui_ir),
-            );
-            Json(serde_json::json!({ "nodes": entry.ui_ir, "markdown": markdown })).into_response()
-        }
-        Ok(Err(e)) => {
-            error!("gui: generation failed for '{}': {e}", file_path.display());
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            error!(
-                "gui: generation task panicked for '{}': {e}",
-                file_path.display()
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
-        }
-    }
-}
-
 /// Query params for `/api/scrolly`: `lang` = `auto` | `ja` | `en`.
 #[derive(Debug, Deserialize)]
 struct ScrollyQuery {
@@ -463,7 +370,7 @@ async fn scrolly_handler(
     let llm = (*state.llm).clone();
     let lang = query.lang.clone();
     let result = tokio::task::spawn_blocking(move || {
-        // Cache under the cwd's `.cache/mdpeek/`, matching `/api/gui`.
+        // Cache under the cwd's `.cache/mdpeek/`.
         scrolly::generate(&markdown, llm.as_ref(), Path::new("."), &lang)
     })
     .await;
@@ -544,23 +451,6 @@ async fn scrolly_ask_handler(
                 .into_response()
         }
     }
-}
-
-/// Compact "kind×count" summary of generated nodes for the request log.
-fn node_kind_summary(nodes: &[mdpeek_gui::ir::UiNode]) -> String {
-    let mut counts: Vec<(&'static str, usize)> = Vec::new();
-    for n in nodes {
-        let kind = n.kind();
-        match counts.iter_mut().find(|(k, _)| *k == kind) {
-            Some((_, c)) => *c += 1,
-            None => counts.push((kind, 1)),
-        }
-    }
-    counts
-        .iter()
-        .map(|(k, c)| format!("{k}×{c}"))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Render markdown source into a `(body HTML, raw front matter)` pair. Shared by

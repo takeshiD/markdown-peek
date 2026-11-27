@@ -83,7 +83,7 @@ fn get_never_asks_a_model_and_run_fills_the_cache() {
     // Existing endpoints still work.
     assert_eq!(http_get(srv.port, "/").0, 200);
     assert_eq!(http_get(srv.port, "/api/tree").0, 200);
-    assert_eq!(http_get(srv.port, "/api/gui").0, 200);
+    assert_eq!(http_get(srv.port, "/api/gui").0, 404, "removed with mdpeek gen");
 }
 
 #[test]

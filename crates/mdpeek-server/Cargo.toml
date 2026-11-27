@@ -26,7 +26,7 @@ toml_edit = "0.23"
 
 [features]
 default = []
-# Forwards to mdpeek-gui's Anthropic-API backend for `/api/gui` LLM generation.
+# Forwards to mdpeek-gui's HTTP models (reading aids, Guided reading).
 llm = ["mdpeek-gui/llm"]
 
 [dev-dependencies]

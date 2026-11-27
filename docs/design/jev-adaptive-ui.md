@@ -441,6 +441,10 @@ Read / Adaptive のモードをやめ、読書補助のオン / オフを 1 つ�
 - **編集中の表示**: run が実行中の間、まだ答えていないセクションは前の補助を出したままにする(クライアント側で前の layout から引き継ぐ)。
 - **検証**: Rust のテストに、モデル定義の検証、ディスクキャッシュ(再起動後も残る、本文が書かれない、サイズ上限)、バッチ分割、中止 / 再開、Microsoft の `api-key` ヘッダー、Anthropic / OpenAI 互換の LLM(モック)、設定の書き戻しを追加した。E2E に、スピナーと中止 / 再開、モデル切り替えと Make default、設定エラーの通知、`auto_generate = false`、出現アニメーションを追加した。実サービスでは、TypeSafe の Jev で無害な fixture(architecture.md、deploy-guide.md)を確認した(1 セクションずつ 4 リクエスト、runbook 0.99)。OpenCode 経由では、無料の `jev-1.13-free` が architecture.md で design_doc(0.9)、NodeGraph(1.00 / 0.81)、Comparison(0.74 / 0.77)を返した(System One の形が OpenCode でも同じことを確認)。有料モデル(`jev-1.14`、`gpt-6-luna-decision`、`gemini-decision-1`、`claude-haiku-5-5`、`gpt-6-luna`、`glm-5.3`、`deepseek-v4-pro`)は、どれも HTTP 402(アカウントに残高がない)だった。401 / 404 ではないので、URL・パス・認証ヘッダーは受け付けられている。402 は `payment_required` として設定の問題と同じく通知するようにした。
 
+### 11.11 追加要望: `mdpeek gen` と `/api/gui` の削除(2026-11-27)
+
+LLM が UI IR を書く経路は、画面から使われておらず(Generated UI シートは 11.7 で廃止)、中身の生成は issue #58 で検討するため、それまで削除した。消したのは `mdpeek gen` サブコマンド、`GET /api/gui`、`mdpeek-gui` の `generator`(rules / claude_code / codex / anthropic の生成器、プロンプト)と `cache`(`.cache/mdpeek/*.gui.json`)、`mdpeek-analyzer` の生成ポリシー(`GenerationConfig`)。`planner`(文書全体の読書補助の候補)と `ir`(`validate_json` を含む)は残す。`[llm]` は Guided reading の解説文用として `enabled` / `provider` / `model` / `effort` だけを読み、`strategy` / `confidence_threshold` が残っている設定には「`mdpeek gen` と一緒に削除した」と通知する。#58 で作り直すときは、削除したコードを git の履歴から参照できる。
+
 ## 12. ベンチマーク(実測, 2026-11-27)
 
 環境: NixOS / Chrome 158(Playwright, headless)/ release ビルド。ベースライン = `308e537`(起点ブランチ)。数値は 7 回の中央値。`docs/sample-design-doc.md`、rules。

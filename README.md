@@ -26,7 +26,7 @@ mdpeek is growing from a strong markdown viewer into a tool that understands you
 documents and renders a UI tailored to each. Upcoming layers:
 
 - 🧠 **Semantic view** — a document model with document-type detection and a side panel of outline / TODOs / risks / open questions.
-- 🎛️ **Generated UI** — a UI generated per document type (design doc, README, ADR, meeting notes, runbook, changelog, …), first by rules and then by Claude (LLM).
+- 🎛️ **Generated UI** — letting an LLM write reading aids, not only choose them (being considered in [#58](https://github.com/takeshiD/markdown-peek/issues/58); the earlier `mdpeek gen` / `/api/gui` were removed until then).
 - 📚 **Non-developer document types** — domain widgets for novels, contracts, and manufacturing/procedure docs (character roster, tolerance meter, step navigator, obligation matrix, glossary), with spoiler control.
 - 🔗 **Repository-aware checks** — README ↔ code links, docs/code consistency, ADR ↔ git history, and TODO ↔ issue cross-references.
 - 🧩 **Editor & tooling integration** — an IR-aware TUI renderer, a Neovim plugin, and GitHub preview integration.

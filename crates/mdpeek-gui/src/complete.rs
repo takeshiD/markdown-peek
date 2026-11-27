@@ -1,16 +1,67 @@
-//! Raw text completion across the same LLM backends used for UI-IR generation
-//! (design §7), but returning the model's **plain text** with no IR validation.
+//! Raw text completion for Guided reading (the server's scrollytelling
+//! commentary), selected by the `[llm]` config section: the model's **plain
+//! text**, no IR. Offline-safe: the caller decides what to do when no
+//! backend / key is available.
 //!
-//! UI-IR generation ([`crate::generator::llm`]) constrains the model to a JSON
-//! array of registry components. Some features instead need free-form or ad-hoc
-//! JSON output — the server's Generative Scrollytelling commentary, for example.
-//! This module reuses the exact backend selection (provider + model + effort) so
-//! that both paths honour the same `[llm]` config, and stays offline-safe: the
-//! caller decides what to do when no backend/key is available.
+//! (UI-IR generation by an LLM — `mdpeek gen`, `/api/gui` — was removed; see
+//! issue #58. Reading aids use [`crate::select`] and its `[models]` instead.)
 
 use anyhow::{Context, Result};
+use clap::ValueEnum;
+use serde::Deserialize;
 
-use crate::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
+/// Which LLM backend Guided reading drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+#[clap(rename_all = "snake_case")]
+pub enum LlmProvider {
+    /// Anthropic API over HTTP (default; requires `--features llm`).
+    #[default]
+    AnthropicApi,
+    /// The `claude` CLI (Claude Code), run in headless print mode.
+    ClaudeCode,
+    /// The `codex` CLI (OpenAI Codex), run via `codex exec`.
+    Codex,
+}
+
+/// Reasoning effort, mapped per-backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+#[clap(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+}
+
+impl Effort {
+    /// Canonical string (Codex `model_reasoning_effort`, Anthropic `output_config.effort`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+        }
+    }
+
+    /// Claude Code has no effort flag; steer its thinking with a prompt keyword
+    /// instead (empty = no hint).
+    pub fn claude_think_hint(self) -> &'static str {
+        match self {
+            Effort::Low => "",
+            Effort::Medium => "think",
+            Effort::High => "ultrathink",
+        }
+    }
+}
+
+/// Resolved `[llm]` backend selection (provider + optional model + effort).
+#[derive(Debug, Clone)]
+pub struct LlmBackendConfig {
+    pub provider: LlmProvider,
+    pub model: Option<String>,
+    pub effort: Option<Effort>,
+}
 
 /// Run a single completion against the configured backend and return the raw
 /// response text (trimmed).
