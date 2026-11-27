@@ -46,7 +46,7 @@ The preview updates **in place** as you edit — only the blocks that changed re
 
 ### The browser UI
 
-![Adaptive mode: ticking a checklist and stepping through steps inside the text, following a node graph's RETRY exit, focusing comparison cards on one criterion, switching a bar chart's measure, reading a line chart, and switching to Read mode](docs/design/media/adaptive-tour.gif)
+![Adaptive mode: ticking a checklist and stepping through steps inside the text, following a node graph's RETRY exit, floating and dragging the outline, focusing comparison cards on one criterion, switching a bar chart's measure, reading a line chart, and switching to Read mode](docs/design/media/adaptive-tour.gif)
 
 The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), **Files** on the left, the document, and the **Outline** on the right. In Adaptive mode the document carries *reading aids*: small widgets (steps, checklists, commands, charts, node graphs, comparison cards, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines. There is no reading-aid side pane.
 
