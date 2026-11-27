@@ -28,7 +28,7 @@
 
 目的
 - 文書・セクションごとに「どの読書補助 widget を出すか/出さないか」を **Jev の型付き選択**で決め、内容は決定的抽出で作る。
-- Web UI を Tailwind CSS + shadcn/ui(React 19、§6.1)で作り直し、Read / Split / Adaptive の 3 モードで落ち着いた高密度 UI を提供する。
+- Web UI を Tailwind CSS + shadcn/ui(React 19、§6.1)で作り直し、落ち着いた高密度 UI を提供する(当初 Read / Split / Adaptive の 3 モード。§11.7 で Read / Adaptive の 2 モード + 本文内表示に変更)。
 - オフライン・単一バイナリ・既存機能(diff, watch, explorer, GFM, scrolly, TUI)を壊さない。
 
 非目的
@@ -80,6 +80,7 @@ markdown ──▶ mdpeek-parser BlockTree (stable BlockId, SourceRange)
 | `Checklist` | section | task item ≥2 | task + checked + range | `[ ]` リスト |
 | `DataTable`/`sortable` | section | GFM table ≥3 行 | セル値(原文) | 表 |
 | `DataTable`/`status` | section | table に status 列 | 同上 + status 列判定 | 表 |
+| `Chart` (bar / line) | section | table ≥3 行に「単位が揃った数値列」≥1 + ラベル列(行番号・ID・年だけの列は数値扱いしない) | セルを parse した数値 + セル原文(tooltip) | 表 |
 | `ConfigViewer`/`commands` | section | shell/command code ≥2 | code 本文(実行しない) | コードそのまま |
 | `ConfigViewer`/`config` | section | json/yaml/toml code | parse 結果 | コード |
 | `Timeline` | section | 日付/バージョン見出し or 行 ≥3 | 日付 + 行 + range | リスト |
@@ -396,6 +397,15 @@ kenshu-loop で受入済みの UI を、frontend-design の「批評」手順と
 | Low | 注記ごとの操作アイコンが多い / 用語の不統一 / 表のバッククォート / エラー時に古い補助が最新に見える | hover・focus 時のみ表示、隣接時は節名を省略、「reading aid」に統一、表セルのインラインコード、エラー時は薄く表示し「前回の補助を表示中」 |
 
 未対応(後続): 補助と本文の状態の同期(チェックを本文側にも反映するか)、パレットでのファイル切替がサーバ全体(全タブ)に効く既存仕様、MathJax の CDN 依存(KaTeX 置換は論点 H の後続)、§11.4 の #7 / #12。
+
+### 11.7 追加要望: 本文内表示・チャート・ブランチ比較の削除(2026-11-27)
+
+ユーザー要望「ブランチと比較する機能は削除、現在のブランチだけでよい」「Generative UI は右サイドバーではなく本文内に」「チャートも生成したい」への対応。
+
+- **ブランチ比較の削除**: explorer は現在の作業ツリー(`git rev-parse --show-toplevel`)だけを列挙し、他の worktree は一覧にも `allowed_roots` にも入れない(他 worktree のファイルの `/api/select` は 403)。2 ファイル diff(`/api/diff`、`similar` 依存、diff CSS、DiffView)と worktree/branch のグループ切替を撤去。パンくずのリポジトリ表示は `repo (branch)` の静的ラベルになった。
+- **本文内表示**: Split モード(右ペイン)と欄外注を廃止し、モードは Read / Adaptive の 2 つ(`1` / `2`)。Adaptive では各補助を **抽出元ブロックの直後** に 1 つの slot として記事内に挿入する(表の直後にチャート、リストの直後にステップ)。文書レベルの補助は冒頭セクションの後に折り畳みで、pin した補助はタイトル直下へ移動する。補助は本文と同じ measure に収め、hairline 枠 + 1 段明るい面で本文と区別する(影・グラデーションなし)。保存済み `mode: "split"` は Adaptive に移行し、旧 `widgetsSize` / `groupBy` は捨てる。右側シートだった「Generated UI」(`/api/gui` のレンズ)も UI から外した(API と `mdpeek gen` は残す。文書レベルの rules レンズは Adaptive の文書レベル候補として本文内に出る)。
+- **チャート**(`UiNode::Chart`, `select/chart.rs`): 表の各列を「全非空セルが同じ単位で数値に parse できる」ときだけ指標列とみなし、ラベル列が日付・月・四半期・バージョンなら折れ線、それ以外は横棒。値はセルの parse 結果のみで、セル原文を `cells` に保持して tooltip / スクリーンリーダー用の表に出す(推定値なし)。単位混在・行番号・ID・年だけの列は描画しない。指標が複数でも 2 軸にせず、切替で 1 つずつ。dataviz スキルの指針(棒 ≤24px・データ端 4px 角丸・2px 線・hairline grid・単一系列は凡例なし・テキストは系列色を使わない・hover/キーボードで値)に従い、色は `--series-1`(light `#257de0` / dark `#338ced`)。rules スコアは bar 0.7 / line 0.75(+0.05 if ≥6 行)で DataTable:sortable(0.4/0.65)より上、Jev には他候補と同じく id だけを選ばせる。`REGISTRY_VERSION` を 2 に上げた。
+- **検証**: Rust 全テスト、web build、Playwright E2E 36 件 + スクリーンショット 12 件が通過。sr-only 表が記事外へはみ出してページ root がスクロールする不具合をスクリーンショットで見つけて修正(`.gui-chart { position: relative }`、E2E で root がスクロールしないことを確認)。
 
 ## 12. ベンチマーク(実測, 2026-11-27)
 

@@ -16,8 +16,7 @@ Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watche
 ### Available now
 - ⚡ Fast — a single binary with all assets embedded
 - 🔄 Live, in-place updates — only the blocks you changed re-render (no full reload), your scroll position is kept, and changed blocks are briefly highlighted
-- 🌐 Browser preview with Read / Split / Adaptive modes, source-linked reading aids, a command palette (Ctrl/⌘K), a repository/worktree file explorer, outline + fuzzy heading search, a front matter panel, light/dark/system themes, and full keyboard support
-- 🔍 Two-file diff — source or rendered, unified or side-by-side, including the same file across worktrees/branches
+- 🌐 Browser preview with Read / Adaptive modes, source-linked reading aids and **charts set into the text**, a command palette (Ctrl/⌘K), a file explorer for the current branch, outline + fuzzy heading search, a front matter panel, light/dark/system themes, and full keyboard support
 - 🖥️ Interactive terminal viewer (TUI) — scrolling, wrapping, vim-style search, and live updates without flicker
 - 📝 GitHub Flavored Markdown (GFM); GitLab Flavored Markdown (GLFM) planned
 - ⚙️ Easy to configure via TOML (XDG)
@@ -36,7 +35,7 @@ documents and renders a UI tailored to each. Upcoming layers:
 # Quick start
 
 ## Preview in your browser
-Run `mdpeek` with no arguments. It discovers the markdown in your current git repository (and any linked worktrees) and opens a browser preview with a file-explorer sidebar:
+Run `mdpeek` with no arguments. It discovers the markdown in the current branch's working tree (other worktrees are not listed) and opens a browser preview with a file-explorer sidebar:
 ```sh
 mdpeek
  INFO mdpeek::server: Listening on http://127.0.0.1:3030
@@ -47,34 +46,35 @@ The preview updates **in place** as you edit — only the blocks that changed re
 
 ### The browser UI
 
-![Adaptive mode: ticking a checklist, stepping through steps, copying commands, the command palette and a live edit](docs/design/media/adaptive-tour.gif)
+![Adaptive mode: ticking a checklist and stepping through steps inside the text, switching a bar chart's measure, reading a line chart, and switching to Read mode](docs/design/media/adaptive-tour.gif)
 
-The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), a left rail with **Outline** and **Files**, the document, and — depending on the mode — *reading aids*: small widgets (steps, checklists, commands, risks, action items, …) extracted from your document, each linked to the source lines it came from.
+The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), a left rail with **Outline** and **Files**, and the document. In Adaptive mode the document carries *reading aids*: small widgets (steps, checklists, commands, charts, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines. There is no side pane.
 
 | Mode | Key | What you see |
 |---|---|---|
-| **Read** | `1` | The document only. |
-| **Split** | `2` | Reading aids listed in a resizable pane on the right. |
-| **Adaptive** | `3` | Each aid in the margin beside the section it belongs to (on narrow windows: right after that section). |
+| **Read** | `1` | The text alone. |
+| **Adaptive** | `2` | The text with its reading aids inside it: a chart under its table, a step navigator under its list, copyable commands under the code. Whole-document aids (outline by role, glossary, …) sit folded after the opening section. |
+
+- **Charts**: a table whose columns are measures (`120 ms`, `$4.20`, `35%`, `1,200`) becomes a bar chart, or a line chart when its rows are dates, months, quarters or versions. Every value is a parsed table cell — nothing is estimated — and the tooltip and the screen-reader table show the cell text exactly as written. A column with mixed units, row numbers / IDs, or text is never plotted; a table with several measures shows one at a time with a switch (never two axes). The line chart can be read with ← / → when focused.
 
 - Reading aids are **operable**, not copies of the text: tick checklist / action items (with a progress meter), step through a procedure (Step n of N, previous / next), copy one command or all of them (commands are never run), sort and filter tables. Ticks and the current step are kept per document in this browser only; **the Markdown file is never modified**, and *Reset to file* returns to what the file says.
-- Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and in the widgets.
+- Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and on its aid. Fold any aid from its title.
 - The ⓘ button on a widget explains **why it was chosen**: selector and model, confidence, how much it helps, the other candidates and any fallback. The dot in the top bar always shows the selector state (rules / jev / fake, choosing, fallback, error).
-- **Pin** a widget to keep it at the top, or **hide** it; both are remembered per document. Bring hidden ones back from *Hidden (n)* in the widget pane or the command palette.
+- **Pin** an aid to move it to the top of the text (under the title), or **hide** it; both are remembered per document. Bring hidden ones back from *n hidden* above the text or from the command palette.
 - While a new selection runs after an edit, the previous widgets stay visible; results for an older version of the file are never shown.
-- The rail and the widget pane can be resized by dragging the divider or by focusing it and pressing ← / →, and folded away with `[` / `]`. Mode, theme, sizes and folds are remembered across reloads.
-- **Files**: switch files across worktrees/branches (group by worktree or branch), or pick two files with the compare buttons to open a **diff** — source or rendered, unified or side by side, swappable, re-diffed live as you edit.
-- The **View** menu holds **Guided reading** (`g`), **Generated UI** (the LLM / rules lens), *Follow live changes* and the shortcut list.
-- Switching modes or folding a pane keeps your place in the document.
-- On a phone (narrow screens) the document fills the screen; Files/Outline and the reading aids open as sheets.
+- The rail can be resized by dragging the divider or by focusing it and pressing ← / →, and folded away with `[`. Mode, theme, size and fold are remembered across reloads.
+- **Files** lists the Markdown of the branch you are on; the breadcrumb shows the repository and branch.
+- The **View** menu holds **Guided reading** (`g`), *Follow live changes* and the shortcut list.
+- Switching modes or folding the rail keeps your place in the document.
+- On a phone (narrow screens) the document fills the screen with the aids in it; Files/Outline open as a sheet.
 
 **Keyboard shortcuts** (`?` shows them in the app; single keys work when no text field has focus):
 
 | Key | Action |
 |---|---|
-| `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, switch mode or theme, choose reading aids again, pin / hide / show widgets |
-| `1` / `2` / `3` | Read / Split / Adaptive |
-| `[` / `]` | Fold or unfold the rail / the widget pane |
+| `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, switch mode or theme, choose reading aids again, pin / hide / show aids |
+| `1` / `2` | Read / Adaptive |
+| `[` | Fold or unfold the rail |
 | `/` | Filter headings in the Outline |
 | `g` | Guided reading |
 | `t` | Next theme (light → dark → system) |
@@ -192,7 +192,7 @@ pager = "less -R"
 ## Adaptive reading aids (`[select]`)
 
 `mdpeek select <file>` prints an **AdaptiveLayout** JSON: for each section, which
-reading-aid widget to show (step navigator, checklist, table view, command list,
+reading-aid widget to show (step navigator, checklist, table view, chart, command list,
 timeline, risk callout, …) or why nothing is shown (`skipped`). `mdpeek serve`
 exposes the same layout at `GET /api/adaptive` and pushes
 `{"type":"adaptive","revision":N,"layout":{…}}` over the WebSocket after each file
@@ -271,11 +271,10 @@ network and gives the same answer for the same document every time.
 # Status
 ## Viewer
 - [x] Live in-place updates with changed-block highlighting
-- [x] Repository + worktree file explorer sidebar (group by worktree / branch)
-- [x] Breadcrumb showing the active file's worktree/branch
+- [x] File explorer sidebar for the current branch's working tree
+- [x] Breadcrumb showing the repository and branch
 - [x] Outline panel with fuzzy heading search
 - [x] Front matter panel
-- [x] Two-file diff (source / rendered, unified / split; across worktrees)
 - [x] Interactive terminal viewer (scroll, wrap, vim-style search, live update)
 
 ## [GFM](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
