@@ -48,7 +48,7 @@ The preview updates **in place** as you edit — only the blocks that changed re
 
 ![Adaptive mode: ticking a checklist and stepping through steps inside the text, following a node graph's RETRY exit, focusing comparison cards on one criterion, switching a bar chart's measure, reading a line chart, and switching to Read mode](docs/design/media/adaptive-tour.gif)
 
-The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), a left rail with **Outline** and **Files**, and the document. In Adaptive mode the document carries *reading aids*: small widgets (steps, checklists, commands, charts, node graphs, comparison cards, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines. There is no side pane.
+The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), **Files** on the left, the document, and the **Outline** on the right. In Adaptive mode the document carries *reading aids*: small widgets (steps, checklists, commands, charts, node graphs, comparison cards, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines. There is no reading-aid side pane.
 
 | Mode | Key | What you see |
 |---|---|---|
@@ -64,10 +64,11 @@ The window has a top bar (repository / file breadcrumb, selector status, view mo
 - The ⓘ button on a widget explains **why it was chosen**: selector and model, confidence, how much it helps, the other candidates and any fallback. The dot in the top bar always shows the selector state (rules / jev / fake, choosing, fallback, error).
 - **Pin** an aid to move it to the top of the text (under the title), or **hide** it; both are remembered per document. Bring hidden ones back from *n hidden* above the text or from the command palette.
 - While a new selection runs after an edit, the previous widgets stay visible; results for an older version of the file are never shown.
-- The rail can be resized by dragging the divider or by focusing it and pressing ← / →, and folded away with `[`. Mode, theme, size and fold are remembered across reloads.
+- **Outline** (right): fuzzy heading filter and the current section marked as you scroll. Its header can **float** it over the document — drag the floating panel by its header (or focus its grip and use the arrow keys) — or **dock** it back as a sidebar; `]` hides or shows it.
+- Both sidebars can be resized by dragging the divider or by focusing it and pressing ← / →; `[` folds the Files rail. Mode, theme, sizes, folds and the floating outline's place are remembered across reloads.
 - **Files** lists the Markdown of the branch you are on; the breadcrumb shows the repository and branch.
 - The **View** menu holds **Guided reading** (`g`), *Follow live changes* and the shortcut list.
-- Switching modes or folding the rail keeps your place in the document.
+- Switching modes or folding a sidebar keeps your place in the document.
 - On a phone (narrow screens) the document fills the screen with the aids in it; Files/Outline open as a sheet.
 
 **Keyboard shortcuts** (`?` shows them in the app; single keys work when no text field has focus):
@@ -76,7 +77,8 @@ The window has a top bar (repository / file breadcrumb, selector status, view mo
 |---|---|
 | `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, switch mode or theme, choose reading aids again, pin / hide / show aids |
 | `1` / `2` | Read / Adaptive |
-| `[` | Fold or unfold the rail |
+| `[` | Fold or unfold the Files rail |
+| `]` | Show or hide the Outline (docked or floating) |
 | `/` | Filter headings in the Outline |
 | `g` | Guided reading |
 | `t` | Next theme (light → dark → system) |
