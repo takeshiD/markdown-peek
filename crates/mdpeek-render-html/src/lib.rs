@@ -793,6 +793,13 @@ fn is_number_or_percent(token: &str) -> bool {
     seen_digit
 }
 
+/// Slugify heading text into the same anchor id the HTML emitter assigns to
+/// `<h*>` elements. Public so other crates (e.g. the server's scrollytelling
+/// section splitter) can address the exact ids present in the rendered DOM.
+pub fn heading_anchor(heading_text: &str) -> String {
+    convert_to_anochor_text(heading_text.to_string())
+}
+
 fn convert_to_anochor_text(heading_text: String) -> String {
     let mut anchor = String::with_capacity(heading_text.len());
     let mut prev_hyphen = false;

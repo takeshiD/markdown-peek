@@ -7,6 +7,7 @@ members = [
     "crates/mdpeek-gfm",
     "crates/mdpeek-parser",
     "crates/mdpeek-analyzer",
+    "crates/mdpeek-gui",
     "crates/mdpeek-render-html",
     "crates/mdpeek-render-term",
     "crates/mdpeek-watcher",
@@ -27,6 +28,7 @@ description = "Markdown previewer in browser and terminal"
 [dependencies]
 mdpeek-analyzer = { path = "crates/mdpeek-analyzer" }
 mdpeek-gfm = { path = "crates/mdpeek-gfm" }
+mdpeek-gui = { path = "crates/mdpeek-gui" }
 mdpeek-render-term = { path = "crates/mdpeek-render-term" }
 mdpeek-server = { path = "crates/mdpeek-server" }
 mdpeek-watcher = { path = "crates/mdpeek-watcher" }
@@ -35,13 +37,22 @@ clap = { version = "4", features = ["derive"] }
 clap-cargo = "0.18.3"
 pulldown-cmark = "0.13"
 terminal_size = "0.4"
-toml = "0.9"
+toml = { version = "0.9", features = ["preserve_order"] }
+serde_json = "1"
 serde = { version = "1.0.228", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ratatui = "0.30.2"
 crossterm = "0.29.0"
 ansi-to-tui = "8.0.1"
+
+[features]
+# `llm` is on by default: HTTP models for reading aids ([models]: System One
+# decision models, Anthropic, OpenAI, OpenAI-compatible) and Guided reading's
+# `anthropic_api` backend. `--no-default-features` builds without
+# reqwest/tokio/TLS; only the claude_code / codex CLI models work there.
+default = ["llm"]
+llm = ["mdpeek-gui/llm", "mdpeek-server/llm"]
 
 [[bin]]
 name = "mdpeek"

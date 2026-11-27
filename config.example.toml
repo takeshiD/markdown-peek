@@ -31,20 +31,103 @@ theme = "glow"
 pager = "less -R"
 
 [llm]
-# Generated-UI generation policy: choose between rules-based and LLM-based
-# inference. Read at startup and consulted by the generator.
+# The LLM behind Guided reading's commentary (View menu > Guided reading).
+# Reading aids use [model] / [models] below, not this section.
 
-# Whether the LLM may be used at all. When false, generation is strictly
-# rules-based regardless of `strategy`. (Even when true, mdpeek degrades to
-# rules-only automatically if no API key is available.)
+# Whether Guided reading may call the LLM. When false, its commentary comes
+# from deterministic rules (offline, no key).
 enabled = false
 
-# Which source wins when both rules and the LLM could produce a result:
-#   "rules_first" - deterministic rules first; only ask the LLM for
-#                   low-confidence results (reproducible, offline-friendly).
-#   "llm_first"   - prefer the LLM; fall back to rules when it is unavailable.
-strategy = "rules_first"
+# Backend:
+#   "anthropic_api" - the Anthropic API over HTTP (needs ANTHROPIC_API_KEY).
+#   "claude_code"   - the `claude` CLI (installed + signed in).
+#   "codex"         - the `codex` CLI (installed + signed in).
+provider = "claude_code"
 
-# Under "rules_first", a rules result below this confidence (0.0-1.0) is
-# escalated to the LLM. Defaults to 0.6 when omitted.
+# Model id passed to the backend (omit for the backend's default).
+model = "claude-sonnet-5"
+
+# Reasoning effort: "low" | "medium" | "high".
+effort = "medium"
+
+# ---------------------------------------------------------------------------
+# Reading aids (`mdpeek serve`, `mdpeek select`).
+#
+# A model picks, per section, which reading aid to show (or none). Aid
+# *content* is always extracted from the document with a source line range;
+# the model only chooses among candidates that already fit.
+#
+# With aids on, the model receives headings, a short excerpt per section and
+# numeric features (never the whole file). Turn aids off for documents that
+# must not leave your machine.
+#
+# Keys: each model names the ENVIRONMENT VARIABLE that holds its key
+# (api_key_env). Never write a key here: `api_key = ...` makes the entry
+# invalid. Keys are never printed, logged, cached or sent to the browser.
+# ---------------------------------------------------------------------------
+[aids]
+# Initial state of the toggle: "on" | "off".
+default = "on"
+# Start choosing when a document opens; false = wait for the reader.
+auto_generate = true
+
+[model]
+# The default model (a key of [models]). The UI can switch for one session
+# and has a "Make default" button that rewrites this line.
+use = "jev"
+# Per request (1000..=300000 ms). At most one retry on 429/529.
+timeout_ms = 30000
+# Sections per request; also the unit of stop / resume.
+batch_sections = 8
+excerpt_chars = 600
+max_state_chars = 24000
+# Hide an aid the model considers unhelpful (helps) or is unsure about (confidence).
+helps_threshold = 0.5
 confidence_threshold = 0.6
+# serve: wait this long after a file change before choosing again.
+debounce_ms = 800
+
+# api: systemone (decision models) | anthropic | openai | openai_chat | claude_code | codex
+[models.jev]
+api = "systemone"
+model = "jev-1.14.0"
+# base_url defaults per api (systemone: https://api.typesafe.ai)
+api_key_env = "TYPESAFE_API_KEY"
+
+# Through OpenCode: one key for decision models and LLMs.
+# [models.gemini]
+# api = "systemone"
+# model = "gemini-decision-1"          # or "gpt-6-luna-decision", "jev-1.14"
+# base_url = "https://opencode.ai/inference/systemone"
+# api_key_env = "OPENCODE_API_KEY"
+#
+# [models.haiku]
+# api = "anthropic"
+# model = "claude-haiku-5-5"
+# base_url = "https://opencode.ai/inference/anthropic"
+# api_key_env = "OPENCODE_API_KEY"
+# auth = "bearer"                      # anthropic defaults to x-api-key
+# effort = "low"                       # low | medium | high | xhigh | max
+#
+# [models.glm]
+# api = "openai_chat"
+# model = "glm-5.3"                    # or "deepseek-v4-pro", ...
+# base_url = "https://opencode.ai/inference/openai"
+# api_key_env = "OPENCODE_API_KEY"
+#
+# Microsoft Decision on Azure Foundry (model = your deployment name):
+# [models.microsoft]
+# api = "systemone"
+# model = "my-decision-deployment"
+# base_url = "https://my-resource.services.ai.azure.com/providers/microsoft"
+# api_key_env = "AZURE_API_KEY"
+# auth = "api-key"
+
+[cache]
+# Decisions per section: ids and numbers only, never document text or keys.
+enabled = true
+# Default: $XDG_CACHE_HOME/mdpeek, else ~/.cache/mdpeek
+# dir = "~/.cache/mdpeek"
+max_size_mb = 100
+ttl_days = 30
+memory_entries = 256

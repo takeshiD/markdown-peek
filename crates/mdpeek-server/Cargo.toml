@@ -9,6 +9,7 @@ description = "Axum web server with WebSocket live-reload for markdown-peek"
 
 [dependencies]
 mdpeek-gfm = { path = "../mdpeek-gfm" }
+mdpeek-gui = { path = "../mdpeek-gui" }
 mdpeek-parser = { path = "../mdpeek-parser" }
 mdpeek-render-html = { path = "../mdpeek-render-html" }
 mdpeek-watcher = { path = "../mdpeek-watcher" }
@@ -18,8 +19,15 @@ futures = "0.3"
 pulldown-cmark = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-similar = "2"
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }
-walkdir = "2"
-tokio-stream = { version = "0.1", features = ["sync"] }
+ignore = "0.4"
 tracing = "0.1"
+toml_edit = "0.23"
+
+[features]
+default = []
+# Forwards to mdpeek-gui's HTTP models (reading aids, Guided reading).
+llm = ["mdpeek-gui/llm"]
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,81 @@
+{
+  "schema": "kenshu-loop/order@1",
+  "title": "markdown-peek: Jev による読書補助 widget 選択バックエンド",
+  "summary": "Markdown 文書のセクションごとに「どの読書補助 widget を出すか/出さないか」を、TypeSafe AI の Jev(型付き選択 API)または決定的ルールで選び、出典つきの AdaptiveLayout JSON として CLI とローカルサーバから返せるようにしたい。内容(表の値・手順・コマンド等)は文書から決定的に抽出し、Jev には選択だけをさせる。",
+  "deliverable_type": "cli",
+  "context": "既存の Rust workspace(markdown-peek、バイナリ名 mdpeek)への機能追加。設計は docs/design/jev-adaptive-ui.md(§0 の Jev API 一次資料・§3 パイプライン・§3.6 wire format・§4 脅威モデル・§5 設定)にあり、これに従う(合理的な理由があれば変えてよいが、その理由を同ファイル §11 に記録)。Jev API: POST {base_url}/v1/systemone、Authorization: Bearer、質問型 choice/score/noul、none 型は無く companion noul で『出さない』を判断する。利用者はローカルで mdpeek serve / mdpeek select を使う開発者。Jev の API キーは受注側・検収側には渡さない(実サービス疎通は発注者が別途行う)ので、Jev 経路はローカルの模擬 HTTP サーバ(base_url 上書き)で検証する。Web フロントエンド(web/)の UI 作り直しは別発注なので今回は触らない(サーバの JSON/WS API だけを作る)。git commit / push は発注者が行うので受注側はしない。",
+  "requirements": [
+    {
+      "id": "R1",
+      "kind": "goal",
+      "text": "`mdpeek select <file>` が AdaptiveLayout JSON(version, revision, selector{provider, model, fallback}, doc_type, placements[{scope, anchor{block_id, heading, range}, node(既存 UiNode IR), why{by, confidence, helps, reason_code, alternatives}}], skipped[{anchor, reason_code}])を標準出力に出す。既定(設定なし)は rules で、ネットワークに接続せずに動く。",
+      "must": true
+    },
+    {
+      "id": "R2",
+      "kind": "goal",
+      "text": "provider=jev かつ外部送信を明示許可した場合だけ、1 文書につき 1 回 POST /v1/systemone を送る。リクエストには事前に適用条件を満たした候補 widget だけが choice の選択肢として入り、各セクションに companion noul が付き、セクション本文は抜粋(既定 600 文字以内)と特徴量だけで全文は送らない。模擬 HTTP サーバで受信内容を確認できる。",
+      "must": true
+    },
+    {
+      "id": "R3",
+      "kind": "goal",
+      "text": "Jev の回答で noul が helps_threshold(既定 0.5)未満、または choice の confidence が confidence_threshold(既定 0.6)未満のセクションには widget を出さず skipped に理由を記録する。未知の選択肢・欠損・型違いの回答はそのセクションだけ rules に戻し理由を記録する。",
+      "must": true
+    },
+    {
+      "id": "R4",
+      "kind": "constraint",
+      "text": "キー未設定・外部送信未許可・timeout(既定 4 秒、上限内で終わる)・401・429/529(retry-after を尊重し再試行は最大 1 回)・5xx・壊れた JSON・接続不可のいずれでも、コマンドもサーバ API も失敗せず rules の結果を返し、selector.fallback に理由を入れる。",
+      "must": true
+    },
+    {
+      "id": "R5",
+      "kind": "constraint",
+      "text": "API キーはサーバ/CLI プロセスの環境変数 TYPESAFE_API_KEY からのみ読み、設定ファイル・CLI 引数・出力・ログ・ブラウザ向け応答に出さない。文書本文や抜粋もログ(stderr/tracing)に出さない。",
+      "must": true
+    },
+    {
+      "id": "R6",
+      "kind": "goal",
+      "text": "mdpeek serve で GET /api/adaptive が現在のファイルの AdaptiveLayout を返し、ファイル変更時は debounce(既定 800ms)後に WebSocket で {type:\"adaptive\", revision, layout} を送る。古い revision の選択結果は破棄され、変更のないセクションの判断はメモリ内キャッシュから再利用される(再利用が応答または模擬サーバの受信回数から観察できる)。選択結果はディスクに保存しない。",
+      "must": true
+    },
+    {
+      "id": "R7",
+      "kind": "goal",
+      "text": "キー無しで Web の E2E を回せるよう、台本化された決定的な fake provider(JSON ファイル指定)を選べる。",
+      "must": true
+    },
+    {
+      "id": "R8",
+      "kind": "constraint",
+      "text": "既存機能の互換を保つ: mdpeek gen / mdpeek serve / mdpeek term / /api/gui / /api/scrolly / 既存 [llm] 設定キー / 既存テストがそのまま通る。cargo build --no-default-features もビルドでき、その場合 jev は使えず rules に degrade する。設定は既存の XDG config.toml に [select] セクションとして追加し、未知キーは従来どおりエラー。",
+      "must": true
+    },
+    {
+      "id": "R9",
+      "kind": "goal",
+      "text": "評価用に 6 種類以上の文書タイプ(README, 設計書, ADR, 手順書, 議事録, changelog など)の fixture と期待ラベル(セクションごとに widget 種別 or none)があり、rules(と、キーがあれば jev)の一致率・none の適切さ・選択時間 p50/p95 を出すコマンドがある。キーが無い場合は jev を『未実行』と明示し、数値を捏造しない。",
+      "must": true
+    },
+    {
+      "id": "R10",
+      "kind": "constraint",
+      "text": "選択のために Jev に HTML/JS/CSS/自由文/文書にない事実を生成させない。widget の中身はすべて文書からの決定的抽出で、各 widget に元の行範囲(source range)があり、既存の allowlist/validate を通る。",
+      "must": true
+    },
+    {
+      "id": "R11",
+      "kind": "usage",
+      "text": "config.example.toml と README に [select] の使い方・外部送信が opt-in であること・キーは env のみであることが書かれている。",
+      "must": false
+    }
+  ],
+  "out_of_scope": [
+    "web/ フロントエンドの UI 作り直し(別発注)",
+    "実 Jev サービスへの接続検証(発注者が実施)",
+    "既存 /api/gui のディスクキャッシュ撤去",
+    "git commit / push / PR 作成"
+  ]
+}

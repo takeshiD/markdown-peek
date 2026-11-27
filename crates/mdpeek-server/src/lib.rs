@@ -1,11 +1,14 @@
+mod adaptive;
+pub use adaptive::{AdaptiveSetup, write_default_model};
 mod explorer;
+mod scrolly;
 
 use anyhow::Result;
 use axum::{
     Json, Router,
     body::Body,
     extract::{
-        Path as AxumPath, State,
+        Path as AxumPath, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{StatusCode, header},
@@ -24,6 +27,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+use mdpeek_gui::LlmBackendConfig;
 use mdpeek_render_html::HtmlEmitter;
 use mdpeek_watcher::watch_channel;
 
@@ -36,39 +40,17 @@ struct AppState {
     roots: Arc<Vec<PathBuf>>,
     /// Directory discovery starts from when (re)building the explorer tree.
     scan_root: Arc<PathBuf>,
-    /// Tells the watch loop to re-point at a newly selected file or diff pair.
+    /// Tells the watch loop to re-point at a newly selected file.
     rewatch: StdSender<WatchTarget>,
+    /// Guided reading's LLM backend (`[llm]`). `None` = rules commentary only.
+    llm: Arc<Option<LlmBackendConfig>>,
+    /// Adaptive reading-aid selection (`/api/adaptive` + WS `adaptive`).
+    adaptive: Arc<adaptive::Adaptive>,
 }
 
-/// What the server watches and re-renders on change: a single file (normal
-/// preview) or a pair being diffed (#15).
+/// What the server watches and re-renders on change: the active file.
 enum WatchTarget {
     Single(PathBuf),
-    Pair(PathBuf, PathBuf, DiffOptions),
-}
-
-/// Whether the diff compares raw markdown source or the rendered HTML (#15).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum DiffMode {
-    #[default]
-    Source,
-    Rendered,
-}
-
-/// One-column (unified) vs. two-column (split) diff layout (#15).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum DiffLayout {
-    #[default]
-    Unified,
-    Split,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct DiffOptions {
-    mode: DiffMode,
-    layout: DiffLayout,
 }
 
 /// Browser colour theme selected for the served page. The caller (the `mdpeek`
@@ -89,7 +71,14 @@ impl fmt::Display for Theme {
     }
 }
 
-pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
+pub fn serve(
+    watch_path: PathBuf,
+    host: String,
+    port: String,
+    theme: Theme,
+    llm: Option<LlmBackendConfig>,
+    aids: AdaptiveSetup,
+) {
     // Discover the enclosing repo/worktrees from where the user ran mdpeek so
     // the explorer sidebar (#14) works regardless of the file argument.
     let scan_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -99,6 +88,7 @@ pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
     let active = explorer::initial_active(&watch_path, &scan_root).unwrap_or(watch_path);
 
     let (tx, _) = broadcast::channel::<Message>(16);
+    let adaptive = Arc::new(adaptive::Adaptive::new(aids));
     let file_path = Arc::new(RwLock::new(active.clone()));
     let theme = Arc::new(RwLock::new(theme));
     let (rewatch_tx, rewatch_rx) = std::sync::mpsc::channel::<WatchTarget>();
@@ -109,26 +99,32 @@ pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
         roots: Arc::new(roots),
         scan_root: Arc::new(scan_root),
         rewatch: rewatch_tx,
+        llm: Arc::new(llm),
+        adaptive: Arc::clone(&adaptive),
     };
     let server = std::thread::spawn(move || run_server(state, host, port));
 
-    // Watch loop: follow the active file (or a diff pair), re-pointing when a
-    // selection arrives. On each change (or selection) re-render and broadcast an
-    // update (#16 in-place patch, or #15 re-diff) so the client updates without a
-    // full reload.
+    // Watch loop: follow the active file, re-pointing when a selection arrives.
+    // On each change (or selection) re-render and broadcast an in-place update
+    // (#16) so the client updates without a full reload.
     let (mut handle, rx) = watch_channel();
     let mut watched: Vec<PathBuf> = Vec::new();
     let mut target = WatchTarget::Single(active);
     watch_target(&mut handle, &mut watched, &target);
-    broadcast_for(&target, &tx);
+    let rev = schedule_adaptive(&target, &adaptive, &tx);
+    broadcast_for(&target, &tx, rev);
     loop {
         while let Ok(next) = rewatch_rx.try_recv() {
             watch_target(&mut handle, &mut watched, &next);
             target = next;
-            broadcast_for(&target, &tx);
+            let rev = schedule_adaptive(&target, &adaptive, &tx);
+            broadcast_for(&target, &tx, rev);
         }
         match rx.recv_timeout(Duration::from_millis(300)) {
-            Ok(()) => broadcast_for(&target, &tx),
+            Ok(()) => {
+                let rev = schedule_adaptive(&target, &adaptive, &tx);
+                broadcast_for(&target, &tx, rev);
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
@@ -136,11 +132,21 @@ pub fn serve(watch_path: PathBuf, host: String, port: String, theme: Theme) {
     let _ = server.join();
 }
 
+/// Re-select the adaptive layout for the watched file.
+/// Returns the revision the pending selection belongs to, so the body update
+/// broadcast right after can tell the client which layout revision to expect.
+fn schedule_adaptive(
+    target: &WatchTarget,
+    adaptive: &Arc<adaptive::Adaptive>,
+    tx: &broadcast::Sender<Message>,
+) -> u64 {
+    let WatchTarget::Single(p) = target;
+    adaptive.schedule(p.clone(), tx.clone())
+}
+
 fn target_paths(target: &WatchTarget) -> Vec<PathBuf> {
-    match target {
-        WatchTarget::Single(p) => vec![p.clone()],
-        WatchTarget::Pair(a, b, _) => vec![a.clone(), b.clone()],
-    }
+    let WatchTarget::Single(p) = target;
+    vec![p.clone()]
 }
 
 /// Re-point the watcher: drop the previously watched paths and watch the new set.
@@ -159,29 +165,21 @@ fn watch_target(
 }
 
 /// Broadcast the appropriate update for the current watch target.
-fn broadcast_for(target: &WatchTarget, tx: &broadcast::Sender<Message>) {
-    match target {
-        WatchTarget::Single(p) => broadcast_update(p, tx),
-        WatchTarget::Pair(a, b, opts) => {
-            let msg =
-                serde_json::json!({ "type": "diff-update", "html": render_diff(a, b, *opts) })
-                    .to_string();
-            let _ = tx.send(Message::text(msg));
-        }
-    }
+fn broadcast_for(target: &WatchTarget, tx: &broadcast::Sender<Message>, revision: u64) {
+    let WatchTarget::Single(p) = target;
+    broadcast_update(p, tx, revision)
 }
 
 /// Re-render `path` and broadcast an in-place update to connected clients (#16).
-fn broadcast_update(path: &Path, tx: &broadcast::Sender<Message>) {
+/// The message carries the full document payload (see [`doc_payload`]) so the
+/// client can patch only the changed blocks, plus the adaptive revision whose
+/// layout will follow (older layouts are then ignored by the client).
+fn broadcast_update(path: &Path, tx: &broadcast::Sender<Message>, revision: u64) {
     match std::fs::read_to_string(path) {
         Ok(content) => {
-            let (body, frontmatter) = render_markdown(&content);
-            let msg = serde_json::json!({
-                "type": "update",
-                "html": body,
-                "frontmatter": frontmatter.unwrap_or_default(),
-            })
-            .to_string();
+            let mut msg = doc_payload(path, &content, revision);
+            msg["type"] = serde_json::json!("update");
+            let msg = msg.to_string();
             let result = tx.send(Message::text(msg));
             debug!("Pushed live update for {}: {:#?}", path.display(), result);
         }
@@ -195,8 +193,16 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/", get(file_handler))
         .route("/ws", get(websocket_handler))
         .route("/api/tree", get(tree_handler))
+        .route("/api/doc", get(doc_handler))
         .route("/api/select", post(select_handler))
-        .route("/api/diff", post(diff_handler))
+        .route("/api/adaptive", get(adaptive_handler))
+        .route("/api/adaptive/run", post(adaptive_run_handler))
+        .route("/api/adaptive/stop", post(adaptive_stop_handler))
+        .route("/api/models", get(models_handler))
+        .route("/api/models/active", post(models_active_handler))
+        .route("/api/models/default", post(models_default_handler))
+        .route("/api/scrolly", get(scrolly_handler))
+        .route("/api/scrolly/ask", post(scrolly_ask_handler))
         .route("/static/{*path}", get(static_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
@@ -215,59 +221,236 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
 }
 
 async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let file_path = {
-        let file_path_guard = state.file_path.read().unwrap();
-        file_path_guard.to_path_buf()
-    };
-    let markdown_content = match tokio::fs::read_to_string(file_path.clone()).await {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let revision = state.adaptive.current_revision();
+    let boot = match tokio::fs::read_to_string(&file_path).await {
         Ok(content) => {
             info!("Loaded '{}'", file_path.display());
-            content
+            doc_payload(&file_path, &content, revision)
         }
         Err(e) => {
             error!("Failed to read file '{}': {}", file_path.display(), e);
-            // Return early with an HTML error page rather than rendering bad markdown
-            let error_html = include_str!("../../../static/index.html")
-                .replace("{{theme}}", "")
-                .replace("{{ title }}", "Error")
-                .replace(
-                    "{{ content }}",
-                    &format!(
-                        "<h1>Error</h1><p>Failed to read file <code>{}</code>: {}</p>",
-                        file_path.display(),
-                        e
-                    ),
-                )
-                .replace("{{ frontmatter }}", "");
-            return Html(error_html);
+            let mut p = doc_payload(&file_path, "", revision);
+            p["error"] = serde_json::json!(format!(
+                "Failed to read {}: {}",
+                file_path.display(),
+                e.kind()
+            ));
+            p
         }
     };
-    let (html_body, frontmatter) = render_markdown(&markdown_content);
+    let theme = match *state.theme.read().unwrap() {
+        Theme::Light => "light",
+        Theme::Dark => "dark",
+    };
+    let title = boot["title"]
+        .as_str()
+        .unwrap_or("markdown-peek")
+        .to_string();
+    Html(render_shell(&title, theme, &boot))
+}
 
-    // Front matter panel (#19): surface the leading YAML/+++ block, which the
-    // renderer otherwise hides. Escaped and stashed in a hidden element for the
-    // client to display.
-    let frontmatter_html = frontmatter
-        .map(|fm| {
-            format!(
-                "<div id=\"mdpeek-frontmatter\" hidden>{}</div>",
-                escape_html_min(&fm)
-            )
-        })
-        .unwrap_or_default();
+/// Fill the app shell template. The boot payload is embedded as JSON inside a
+/// `<script type="application/json">`, so the body renders on the first frame
+/// (no fetch) and never waits for widget selection. `</` is escaped so document
+/// text cannot close the script element.
+fn render_shell(title: &str, theme: &str, boot: &serde_json::Value) -> String {
+    let json = boot
+        .to_string()
+        .replace("</", "<\\/")
+        .replace("<!--", "<\\u0021--");
+    include_str!("../../../static/index.html")
+        .replace(
+            "{{ title }}",
+            &escape_html_min(title).replace('"', "&quot;"),
+        )
+        .replace("{{ theme }}", theme)
+        .replace("{{ boot }}", &json)
+}
 
-    let template = include_str!("../../../static/index.html");
-    let theme = state.theme.read().unwrap().to_string();
-    let title = file_path
+/// Everything the web UI needs to show one document: rendered body HTML, raw
+/// front matter, the source line span of each top-level block (in the order the
+/// blocks appear in `html`, used for source jumps / adaptive placement), and the
+/// adaptive revision current when it was rendered.
+fn doc_payload(path: &Path, content: &str, revision: u64) -> serde_json::Value {
+    let (html, frontmatter) = render_markdown(content);
+    let title = path
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or_else(|| file_path.to_str().unwrap_or("markdown-peek"));
-    let page = template
-        .replace("{{theme}}", &theme)
-        .replace("{{ title }}", title)
-        .replace("{{ content }}", &html_body)
-        .replace("{{ frontmatter }}", &frontmatter_html);
-    Html(page)
+        .unwrap_or("markdown-peek");
+    serde_json::json!({
+        "path": path.to_string_lossy(),
+        "title": title,
+        "html": html,
+        "frontmatter": frontmatter.unwrap_or_default(),
+        "blocks": block_lines(content),
+        "revision": revision,
+    })
+}
+
+/// `[start_line, end_line]` (1-based, inclusive) of every top-level block that
+/// produces body HTML (front matter is excluded; it is shown separately).
+fn block_lines(content: &str) -> Vec<[u32; 2]> {
+    mdpeek_parser::BlockTree::parse(content)
+        .blocks
+        .iter()
+        .filter(|b| !matches!(b.kind, mdpeek_parser::BlockKind::MetadataBlock))
+        .map(|b| {
+            let r = b.range;
+            let end = if r.end_column == 1 && r.end_line > r.start_line {
+                r.end_line - 1
+            } else {
+                r.end_line
+            };
+            [r.start_line, end]
+        })
+        .collect()
+}
+
+/// `GET /api/doc` — the active document payload (same shape as the boot JSON).
+async fn doc_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let revision = state.adaptive.current_revision();
+    match tokio::fs::read_to_string(&file_path).await {
+        Ok(content) => Json(doc_payload(&file_path, &content, revision)).into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("cannot read file: {}", e.kind()) })),
+        )
+            .into_response(),
+    }
+}
+
+/// Query params for `/api/scrolly`: `lang` = `auto` | `ja` | `en`.
+#[derive(Debug, Deserialize)]
+struct ScrollyQuery {
+    #[serde(default = "default_scrolly_lang")]
+    lang: String,
+}
+
+fn default_scrolly_lang() -> String {
+    "auto".to_string()
+}
+
+/// `GET /api/scrolly?lang=` — Generative Scrollytelling guide for the active
+/// file. Returns a [`scrolly::ScrollyGuide`] (`overview` + per-section
+/// `commentary`, aligned to rendered heading anchors). LLM-only: 500 if no
+/// backend is configured or generation fails. Runs on a blocking thread.
+async fn scrolly_handler(
+    State(state): State<AppState>,
+    Query(query): Query<ScrollyQuery>,
+) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+
+    let markdown = match tokio::fs::read_to_string(&file_path).await {
+        Ok(content) => content,
+        Err(e) => {
+            error!("scrolly: failed to read '{}': {e}", file_path.display());
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    info!(
+        "scrolly: guiding '{}' [{}, lang={}]",
+        file_path.display(),
+        state
+            .llm
+            .as_ref()
+            .as_ref()
+            .map(|b| format!("LLM {:?}", b.provider))
+            .unwrap_or_else(|| "no backend".to_string()),
+        query.lang,
+    );
+
+    let started = std::time::Instant::now();
+    let llm = (*state.llm).clone();
+    let lang = query.lang.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        // Cache under the cwd's `.cache/mdpeek/`.
+        scrolly::generate(&markdown, llm.as_ref(), Path::new("."), &lang)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(guide)) => {
+            info!(
+                "scrolly: {} section(s) for '{}' in {} ms",
+                guide.sections.len(),
+                file_path.display(),
+                started.elapsed().as_millis(),
+            );
+            Json(guide).into_response()
+        }
+        Ok(Err(e)) => {
+            error!(
+                "scrolly: generation failed for '{}': {e}",
+                file_path.display()
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!(
+                "scrolly: generation task panicked for '{}': {e}",
+                file_path.display()
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `POST /api/scrolly/ask` — answer a reader's question about one section
+/// (in-panel Q&A). Body: [`scrolly::AskRequest`]. Runs on a blocking thread.
+async fn scrolly_ask_handler(
+    State(state): State<AppState>,
+    Json(req): Json<scrolly::AskRequest>,
+) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+
+    let markdown = match tokio::fs::read_to_string(&file_path).await {
+        Ok(content) => content,
+        Err(e) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    info!(
+        "scrolly: Q&A on '{}' section '{}' [lang={}]",
+        file_path.display(),
+        req.anchor,
+        req.lang,
+    );
+
+    let llm = (*state.llm).clone();
+    let result =
+        tokio::task::spawn_blocking(move || scrolly::answer(&markdown, llm.as_ref(), &req)).await;
+
+    match result {
+        Ok(answer) => Json(answer).into_response(),
+        Err(e) => {
+            error!("scrolly: Q&A task panicked: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Render markdown source into a `(body HTML, raw front matter)` pair. Shared by
@@ -304,6 +487,92 @@ fn escape_html_min(s: &str) -> String {
 
 /// `GET /api/tree` — the discovered repo/worktree markdown tree plus the
 /// currently active file, for the explorer sidebar (#14).
+/// `GET /api/adaptive` — the current file's AdaptiveLayout (R6). Never asks a
+/// model: the last pushed layout for this revision, or the cached decisions
+/// (see [`adaptive::Adaptive::for_get`]). Runs are started with
+/// `POST /api/adaptive/run` and pushed over the WebSocket.
+async fn adaptive_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let adaptive = Arc::clone(&state.adaptive);
+    // Reads the file and may read the disk cache: off the async runtime.
+    let result = tokio::task::spawn_blocking(move || adaptive.for_get(&file_path)).await;
+    match result {
+        Ok(Ok(layout)) => Json(serde_json::to_value(layout).unwrap_or_default()).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("cannot read file: {}", e.kind()) })),
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// `POST /api/adaptive/run` — start (or resume) choosing aids.
+async fn adaptive_run_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    state.adaptive.start(file_path, state.tx.clone());
+    StatusCode::ACCEPTED
+}
+
+/// `POST /api/adaptive/stop` — stop the running selection.
+async fn adaptive_stop_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let adaptive = Arc::clone(&state.adaptive);
+    let tx = state.tx.clone();
+    let _ = tokio::task::spawn_blocking(move || adaptive.stop(&file_path, &tx)).await;
+    StatusCode::ACCEPTED
+}
+
+/// `GET /api/models` — the models from the config and the one in use.
+async fn models_handler(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.adaptive.models_info())
+}
+
+#[derive(Deserialize)]
+struct ModelRequest {
+    name: String,
+}
+
+fn model_error(msg: String) -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg })),
+    )
+        .into_response()
+}
+
+/// `POST /api/models/active` — use another model for this session.
+async fn models_active_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ModelRequest>,
+) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let adaptive = Arc::clone(&state.adaptive);
+    let tx = state.tx.clone();
+    let res =
+        tokio::task::spawn_blocking(move || adaptive.set_active(&req.name, file_path, tx)).await;
+    match res {
+        Ok(Ok(())) => Json(state.adaptive.models_info()).into_response(),
+        Ok(Err(e)) => model_error(e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// `POST /api/models/default` — save a model as the default in `config.toml`.
+async fn models_default_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ModelRequest>,
+) -> impl IntoResponse {
+    let adaptive = Arc::clone(&state.adaptive);
+    let tx = state.tx.clone();
+    let res = tokio::task::spawn_blocking(move || adaptive.set_default(&req.name, &tx)).await;
+    match res {
+        Ok(Ok(())) => Json(state.adaptive.models_info()).into_response(),
+        Ok(Err(e)) => model_error(e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 async fn tree_handler(State(state): State<AppState>) -> impl IntoResponse {
     let tree = explorer::build_tree(state.scan_root.as_ref());
     let active = state
@@ -330,8 +599,7 @@ async fn select_handler(
     match explorer::resolve_within(&state.roots, &req.path) {
         Some(abs) => {
             *state.file_path.write().unwrap() = abs.clone();
-            // Re-point the watcher (also exits any active diff mode); it
-            // re-renders and broadcasts the new file.
+            // Re-point the watcher; it re-renders and broadcasts the new file.
             if state.rewatch.send(WatchTarget::Single(abs)).is_err() {
                 error!("watch loop is gone; cannot switch file");
                 return StatusCode::INTERNAL_SERVER_ERROR;
@@ -345,276 +613,6 @@ async fn select_handler(
     }
 }
 
-#[derive(Deserialize)]
-struct DiffRequest {
-    a: String,
-    b: String,
-    #[serde(default)]
-    mode: DiffMode,
-    #[serde(default)]
-    layout: DiffLayout,
-}
-
-/// `POST /api/diff {a, b, mode?, layout?}` — start diffing two markdown files
-/// (#15). Both paths are validated against the discovered roots; the watcher
-/// then follows both and re-broadcasts the diff (in the chosen mode/layout) on
-/// any change. Returns the initial diff HTML fragment.
-async fn diff_handler(
-    State(state): State<AppState>,
-    Json(req): Json<DiffRequest>,
-) -> impl IntoResponse {
-    let a = explorer::resolve_within(&state.roots, &req.a);
-    let b = explorer::resolve_within(&state.roots, &req.b);
-    let opts = DiffOptions {
-        mode: req.mode,
-        layout: req.layout,
-    };
-    match (a, b) {
-        (Some(a), Some(b)) => {
-            let html = render_diff(&a, &b, opts);
-            if state.rewatch.send(WatchTarget::Pair(a, b, opts)).is_err() {
-                error!("watch loop is gone; cannot start diff");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({})),
-                )
-                    .into_response();
-            }
-            Json(serde_json::json!({ "html": html })).into_response()
-        }
-        _ => {
-            warn!(
-                "Rejected diff for '{}' / '{}' (outside roots)",
-                req.a, req.b
-            );
-            StatusCode::FORBIDDEN.into_response()
-        }
-    }
-}
-
-/// Render a diff of two markdown files (#15) in the requested mode/layout:
-/// source (raw line diff) or rendered (block-level HTML diff), laid out unified
-/// (one column) or split (two columns). The file labels/header are drawn by the
-/// client (which knows the worktree/branch of each side).
-fn render_diff(a: &Path, b: &Path, opts: DiffOptions) -> String {
-    let ta = std::fs::read_to_string(a).unwrap_or_default();
-    let tb = std::fs::read_to_string(b).unwrap_or_default();
-    match (opts.mode, opts.layout) {
-        (DiffMode::Source, DiffLayout::Unified) => source_unified(&ta, &tb),
-        (DiffMode::Source, DiffLayout::Split) => source_split(&ta, &tb),
-        (DiffMode::Rendered, DiffLayout::Unified) => rendered_unified(&ta, &tb),
-        (DiffMode::Rendered, DiffLayout::Split) => rendered_split(&ta, &tb),
-    }
-}
-
-/// CSS class for a change tag.
-fn tag_class(tag: similar::ChangeTag) -> &'static str {
-    match tag {
-        similar::ChangeTag::Delete => "mdpeek-diff-del",
-        similar::ChangeTag::Insert => "mdpeek-diff-add",
-        similar::ChangeTag::Equal => "mdpeek-diff-ctx",
-    }
-}
-
-/// Source line diff, one column (the original phase-1 layout).
-fn source_unified(ta: &str, tb: &str) -> String {
-    use similar::{ChangeTag, TextDiff};
-    let diff = TextDiff::from_lines(ta, tb);
-    let mut out = String::from("<table class=\"mdpeek-diff\"><tbody>");
-    for change in diff.iter_all_changes() {
-        let cls = tag_class(change.tag());
-        let sign = match change.tag() {
-            ChangeTag::Delete => "-",
-            ChangeTag::Insert => "+",
-            ChangeTag::Equal => " ",
-        };
-        let line = escape_html_min(change.value().trim_end_matches(['\n', '\r']));
-        out.push_str(&format!(
-            "<tr class=\"{cls}\"><td class=\"mdpeek-diff-sign\">{sign}</td><td class=\"mdpeek-diff-line\">{line}</td></tr>"
-        ));
-    }
-    out.push_str("</tbody></table>");
-    out
-}
-
-/// Split source diff: deletes on the left, inserts on the right, aligned.
-fn source_split(ta: &str, tb: &str) -> String {
-    use similar::TextDiff;
-    let diff = TextDiff::from_lines(ta, tb);
-    let changes: Vec<(similar::ChangeTag, String)> = diff
-        .iter_all_changes()
-        .map(|c| {
-            (
-                c.tag(),
-                escape_html_min(c.value().trim_end_matches(['\n', '\r'])),
-            )
-        })
-        .collect();
-    let rows = pair_changes(changes);
-    let mut out = String::from("<table class=\"mdpeek-diff mdpeek-diff-split\"><tbody>");
-    for row in rows {
-        let (lcls, rcls) = split_row_classes(row.changed);
-        out.push_str("<tr>");
-        cell(&mut out, &row.left, lcls);
-        cell(&mut out, &row.right, rcls);
-        out.push_str("</tr>");
-    }
-    out.push_str("</tbody></table>");
-    out
-}
-
-/// Rendered block diff, one column: each block rendered to HTML, add/del/context
-/// highlighted.
-fn rendered_unified(ta: &str, tb: &str) -> String {
-    use similar::TextDiff;
-    let a_blocks = split_blocks(ta);
-    let b_blocks = split_blocks(tb);
-    let a_refs: Vec<&str> = a_blocks.iter().map(String::as_str).collect();
-    let b_refs: Vec<&str> = b_blocks.iter().map(String::as_str).collect();
-    let diff = TextDiff::from_slices(&a_refs, &b_refs);
-    let mut out = String::from("<div class=\"mdpeek-rdiff markdown-body\">");
-    for change in diff.iter_all_changes() {
-        let cls = tag_class(change.tag());
-        let html = render_markdown(change.value()).0;
-        out.push_str(&format!(
-            "<div class=\"mdpeek-rdiff-block {cls}\">{html}</div>"
-        ));
-    }
-    out.push_str("</div>");
-    out
-}
-
-/// Rendered block diff, two columns: file A rendered on the left, file B on the
-/// right, changed blocks aligned and highlighted.
-fn rendered_split(ta: &str, tb: &str) -> String {
-    use similar::TextDiff;
-    let a_blocks = split_blocks(ta);
-    let b_blocks = split_blocks(tb);
-    let a_refs: Vec<&str> = a_blocks.iter().map(String::as_str).collect();
-    let b_refs: Vec<&str> = b_blocks.iter().map(String::as_str).collect();
-    let diff = TextDiff::from_slices(&a_refs, &b_refs);
-    let changes: Vec<(similar::ChangeTag, String)> = diff
-        .iter_all_changes()
-        .map(|c| (c.tag(), render_markdown(c.value()).0))
-        .collect();
-    let rows = pair_changes(changes);
-    let mut out =
-        String::from("<table class=\"mdpeek-diff mdpeek-diff-split mdpeek-rdiff-split\"><tbody>");
-    for row in rows {
-        let (lcls, rcls) = split_row_classes(row.changed);
-        out.push_str("<tr>");
-        rendered_cell(&mut out, &row.left, lcls);
-        rendered_cell(&mut out, &row.right, rcls);
-        out.push_str("</tr>");
-    }
-    out.push_str("</tbody></table>");
-    out
-}
-
-/// Split markdown source into blank-line-separated blocks, keeping the trailing
-/// newline off. Blank runs are dropped; each returned block is non-empty.
-fn split_blocks(src: &str) -> Vec<String> {
-    let mut blocks = Vec::new();
-    let mut cur = String::new();
-    for line in src.lines() {
-        if line.trim().is_empty() {
-            if !cur.is_empty() {
-                blocks.push(std::mem::take(&mut cur));
-            }
-        } else {
-            if !cur.is_empty() {
-                cur.push('\n');
-            }
-            cur.push_str(line);
-        }
-    }
-    if !cur.is_empty() {
-        blocks.push(cur);
-    }
-    blocks
-}
-
-struct SplitRow {
-    left: Option<String>,
-    right: Option<String>,
-    /// True for add/delete rows; false for unchanged (context) rows so they are
-    /// not coloured as a diff.
-    changed: bool,
-}
-
-/// Turn a flat change list into aligned two-column rows: a run of deletes is
-/// paired positionally with the following run of inserts; equals occupy both
-/// columns as unchanged context.
-fn pair_changes(changes: Vec<(similar::ChangeTag, String)>) -> Vec<SplitRow> {
-    use similar::ChangeTag;
-    let mut rows = Vec::new();
-    let mut i = 0;
-    while i < changes.len() {
-        match changes[i].0 {
-            ChangeTag::Equal => {
-                rows.push(SplitRow {
-                    left: Some(changes[i].1.clone()),
-                    right: Some(changes[i].1.clone()),
-                    changed: false,
-                });
-                i += 1;
-            }
-            _ => {
-                // Gather the run of deletes then the run of inserts and zip them.
-                let mut dels = Vec::new();
-                while i < changes.len() && changes[i].0 == ChangeTag::Delete {
-                    dels.push(changes[i].1.clone());
-                    i += 1;
-                }
-                let mut adds = Vec::new();
-                while i < changes.len() && changes[i].0 == ChangeTag::Insert {
-                    adds.push(changes[i].1.clone());
-                    i += 1;
-                }
-                let n = dels.len().max(adds.len());
-                for j in 0..n {
-                    rows.push(SplitRow {
-                        left: dels.get(j).cloned(),
-                        right: adds.get(j).cloned(),
-                        changed: true,
-                    });
-                }
-            }
-        }
-    }
-    rows
-}
-
-/// Left/right cell classes for a split row: red/green for changed rows, neutral
-/// context otherwise (so unchanged lines aren't coloured as a diff).
-fn split_row_classes(changed: bool) -> (&'static str, &'static str) {
-    if changed {
-        ("mdpeek-diff-del", "mdpeek-diff-add")
-    } else {
-        ("mdpeek-diff-ctx", "mdpeek-diff-ctx")
-    }
-}
-
-/// Emit one source-diff `<td>` (monospace, pre-escaped line).
-fn cell(out: &mut String, content: &Option<String>, change_cls: &str) {
-    match content {
-        Some(c) => out.push_str(&format!(
-            "<td class=\"mdpeek-diff-line {change_cls}\">{c}</td>"
-        )),
-        None => out.push_str("<td class=\"mdpeek-diff-empty\"></td>"),
-    }
-}
-
-/// Emit one rendered-diff `<td>` (already-rendered HTML block).
-fn rendered_cell(out: &mut String, content: &Option<String>, change_cls: &str) {
-    match content {
-        Some(c) => out.push_str(&format!(
-            "<td class=\"mdpeek-rdiff-cell markdown-body {change_cls}\">{c}</td>"
-        )),
-        None => out.push_str("<td class=\"mdpeek-diff-empty\"></td>"),
-    }
-}
-
 struct StaticAsset {
     bytes: &'static [u8],
     content_type: &'static str,
@@ -622,32 +620,21 @@ struct StaticAsset {
 
 fn embedded_static_asset(path: &str) -> Option<StaticAsset> {
     match path.trim_start_matches('/') {
-        "css/github-dark.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/css/github-dark.css"),
-            content_type: "text/css; charset=utf-8",
+        // The web UI (React + Tailwind, built from web/ by `npm run build`).
+        "app.js" => Some(StaticAsset {
+            bytes: include_bytes!("../../../web/dist/app.js"),
+            content_type: "application/javascript; charset=utf-8",
         }),
-        "css/github-light.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/css/github-light.css"),
+        "app.css" => Some(StaticAsset {
+            bytes: include_bytes!("../../../web/dist/app.css"),
             content_type: "text/css; charset=utf-8",
         }),
         "icons/github-mark.svg" => Some(StaticAsset {
             bytes: include_bytes!("../../../static/icons/github-mark.svg"),
             content_type: "image/svg+xml",
         }),
-        "js/highlight/github-dark.min.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/js/highlight/github-dark.min.css"),
-            content_type: "text/css; charset=utf-8",
-        }),
-        "js/highlight/github.min.css" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/js/highlight/github.min.css"),
-            content_type: "text/css; charset=utf-8",
-        }),
         "js/highlight/highlight.min.js" => Some(StaticAsset {
             bytes: include_bytes!("../../../static/js/highlight/highlight.min.js"),
-            content_type: "application/javascript; charset=utf-8",
-        }),
-        "js/main.js" => Some(StaticAsset {
-            bytes: include_bytes!("../../../static/js/main.js"),
             content_type: "application/javascript; charset=utf-8",
         }),
         "js/mermaid/mermaid.min.js" => Some(StaticAsset {
@@ -733,13 +720,10 @@ mod tests {
     #[test]
     fn static_assets_are_embedded() {
         for path in [
-            "css/github-light.css",
-            "css/github-dark.css",
+            "app.js",
+            "app.css",
             "icons/github-mark.svg",
-            "js/highlight/github.min.css",
-            "js/highlight/github-dark.min.css",
             "js/highlight/highlight.min.js",
-            "js/main.js",
             "js/mermaid/mermaid.min.js",
         ] {
             let asset = embedded_static_asset(path).expect(path);
@@ -750,6 +734,41 @@ mod tests {
     #[test]
     fn unknown_static_asset_is_not_found() {
         assert!(embedded_static_asset("missing.css").is_none());
+        // The old vanilla-JS viewer and its stylesheets are gone (R11).
+        for old in ["js/main.js", "css/github-light.css", "gui/mdpeek-gui.js"] {
+            assert!(embedded_static_asset(old).is_none(), "{old}");
+        }
+    }
+
+    #[test]
+    fn shell_embeds_boot_json_safely() {
+        let boot = super::doc_payload(
+            std::path::Path::new("/x/a.md"),
+            "# T\n\n</script><script>alert(1)</script>\n",
+            3,
+        );
+        let page = super::render_shell("a.md", "light", &boot);
+        // The boot element ends at the first `</script>`; everything before it
+        // must be the complete JSON payload (document text cannot close it).
+        let start = page.find("id=\"mdpeek-boot\"").expect("boot script");
+        let rest = &page[start..];
+        let body_start = rest.find('>').unwrap() + 1;
+        let close = rest.find("</script>").unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&rest[body_start..close]).expect("intact JSON");
+        assert!(
+            json["html"]
+                .as_str()
+                .unwrap()
+                .contains("</script><script>alert(1)")
+        );
+        assert_eq!(json["revision"], 3);
+    }
+
+    #[test]
+    fn block_lines_cover_top_level_blocks() {
+        let lines = super::block_lines("---\na: 1\n---\n# H\n\npara\nmore\n\n- a\n- b\n");
+        assert_eq!(lines, vec![[4, 4], [6, 7], [9, 10]]);
     }
 
     #[test]
@@ -780,65 +799,5 @@ mod tests {
         let (body, fm) = render_markdown("# Only heading\n");
         assert!(body.contains("Only heading"));
         assert!(fm.is_none());
-    }
-
-    #[test]
-    fn render_diff_marks_added_and_removed_lines() {
-        use super::render_diff;
-        let dir = std::env::temp_dir();
-        let pid = std::process::id();
-        let a = dir.join(format!("mdpeek_diff_a_{pid}.md"));
-        let b = dir.join(format!("mdpeek_diff_b_{pid}.md"));
-        std::fs::write(&a, "line one\nshared\n").unwrap();
-        std::fs::write(&b, "line ONE\nshared\n").unwrap();
-
-        let html = render_diff(&a, &b, super::DiffOptions::default());
-        assert!(
-            html.contains("mdpeek-diff-del"),
-            "should mark the removed line"
-        );
-        assert!(
-            html.contains("mdpeek-diff-add"),
-            "should mark the added line"
-        );
-        assert!(html.contains("line one") && html.contains("line ONE"));
-        // The unchanged line is context, not add/del.
-        assert!(html.contains("mdpeek-diff-ctx"));
-
-        // Rendered + split mode still marks add/del and emits a split table.
-        let rendered = render_diff(
-            &a,
-            &b,
-            super::DiffOptions {
-                mode: super::DiffMode::Rendered,
-                layout: super::DiffLayout::Split,
-            },
-        );
-        assert!(rendered.contains("mdpeek-diff-split"));
-        assert!(rendered.contains("mdpeek-diff-del") && rendered.contains("mdpeek-diff-add"));
-
-        // Split must not colour the unchanged "shared" line as a diff: it stays
-        // context, and only the changed line is coloured.
-        let split = render_diff(
-            &a,
-            &b,
-            super::DiffOptions {
-                mode: super::DiffMode::Source,
-                layout: super::DiffLayout::Split,
-            },
-        );
-        assert!(
-            split.contains("mdpeek-diff-ctx"),
-            "unchanged rows should be context"
-        );
-        assert_eq!(
-            split.matches("mdpeek-diff-del").count(),
-            1,
-            "only the one changed line is a deletion"
-        );
-        assert_eq!(split.matches("mdpeek-diff-add").count(), 1);
-
-        let _ = std::fs::remove_file(&a);
-        let _ = std::fs::remove_file(&b);
     }
 }

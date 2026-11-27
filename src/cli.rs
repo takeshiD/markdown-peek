@@ -1,6 +1,7 @@
 use crate::config::{BrowserTheme, Config, DefaultMode};
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use mdpeek_gui::select::{ModelSpec, SelectConfig};
 use serde::Deserialize;
 use std::{io::IsTerminal, path::PathBuf};
 
@@ -38,6 +39,39 @@ pub enum Commands {
     Serve(ServeArg),
     /// Display pretty rendered markdown on your terminal
     Term(TermArg),
+    /// Choose reading-aid widgets per section and print the AdaptiveLayout JSON
+    Select(SelectArg),
+    /// Evaluate widget selection against labelled fixtures (accuracy, none, p50/p95)
+    SelectEval(SelectEvalArg),
+}
+
+#[derive(Debug, Args)]
+pub struct SelectArg {
+    #[arg(value_name = "FILE")]
+    pub file: PathBuf,
+    /// Model to ask: a `[models.<name>]` entry (default: `[model] use`).
+    #[arg(long, value_name = "NAME")]
+    pub model: Option<String>,
+    /// Accepted for symmetry with the design doc; output is always JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SelectEvalArg {
+    /// Directory with `*.md` fixtures and `labels.json`.
+    #[arg(value_name = "DIR", default_value = "tests/fixtures/select")]
+    pub dir: PathBuf,
+    /// Cold-cache runs per document for the latency percentiles.
+    #[arg(long, default_value_t = 5)]
+    pub runs: usize,
+    /// Models to evaluate (`[models.<name>]`, repeatable; default: `[model] use`).
+    /// A model that cannot run (e.g. its key is not set) is reported as not run.
+    #[arg(long = "model", value_name = "NAME")]
+    pub models: Vec<String>,
+    /// Print the report as JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
 }
 
 // Subcommand arguments are optional so that an unset flag can fall back to
@@ -51,6 +85,10 @@ pub struct ServeArg {
     pub host: Option<String>,
     #[arg(long, value_name = "PORT")]
     pub port: Option<String>,
+    /// Model for reading aids in this session (`[models.<name>]`); the
+    /// default stays `[model] use`.
+    #[arg(long, value_name = "NAME")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -80,6 +118,8 @@ pub enum Mode {
         host: String,
         port: String,
         theme: BrowserTheme,
+        /// `--model` for this session.
+        model: Option<String>,
     },
     Term {
         file: PathBuf,
@@ -88,6 +128,18 @@ pub enum Mode {
         /// Pager override from config: `None` uses `$PAGER`/`less -R`, `Some("")`
         /// disables paging, `Some(cmd)` runs `cmd`.
         pager: Option<String>,
+    },
+    Select {
+        file: PathBuf,
+        select: SelectConfig,
+        model: ModelSpec,
+    },
+    SelectEval {
+        dir: PathBuf,
+        runs: usize,
+        select: SelectConfig,
+        models: Vec<ModelSpec>,
+        json: bool,
     },
 }
 
@@ -113,6 +165,7 @@ impl Cli {
         let cfg_port = config.server.port.clone();
         let browser_theme = config.server.theme.unwrap_or(BrowserTheme::Light);
         let pager = config.term.pager.clone();
+        let select_cfg = config.select_config();
 
         // `term` watches (interactive TUI) by default on a TTY; `--no-watch`
         // forces a one-shot render and `-w` forces watching (e.g. over a pipe).
@@ -138,6 +191,7 @@ impl Cli {
                     .or(cfg_port)
                     .unwrap_or_else(|| DEFAULT_PORT.to_string()),
                 theme: browser_theme,
+                model: arg.model,
             }),
             Some(Commands::Term(arg)) => Ok(Mode::Term {
                 file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
@@ -145,6 +199,40 @@ impl Cli {
                 theme: arg.theme.or(config.term.theme).unwrap_or(ThemeChoice::Glow),
                 pager,
             }),
+            Some(Commands::Select(arg)) => {
+                let models = config.models();
+                let name = arg.model.unwrap_or_else(|| models.default.clone());
+                let Some(model) = models.get(&name).cloned() else {
+                    anyhow::bail!("no model named \"{name}\" in [models]");
+                };
+                Ok(Mode::Select {
+                    file: arg.file,
+                    select: select_cfg,
+                    model,
+                })
+            }
+            Some(Commands::SelectEval(arg)) => {
+                let models = config.models();
+                let names = if arg.models.is_empty() {
+                    vec![models.default.clone()]
+                } else {
+                    arg.models
+                };
+                let mut list = Vec::new();
+                for n in names {
+                    let Some(m) = models.get(&n).cloned() else {
+                        anyhow::bail!("no model named \"{n}\" in [models]");
+                    };
+                    list.push(m);
+                }
+                Ok(Mode::SelectEval {
+                    dir: arg.dir,
+                    runs: arg.runs,
+                    select: select_cfg,
+                    models: list,
+                    json: arg.json,
+                })
+            }
             None => {
                 let root = self.root.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
                 let host = self
@@ -170,6 +258,7 @@ impl Cli {
                         host,
                         port,
                         theme: browser_theme,
+                        model: None,
                     }),
                     DefaultMode::Term => Ok(Mode::Term {
                         file: root,

@@ -1,0 +1,12 @@
+{
+  "model": "fake-e2e",
+  "delay_ms": 0,
+  "doc_type": { "value": "runbook", "confidence": 0.95 },
+  "document": { "widget": "ActionItems", "confidence": 0.9, "helps": 0.9 },
+  "sections": {
+    "Steps": { "widget": "StepNavigator", "confidence": 0.9, "helps": 0.9 },
+    "Commands": { "helps": 0.1 },
+    "Prerequisites": { "widget": "Checklist", "confidence": 0.3, "helps": 0.9 }
+  },
+  "default": "rules"
+}

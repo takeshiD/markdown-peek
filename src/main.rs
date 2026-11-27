@@ -5,7 +5,6 @@ mod tui;
 use crate::cli::{Cli, Mode, ThemeChoice};
 use crate::config::{BrowserTheme, Config};
 use anyhow::Result;
-use mdpeek_analyzer::GenerationConfig;
 use mdpeek_render_term::{TerminalEmitter, Theme};
 use mdpeek_server::serve;
 use mdpeek_watcher::notify_on_change;
@@ -23,25 +22,140 @@ fn main() -> Result<()> {
         None => Config::load(),
     };
     let mode = cmd.resolve_mode(&config)?;
-    // Generation policy (rules-first vs LLM-first) is read from config at startup;
-    // Layer 3's generator will consult it. Server mode is the generative-UI path,
-    // so it is where the policy takes effect.
-    let generation = config.generation_config();
+    // Guided reading's LLM: only when `[llm] enabled = true`; otherwise its
+    // commentary comes from rules (offline, no key needed).
+    let gui_llm = config.llm_enabled().then(|| config.llm_backend_config());
     match mode {
         Mode::Serve {
             file,
             host,
             port,
             theme,
-        } => handle_serve(file, host, port, theme, generation),
+            model,
+        } => {
+            let aids = adaptive_setup(&config, model);
+            handle_serve(file, host, port, theme, gui_llm, aids)
+        }
         Mode::Term {
             file,
             watch,
             theme,
             pager,
         } => handle_term(file, watch, theme, pager),
+        Mode::Select {
+            file,
+            select,
+            model,
+        } => handle_select(file, select, model)?,
+        Mode::SelectEval {
+            dir,
+            runs,
+            select,
+            models,
+            json,
+        } => handle_select_eval(dir, runs, select, models, json)?,
     }
     Ok(())
+}
+
+/// Everything `serve` needs for reading aids, resolved from the config.
+fn adaptive_setup(config: &Config, start_with: Option<String>) -> mdpeek_server::AdaptiveSetup {
+    let models = config.models();
+    let mut config_errors = config.errors(&models);
+    if let Some(n) = &start_with
+        && models.get(n).is_none()
+    {
+        config_errors.push(format!(
+            "--model {n}: no [models.{n}] entry; using \"{}\"",
+            models.default
+        ));
+    }
+    let c = config.cache_settings();
+    let disk = c.dir.as_ref().and_then(|d| {
+        match mdpeek_gui::select::DiskCache::open(d.clone(), c.ttl_days, c.max_size_mb) {
+            Ok(dc) => Some(dc),
+            Err(e) => {
+                config_errors.push(format!(
+                    "cache directory {} cannot be used ({}); decisions are kept in memory only",
+                    d.display(),
+                    e.kind()
+                ));
+                None
+            }
+        }
+    });
+    for e in &config_errors {
+        eprintln!("mdpeek: warning: {e}");
+    }
+    let (aids_default_on, auto_generate) = config.aids();
+    mdpeek_server::AdaptiveSetup {
+        cfg: config.select_config(),
+        models,
+        start_with,
+        config_errors,
+        config_path: config.path.clone().or_else(config::config_path),
+        aids_default_on,
+        auto_generate,
+        cache: mdpeek_gui::select::SelectionCache::with_disk(c.memory_entries, disk),
+    }
+}
+
+/// `mdpeek select`: print the AdaptiveLayout JSON for `file` on stdout. Never
+/// fails because of the model — problems are reported in `selector.error` /
+/// `selector.message` (plus a one-line note on stderr, without content). The
+/// cache is memory-only here, so every run asks the model.
+fn handle_select(
+    file: PathBuf,
+    select: mdpeek_gui::select::SelectConfig,
+    model: mdpeek_gui::select::ModelSpec,
+) -> Result<()> {
+    init_stderr_tracing();
+    if !file.is_file() {
+        anyhow::bail!("'{}' is not a file.", file.display());
+    }
+    let markdown = std::fs::read_to_string(&file)?;
+    let filename = file.file_name().and_then(|n| n.to_str());
+    let cache = mdpeek_gui::select::SelectionCache::new(256);
+    let layout =
+        mdpeek_gui::select::adaptive_layout(&markdown, filename, &select, &model, &cache, 1);
+    if let Some(m) = &layout.selector.message {
+        eprintln!(
+            "mdpeek: select: model {} could not answer: {m}",
+            layout.selector.name
+        );
+    }
+    println!("{}", mdpeek_gui::select::layout_json(&layout));
+    Ok(())
+}
+
+/// `mdpeek select-eval`: accuracy / none-appropriateness / p50-p95 per model.
+fn handle_select_eval(
+    dir: PathBuf,
+    runs: usize,
+    select: mdpeek_gui::select::SelectConfig,
+    models: Vec<mdpeek_gui::select::ModelSpec>,
+    json: bool,
+) -> Result<()> {
+    init_stderr_tracing();
+    let report = mdpeek_gui::select::eval::evaluate(&dir, &select, &models, runs)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!("{}", mdpeek_gui::select::eval::render_text(&report));
+    }
+    Ok(())
+}
+
+/// Tracing for the JSON-printing commands: stderr only (stdout stays pure JSON),
+/// `warn` unless `RUST_LOG` says otherwise.
+fn init_stderr_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(quiet_http(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+        ))
+        .with_writer(std::io::stderr)
+        .without_time()
+        .try_init();
 }
 
 fn handle_serve(
@@ -49,19 +163,10 @@ fn handle_serve(
     host: String,
     port: String,
     theme: BrowserTheme,
-    generation: GenerationConfig,
+    gui_llm: Option<mdpeek_gui::LlmBackendConfig>,
+    aids: mdpeek_server::AdaptiveSetup,
 ) {
     init_tracing();
-    tracing::info!(
-        "generation policy: {:?} (llm {}, confidence_threshold {})",
-        generation.strategy,
-        if generation.is_rules_only() {
-            "disabled — rules only"
-        } else {
-            "enabled"
-        },
-        generation.confidence_threshold,
-    );
     // Map the binary's config theme onto the server crate's own theme so the
     // server stays independent of the binary's config types.
     let theme = match theme {
@@ -71,7 +176,7 @@ fn handle_serve(
     // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
     // picks a valid active file, so we hand off even when `root` doesn't exist
     // (e.g. the default README.md is absent) rather than bailing out here.
-    serve(root, host, port, theme);
+    serve(root, host, port, theme, gui_llm, aids);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {
@@ -210,13 +315,27 @@ fn clear_terminal() {
     let _ = stdout.flush();
 }
 
+/// HTTP client internals never log (they could carry request headers/bodies,
+/// i.e. the API key or document excerpts), whatever `RUST_LOG` says.
+fn quiet_http(f: EnvFilter) -> EnvFilter {
+    [
+        "hyper=off",
+        "hyper_util=off",
+        "reqwest=off",
+        "h2=off",
+        "rustls=off",
+    ]
+    .iter()
+    .fold(f, |f, d| f.add_directive(d.parse().unwrap()))
+}
+
 fn init_tracing() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         tracing_subscriber::fmt()
-            .with_env_filter(
+            .with_env_filter(quiet_http(
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-            )
+            ))
             .with_ansi(true)
             .without_time()
             .init();
