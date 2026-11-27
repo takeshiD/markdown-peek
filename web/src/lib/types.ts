@@ -69,6 +69,8 @@ const KIND_LABEL: Record<string, string> = {
   Checklist: "Checklist",
   DataTable: "Table",
   Chart: "Chart",
+  NodeGraph: "Flow",
+  Comparison: "Comparison",
   ConfigViewer: "Commands and config",
   Timeline: "Timeline",
   Callout: "Callout",

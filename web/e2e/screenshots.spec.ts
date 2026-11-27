@@ -61,6 +61,25 @@ for (const theme of ["light", "dark"] as const) {
       }
     });
 
+    test(`graph and comparison (${theme})`, async ({ page }) => {
+      const server = await startServer({ file: "architecture.md" });
+      try {
+        await openApp(page, server);
+        await expect(page.getByTestId("node-graph")).toBeVisible();
+        await page.getByTestId("node-graph").evaluate((h) => h.closest(".mp-note-slot")!.scrollIntoView({ block: "start" }));
+        await shot(page, `${theme}-desktop-node-graph`);
+        await page.getByTestId("comparison").evaluate((h) => h.closest(".mp-note-slot")!.scrollIntoView({ block: "start" }));
+        await shot(page, `${theme}-desktop-comparison`);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.getByTestId("node-graph").evaluate((h) => h.scrollIntoView({ block: "start" }));
+        await shot(page, `${theme}-mobile-node-graph`);
+        await page.getByTestId("comparison").evaluate((h) => h.scrollIntoView({ block: "start" }));
+        await shot(page, `${theme}-mobile-comparison`);
+      } finally {
+        await server.stop();
+      }
+    });
+
     test(`states (${theme})`, async ({ page, server }) => {
       // Empty: a document with nothing to add.
       await openApp(page, server);

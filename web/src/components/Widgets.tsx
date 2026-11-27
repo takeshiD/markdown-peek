@@ -6,6 +6,8 @@ import {
   ChartColumn,
   ChartLine,
   ChevronRight,
+  Columns2,
+  Workflow,
   EyeOff,
   Footprints,
   Info,
@@ -75,6 +77,8 @@ const KIND_ICON: Record<string, LucideIcon> = {
   DecisionLog: Scale,
   Glossary: BookA,
   Chart: ChartColumn,
+  NodeGraph: Workflow,
+  Comparison: Columns2,
 };
 
 function iconFor(p: Placement): LucideIcon {

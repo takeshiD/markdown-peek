@@ -195,6 +195,10 @@ export interface ChartSeries {
   cells: string[];
 }
 
+export interface FlowNodeT { id: string; label: string; note?: string; sourceRange?: SourceRange }
+export interface FlowEdgeT { from: string; to: string; label?: string; sourceRange?: SourceRange }
+export interface ComparisonCriterionT { name: string; max: number; scores: (number | null)[]; cells: string[] }
+
 // Discriminated union — `kind` selects the component in the registry.
 export type UiNode = NodeMeta &
   (
@@ -216,6 +220,16 @@ export type UiNode = NodeMeta &
     | { kind: "LogTimeline"; entries: LogEntryT[] }
     | { kind: "CommitGraph"; commits: Commit[] }
     | { kind: "Chart"; chart: "bar" | "line"; title?: string; label_header: string; labels: string[]; series: ChartSeries[] }
+    | { kind: "NodeGraph"; title?: string; nodes: FlowNodeT[]; edges: FlowEdgeT[] }
+    | {
+        kind: "Comparison";
+        title?: string;
+        options: { name: string; note?: string }[];
+        criteria: ComparisonCriterionT[];
+        facts?: { name: string; cells: string[] }[];
+        recommended?: number;
+        recommended_by?: string;
+      }
     | { kind: "Glossary"; terms: GlossaryTerm[] }
     | { kind: "CharacterRoster"; characters: CharacterT[] }
     | { kind: "StepNavigator"; steps: StepT[] }

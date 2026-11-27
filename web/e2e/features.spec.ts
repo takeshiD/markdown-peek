@@ -139,3 +139,83 @@ test("guided reading opens beside the text and closes", async ({ page, server })
   await panel.getByRole("button", { name: "Close guided reading" }).click();
   await expect(panel).toHaveCount(0);
 });
+
+test.describe("node graph and comparison cards", () => {
+  test.use({ serverOptions: { file: "architecture.md" } });
+
+  test("an arrow flow becomes a node graph; picking a node and an outcome follows the document", async ({ page, server }) => {
+    await openApp(page, server);
+    const graph = page.getByTestId("node-graph");
+    await expect(graph).toBeVisible();
+    // Five nodes from the arrows, notes from the definition list.
+    await expect(graph.locator("svg [data-node]")).toHaveCount(5);
+    await expect(graph.locator('svg [data-node="planning"]')).toContainText("Orchestrator");
+    // Layered top-down: Frontend and Backend share a row under Planning.
+    const y = (id: string) => graph.locator(`svg [data-node="${id}"] rect`).getAttribute("y").then(Number);
+    expect(await y("frontend")).toBe(await y("backend"));
+    expect(await y("planning")).toBeLessThan(await y("frontend"));
+    expect(await y("verification")).toBeLessThan(await y("release"));
+    // RETRY (written after the main flow) is the dashed back edge.
+    await expect(graph.locator(".gui-graph__edge.is-back")).toHaveCount(1);
+    await expect(graph.locator(".gui-graph__edge.is-back")).toContainText("RETRY");
+
+    // The decision node is selected first, with its labelled exits as a switch.
+    const chips = graph.getByRole("group", { name: "Select a node" });
+    await expect(chips.getByRole("button", { name: "Verification" })).toHaveAttribute("aria-pressed", "true");
+    const result = graph.locator(".gui-graph__row");
+    await expect(result).toContainText("Verification result");
+    await expect(result.getByRole("radio", { name: "PASS" })).toHaveAttribute("aria-checked", "true");
+    await expect(graph.locator(".gui-graph__edge.is-chosen")).toContainText("PASS");
+    await result.getByRole("radio", { name: "RETRY" }).click();
+    await expect(graph.locator(".gui-graph__edge.is-chosen")).toContainText("RETRY");
+    await expect(graph.locator('svg [data-node="backend"]')).toHaveClass(/is-reached/);
+
+    // Detail of a node picked by keyboard.
+    await chips.getByRole("button", { name: "Backend" }).focus();
+    await page.keyboard.press("Enter");
+    const detail = graph.getByTestId("node-detail");
+    await expect(detail).toContainText("Agent 02");
+    await expect(detail).toContainText("Planning, Verification (RETRY)");
+    await expect(detail).toContainText("Verification");
+    // Its source chip jumps to the definition line.
+    await detail.locator(".gui-srclink").click();
+    await expect(page.locator("article ul").nth(1)).toHaveClass(/mp-source-hit/);
+  });
+
+  test("a scored comparison table becomes cards; the badge only repeats the document's recommendation", async ({ page, server }) => {
+    await openApp(page, server);
+    const cmp = page.getByTestId("comparison");
+    await expect(cmp).toBeVisible();
+    const cards = cmp.locator(".gui-cmp__card");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0)).toContainText("Single Agent");
+    // Average = (45 + 95 + 70) / 3 = 70; (95 + 45 + 95) / 3 = 78.3 → 78.
+    await expect(cards.nth(0).locator(".gui-cmp__big")).toHaveText("70");
+    await expect(cards.nth(1).locator(".gui-cmp__big")).toHaveText("78");
+    await expect(cards.nth(1)).toContainText("Average of 3 scores");
+    await expect(cards.nth(1).locator(".gui-cmp__badge")).toHaveText("Recommended");
+    await expect(cards.nth(0).locator(".gui-cmp__badge")).toHaveCount(0);
+    await expect(cmp).toContainText("Agent Swarm を推奨する");
+    // Facts stay verbatim.
+    await expect(cards.nth(0).locator(".gui-cmp__facts")).toContainText("28 min");
+    await expect(cards.nth(1).locator(".gui-cmp__facts")).toContainText("2.4x");
+    // Focus on one criterion: its cell becomes the figure and the best option is marked.
+    await cmp.getByRole("radio", { name: "コスト効率" }).click();
+    await expect(cards.nth(0).locator(".gui-cmp__big")).toHaveText("95");
+    await expect(cards.nth(0).locator(".gui-cmp__best")).toHaveText("Best");
+    await expect(cards.nth(1).locator(".gui-cmp__best")).toHaveCount(0);
+    await expect(cards.nth(0).locator('.gui-cmp__rows > li[data-focus="true"]')).toContainText("コスト効率");
+  });
+
+  test("axe: graph and comparison have no serious/critical violations (light and dark)", async ({ page, server }) => {
+    const { default: AxeBuilder } = await import("@axe-core/playwright");
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await openApp(page, server);
+      await expect(page.getByTestId("comparison")).toBeVisible();
+      const r = await new AxeBuilder({ page }).include("article").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+      const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+      expect(bad.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`), scheme).toEqual([]);
+    }
+  });
+});

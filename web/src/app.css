@@ -500,9 +500,89 @@
     background: var(--popover); color: var(--popover-foreground); border: 1px solid var(--border);
     border-radius: 6px; padding: 2px 8px; font-size: 12px; font-variant-numeric: tabular-nums;
   }
+  /* Node graph (components/NodeGraph.tsx). */
+  .gui-graph__caption { font-size: 12.5px; color: var(--muted-foreground); margin-bottom: 6px; }
+  .gui-graph__canvas {
+    border-radius: 6px; overflow: hidden;
+    background-image: radial-gradient(color-mix(in srgb, var(--muted-foreground) 22%, transparent) 0.8px, transparent 0.8px);
+    background-size: 14px 14px; background-position: 7px 7px;
+  }
+  .gui-graph__canvas svg { display: block; }
+  .gui-graph__node { cursor: pointer; }
+  .gui-graph__node rect { fill: var(--muted); stroke: color-mix(in srgb, var(--muted-foreground) 45%, var(--border)); stroke-width: 1; transition: fill 120ms, stroke 120ms; }
+  .gui-graph__node:hover rect { stroke: var(--muted-foreground); }
+  .gui-graph__node.is-selected rect { fill: color-mix(in srgb, var(--primary) 12%, var(--surface)); stroke: var(--primary); stroke-width: 2; }
+  .gui-graph__node.is-reached rect { stroke: var(--series-1); stroke-width: 1.5; }
+  .gui-graph__name { font-size: 13px; font-weight: 600; fill: var(--foreground); }
+  .gui-graph__note { font-size: 11.5px; fill: var(--muted-foreground); }
+  .gui-graph__edge path { fill: none; stroke: color-mix(in srgb, var(--muted-foreground) 70%, transparent); stroke-width: 1.5; stroke-linejoin: round; transition: stroke 120ms, opacity 120ms; }
+  .gui-graph__edge.is-back path { stroke-dasharray: 4 4; }
+  .gui-graph__edge.is-near path { stroke: var(--foreground); }
+  .gui-graph__edge.is-chosen path { stroke: var(--series-1); stroke-width: 2.5; }
+  .gui-graph__edge.is-dim { opacity: 0.35; }
+  .gui-graph__head { fill: color-mix(in srgb, var(--muted-foreground) 70%, transparent); }
+  .gui-graph__head.is-chosen { fill: var(--series-1); }
+  .gui-graph__label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em; fill: var(--muted-foreground);
+    paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round;
+  }
+  .gui-graph__edge.is-chosen .gui-graph__label { fill: var(--foreground); }
+  .gui-graph__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 10px; }
+  .gui-graph__row-label { font-size: 12.5px; color: var(--muted-foreground); }
+  .gui-graph__chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .gui-graph__chip {
+    font-size: 12.5px; line-height: 1; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--foreground); background: var(--surface); cursor: pointer;
+  }
+  .gui-graph__chip:hover { background: var(--muted); }
+  .gui-graph__chip[aria-pressed="true"] { background: var(--foreground); color: var(--background); border-color: var(--foreground); }
+  .gui-graph__chip:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  @media (max-width: 767px) { .gui-graph__chip { min-height: 44px; padding: 0 14px; } }
+  .gui-graph__detail { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; font-size: 13px; }
+  .gui-graph__detail-head { display: flex; align-items: baseline; gap: 8px; }
+  .gui-graph__detail p { margin: 2px 0 6px; }
+  .gui-graph__detail dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
+  .gui-graph__detail dt { color: var(--muted-foreground); }
+
+  /* Comparison cards (components/Comparison.tsx). One hairline frame each. */
+  .gui-cmp__focus { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 10px; }
+  .gui-cmp__focus-label { font-size: 12.5px; color: var(--muted-foreground); }
+  .gui-cmp__cards { display: grid; gap: 10px; }
+  .gui-cmp__card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 12px 10px; min-width: 0; background: var(--background); }
+  .gui-cmp__card[data-recommended] { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+  .gui-cmp__head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 6px; }
+  .gui-cmp__head h4 { flex: 1 1 auto; min-width: min(9ch, 100%); font-size: 14.5px; font-weight: 650; line-height: 1.3; overflow-wrap: break-word; }
+  .gui-cmp__badge {
+    flex: none; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--foreground);
+  }
+  .gui-cmp__note { font-size: 12.5px; color: var(--muted-foreground); }
+  .gui-cmp__figure { display: flex; align-items: baseline; gap: 4px; margin-top: 10px; min-width: 0; }
+  .gui-cmp__big { font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .gui-cmp__of { font-size: 13px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .gui-cmp__figcap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+  .gui-cmp__best { font-size: 11px; font-weight: 600; color: var(--foreground); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .gui-cmp__rows { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .gui-cmp__rows > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; row-gap: 4px; align-items: baseline; transition: opacity 120ms; }
+  .gui-cmp__rows > li[data-focus="false"] { opacity: 0.45; }
+  .gui-cmp__rows > li[data-focus="true"] .gui-cmp__crit { font-weight: 650; color: var(--foreground); }
+  .gui-cmp__crit { font-size: 13px; overflow-wrap: anywhere; }
+  .gui-cmp__val { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+  .gui-cmp__track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--series-1) 14%, var(--muted)); overflow: hidden; }
+  .gui-cmp__fill { display: block; height: 100%; border-radius: 3px; background: var(--series-1); transition: width 160ms ease-out; }
+  .gui-cmp__facts { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .gui-cmp__facts dt { font-size: 12px; color: var(--muted-foreground); }
+  .gui-cmp__facts dd { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+  .gui-cmp__source { margin-top: 8px; font-size: 12px; color: var(--muted-foreground); }
+  @media (prefers-reduced-motion: reduce) {
+    .gui-cmp__fill, .gui-cmp__rows > li, .gui-graph__node rect, .gui-graph__edge path { transition: none; }
+  }
+
   @media (forced-colors: active) {
     .gui-bars__bar { background: CanvasText; }
     .gui-line__path { stroke: CanvasText; }
+    .gui-cmp__fill { background: CanvasText; }
+    .gui-graph__edge.is-chosen path { stroke: Highlight; }
   }
 }
 

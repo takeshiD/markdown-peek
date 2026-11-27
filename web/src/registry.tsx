@@ -26,6 +26,8 @@ const coreRegistry: Partial<Record<UiNodeKind, NodeComponent>> = {
   LogTimeline: C.LogTimeline,
   CommitGraph: C.CommitGraph,
   Chart: C.Chart,
+  NodeGraph: C.NodeGraph,
+  Comparison: C.Comparison,
   // reading lenses (design §8)
   SemanticOutline: C.SemanticOutline,
   SummaryCards: C.SummaryCards,

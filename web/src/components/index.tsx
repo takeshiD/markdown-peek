@@ -17,6 +17,8 @@ import type {
 } from "../ir";
 
 export { Chart } from "./Chart";
+export { NodeGraph } from "./NodeGraph";
+export { Comparison } from "./Comparison";
 
 /** Emitted when a node (or item) wants to scroll the Content pane to a range. */
 export type OnJump = (range: SourceRange) => void;
