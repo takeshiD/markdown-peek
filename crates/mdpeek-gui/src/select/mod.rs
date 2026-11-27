@@ -13,6 +13,7 @@
 //! reported in `selector.fallback`; the pipeline itself never fails.
 
 pub mod cache;
+pub mod chart;
 pub mod eval;
 pub mod fake;
 pub mod jev;

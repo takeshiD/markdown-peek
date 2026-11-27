@@ -27,6 +27,8 @@ pub enum ValidateError {
     RangeOutOfBounds(SourceRange, u32),
     #[error("invalid IR JSON: {0}")]
     Schema(String),
+    #[error("chart data is malformed: {0}")]
+    Chart(&'static str),
 }
 
 /// Validate a slice of nodes in place: registry allowlist + range bounds, and
@@ -52,6 +54,9 @@ fn validate_node(node: &mut UiNode, total_lines: u32) -> Result<(), ValidateErro
     for r in nested_ranges(node) {
         check_range(Some(r), total_lines)?;
     }
+    if let UiNode::Chart(c) = node {
+        check_chart(c)?;
+    }
     if let UiNode::Tabs(tabs) = node {
         for tab in tabs.tabs.iter_mut() {
             validate_nodes(&mut tab.children, total_lines)?;
@@ -66,6 +71,23 @@ fn validate_node(node: &mut UiNode, total_lines: u32) -> Result<(), ValidateErro
         .unwrap_or(false);
     node.meta_mut().low_confidence = low;
 
+    Ok(())
+}
+
+/// A chart must be drawable without guessing: one value and one source cell
+/// per label, finite numbers only, and at least one series.
+fn check_chart(c: &super::node::ChartNode) -> Result<(), ValidateError> {
+    if c.series.is_empty() || c.labels.is_empty() {
+        return Err(ValidateError::Chart("no data"));
+    }
+    for s in &c.series {
+        if s.values.len() != c.labels.len() || s.cells.len() != c.labels.len() {
+            return Err(ValidateError::Chart("series length differs from labels"));
+        }
+        if s.values.iter().flatten().any(|v| !v.is_finite()) {
+            return Err(ValidateError::Chart("non-finite value"));
+        }
+    }
     Ok(())
 }
 

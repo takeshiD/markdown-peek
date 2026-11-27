@@ -19,6 +19,7 @@ pub const CORE_KINDS: &[&str] = &[
     "DependencyGraph",
     "LogTimeline",
     "CommitGraph",
+    "Chart",
     // reading lenses (design doc §8)
     "SemanticOutline",
     "SummaryCards",

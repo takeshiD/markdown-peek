@@ -20,7 +20,7 @@ use crate::ir::node::*;
 
 /// Bumped whenever the candidate catalogue / prefilter / extraction changes.
 /// Part of the selection cache key.
-pub const REGISTRY_VERSION: u32 = 1;
+pub const REGISTRY_VERSION: u32 = 2;
 
 /// Deterministic features of a section (sent to Jev instead of the full text).
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -34,6 +34,8 @@ pub struct Features {
     pub table_rows: usize,
     pub table_cols: usize,
     pub status_column: bool,
+    /// Measure columns of the section's chartable table (0 = not chartable).
+    pub chart_series: usize,
     pub shell_blocks: usize,
     pub command_lines: usize,
     pub config_blocks: usize,
@@ -531,6 +533,27 @@ pub fn plan_document(
                 description: "Sortable / filterable view of the section's table",
                 score: s,
                 node: node(s),
+            });
+        }
+        // A table of measures reads faster as a chart than as numbers.
+        if let Some(chart) = tables.iter().find_map(|(header, rows, r)| {
+            super::chart::chart_from_table(
+                header,
+                rows,
+                (!heading.is_empty()).then(|| heading.clone()),
+                meta(*r, 0.0),
+            )
+        }) {
+            f.chart_series = chart.series.len();
+            let line = chart.chart == ChartType::Line;
+            let s = if line { 0.75 } else { 0.7 } + if chart.labels.len() >= 6 { 0.05 } else { 0.0 };
+            let mut chart = chart;
+            chart.meta.confidence = Some(s);
+            cands.push(Candidate {
+                id: "Chart",
+                description: "Chart of the numeric columns of the section's table (values parsed verbatim from the cells)",
+                score: s,
+                node: UiNode::Chart(chart),
             });
         }
         if f.command_lines >= 2 {

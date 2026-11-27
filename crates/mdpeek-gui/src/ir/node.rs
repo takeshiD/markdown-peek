@@ -138,6 +138,7 @@ pub enum UiNode {
     DependencyGraph(DependencyGraphNode),
     LogTimeline(LogTimelineNode),
     CommitGraph(CommitGraphNode),
+    Chart(ChartNode),
 
     // --- reading lenses (design doc §8: derived reading aids, not body reprint) ---
     SemanticOutline(SemanticOutlineNode),
@@ -171,6 +172,7 @@ impl UiNode {
             UiNode::DependencyGraph(_) => "DependencyGraph",
             UiNode::LogTimeline(_) => "LogTimeline",
             UiNode::CommitGraph(_) => "CommitGraph",
+            UiNode::Chart(_) => "Chart",
             UiNode::SemanticOutline(_) => "SemanticOutline",
             UiNode::SummaryCards(_) => "SummaryCards",
             UiNode::DecisionLog(_) => "DecisionLog",
@@ -199,6 +201,7 @@ impl UiNode {
             UiNode::DependencyGraph(n) => &n.meta,
             UiNode::LogTimeline(n) => &n.meta,
             UiNode::CommitGraph(n) => &n.meta,
+            UiNode::Chart(n) => &n.meta,
             UiNode::SemanticOutline(n) => &n.meta,
             UiNode::SummaryCards(n) => &n.meta,
             UiNode::DecisionLog(n) => &n.meta,
@@ -227,6 +230,7 @@ impl UiNode {
             UiNode::DependencyGraph(n) => &mut n.meta,
             UiNode::LogTimeline(n) => &mut n.meta,
             UiNode::CommitGraph(n) => &mut n.meta,
+            UiNode::Chart(n) => &mut n.meta,
             UiNode::SemanticOutline(n) => &mut n.meta,
             UiNode::SummaryCards(n) => &mut n.meta,
             UiNode::DecisionLog(n) => &mut n.meta,
@@ -298,6 +302,46 @@ pub struct DataTableNode {
     pub meta: NodeMeta,
     pub columns: Vec<Column>,
     pub rows: Vec<serde_json::Map<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartType {
+    /// Magnitude per category (horizontal bars).
+    Bar,
+    /// Change over an ordered axis (dates, versions, periods).
+    Line,
+}
+
+/// One numeric column of the source table. `values[i]` belongs to
+/// `labels[i]`; `cells[i]` is the cell text exactly as written (shown in
+/// tooltips, so a parsed number never stands in for what the document says).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartSeries {
+    pub name: String,
+    /// Shared unit / affix of the column (`"ms"`, `"%"`, `"$"`), if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// Whether `unit` is written before the number (`$12`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unit_prefix: bool,
+    pub values: Vec<Option<f64>>,
+    pub cells: Vec<String>,
+}
+
+/// A chart drawn from a Markdown table (no invented data: every value is a
+/// parsed table cell, anchored by `sourceRange` to the table).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    pub chart: ChartType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Header of the label (category / time) column.
+    pub label_header: String,
+    pub labels: Vec<String>,
+    pub series: Vec<ChartSeries>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
