@@ -79,8 +79,8 @@ export function Outline({ touch }: { touch?: boolean }) {
                   }}
                   aria-current={isActive ? "location" : undefined}
                   className={cn(
-                    "block truncate rounded-sm border-l-2 py-1 pr-2 text-[13px] leading-5 hover:bg-muted",
-                    isActive ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground",
+                    "block truncate rounded-sm py-1 pr-2 text-[13px] leading-5 hover:bg-muted",
+                    isActive ? "bg-muted font-medium text-foreground" : "text-muted-foreground",
                     touch && "py-3",
                   )}
                   style={{ paddingLeft: `${8 + (h.level - minLevel) * 12}px` }}
