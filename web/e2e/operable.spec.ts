@@ -1,12 +1,13 @@
 // Widgets add an action the text cannot: ticks with progress (kept in this
-// browser, file untouched), a stepper, copyable commands, sortable tables.
+// browser, file untouched), a stepper, sortable tables. Code blocks in the
+// text carry their own copy button (#67: no separate "Commands" aid).
 import { test, expect, openApp } from "./server";
 
 const FAKE = {
   sections: {
     前提条件: { widget: "Checklist", confidence: 0.9, helps: 0.9 },
     手順: { widget: "StepNavigator", confidence: 0.9, helps: 0.9 },
-    コマンド: { widget: "ConfigViewer:commands", confidence: 0.9, helps: 0.9 },
+    設定値: { widget: "DataTable:sortable", confidence: 0.9, helps: 0.9 },
   },
 };
 
@@ -47,19 +48,24 @@ test("the stepper moves with buttons and keeps its place per document", async ({
   await expect(note.getByRole("button", { name: "Next step" })).toBeDisabled();
 });
 
-test("commands are copied line by line or all at once, never run", async ({ page, server, context }) => {
+test("code blocks in the text have a copy button; commands are never run", async ({ page, server, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await openApp(page, server);
-  const note = page.locator("article").locator('[data-kind="ConfigViewer"]');
-  await expect(note.locator("header h3")).toHaveText(/^Commands/);
-  await note.getByRole("button", { name: "Copy command 2" }).click();
-  await expect(note.getByRole("button", { name: "Copied command 2" })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("git push origin v2.3.0");
-  await note.getByRole("button", { name: "Copy all commands" }).click();
+  // No "Commands" aid any more (#67).
+  await expect(page.locator('article [data-kind="ConfigViewer"]')).toHaveCount(0);
+  const pre = page.locator("article pre:has(code.language-bash)");
+  const copy = pre.getByRole("button", { name: "Copy bash code" });
+  await pre.hover();
+  await expect(copy).toBeVisible();
+  await copy.click();
+  await expect(pre.getByRole("button", { name: "Copied" })).toBeVisible();
+  await expect(page.getByTestId("live-region")).toHaveText("Code copied");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     'git tag -a v2.3.0 -m "release"\ngit push origin v2.3.0\n./scripts/deploy.sh production',
   );
-  await expect(page.getByTestId("live-region")).toHaveText(/Copied all commands/);
+  // The button is not part of the code's text.
+  await expect(pre.locator("code")).not.toContainText("Copy");
+  await expect(pre.getByRole("button", { name: "Copy bash code" })).toBeVisible({ timeout: 4000 });
 });
 
 test("hiding another aid keeps ticks and the current step", async ({ page, server }) => {
@@ -71,7 +77,7 @@ test("hiding another aid keeps ticks and the current step", async ({ page, serve
   await steps.getByRole("button", { name: "Next step" }).click();
   await expect(list).toContainText("2 of 4 done");
   await expect(steps).toContainText("Step 2 of 5");
-  await pane.locator('[data-kind="ConfigViewer"]').getByRole("button", { name: /^Hide / }).click();
+  await pane.locator('[data-kind="DataTable"]').getByRole("button", { name: /^Hide / }).click();
   await expect(list).toContainText("2 of 4 done");
   await expect(steps).toContainText("Step 2 of 5");
   await page.reload();

@@ -3,7 +3,7 @@
 //! Fixtures: `<dir>/*.md` plus `<dir>/labels.json`:
 //!
 //! ```json
-//! { "readme.md": { "Installation": "ConfigViewer:commands", "License": "none" } }
+//! { "readme.md": { "Configuration": "ConfigViewer:config", "License": "none" } }
 //! ```
 //!
 //! Metrics per provider: section-level agreement, *none appropriateness*

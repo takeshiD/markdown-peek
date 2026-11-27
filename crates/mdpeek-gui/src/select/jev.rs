@@ -358,7 +358,7 @@ mod tests {
     use super::super::{SelectConfig, sections};
     use super::*;
 
-    const MD: &str = "# Tool\n\nIntro.\n\n## Install\n\n```sh\ncargo build\ncargo install --path .\n```\n\n## Steps\n\n1. one\n2. two\n3. three\n\n| a | status |\n|---|---|\n| 1 | ok |\n| 2 | ok |\n| 3 | ng |\n\n## License\n\nMIT\n";
+    const MD: &str = "# Tool\n\nIntro.\n\n## Install\n\n```toml\n[install]\npath = \".\"\n```\n\n## Steps\n\n1. one\n2. two\n3. three\n\n| a | status |\n|---|---|\n| 1 | ok |\n| 2 | ok |\n| 3 | ng |\n\n## License\n\nMIT\n";
 
     fn with_req<R>(f: impl FnOnce(&SelectionRequest<'_>) -> R) -> R {
         let a = mdpeek_analyzer::analyze(MD, Some("README.md"));

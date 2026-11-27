@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "cn";
-import { aidsOn, getState, setState, useStore } from "../lib/store";
+import { aidsOn, docPrefs, getState, setState, useStore } from "../lib/store";
 import {
   SLOT_CLASS,
   annotateLines,
@@ -89,7 +89,8 @@ export function DocumentView() {
     let raf = 0;
     const update = () => {
       raf = 0;
-      const top = sc.getBoundingClientRect().top + 96;
+      // Pinned aids stick over the top of the column: read below them.
+      const top = sc.getBoundingClientRect().top + 96 + (parseFloat(sc.style.scrollPaddingTop) || 0);
       let line: number | null = null;
       for (const h of getState().headings) {
         if (!h.el.isConnected) continue;
@@ -160,9 +161,20 @@ function FrontMatter({ text }: { text: string }) {
 function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | null> }) {
   const { visible, pinned } = useVisiblePlacements();
   const activeLine = useStore((s) => s.activeLine);
+  const originalList = useStore(docPrefs).original;
+  const original = new Set(originalList ?? []);
   const slots = useRef(new Map<string, HTMLDivElement>());
   const [, force] = useState(0);
-  const keys = visible.map((p) => `${widgetKey(p)}${pinned.has(widgetKey(p)) ? "^" : ""}`).join("|");
+  // Aids that actually stand in for their block right now (#63).
+  const [replacing, setReplacing] = useState("");
+  // Source lines are part of the key: an edit that grows a table must place
+  // (and replace, #63) again once the new layout arrives.
+  const keys = visible
+    .map((p) => {
+      const r = p.node.sourceRange;
+      return `${widgetKey(p)}${pinned.has(widgetKey(p)) ? "^" : ""}${original.has(widgetKey(p)) ? "o" : ""}@${r ? `${r.start_line}-${r.end_line}` : ""}`;
+    })
+    .join("|");
   const entering = useEntering(visible, (k) => slots.current.has(k));
 
   useLayoutEffect(() => {
@@ -187,11 +199,27 @@ function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | 
         created = true;
       }
     }
-    const place = () => placeSlots(article, visible, pinned, map);
+    // Headings and source jumps land below the sticky strip, not under it.
+    const scroller = article.closest("main");
+    const ro = new ResizeObserver(() => {
+      const strip = article.querySelector<HTMLElement>(`:scope > .${PINNED_CLASS}`);
+      if (scroller) scroller.style.scrollPaddingTop = strip && strip.childElementCount ? `${strip.offsetHeight + 8}px` : "";
+    });
+    const place = () => {
+      const { strip, replacing: r } = placeSlots(article, visible, pinned, original, map);
+      const joined = [...r].sort().join("|");
+      setReplacing((prev) => (prev === joined ? prev : joined));
+      ro.disconnect();
+      if (strip) ro.observe(strip);
+      else if (scroller) scroller.style.scrollPaddingTop = "";
+    };
     place();
     window.addEventListener(BODY_EVENT, place);
     if (created) force((n) => n + 1);
-    return () => window.removeEventListener(BODY_EVENT, place);
+    return () => {
+      window.removeEventListener(BODY_EVENT, place);
+      ro.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keys]);
 
@@ -199,10 +227,17 @@ function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | 
     () => () => {
       for (const el of slots.current.values()) el.remove();
       slots.current.clear();
+      const article = articleRef.current;
+      article?.querySelector(`:scope > .${PINNED_CLASS}`)?.remove();
+      // Reading aids off: the text shows its own tables and lists again.
+      if (article) unreplace(article);
+      const scroller = article?.closest("main");
+      if (scroller) scroller.style.scrollPaddingTop = "";
     },
     [],
   );
 
+  const replacingSet = new Set(replacing.split("|"));
   return (
     <>
       {visible.map((p) => {
@@ -210,7 +245,14 @@ function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | 
         if (!el) return null;
         const pin = pinned.has(widgetKey(p));
         return createPortal(
-          <WidgetNote p={p} pinned={pin} active={isActive(p, activeLine)} atTop={pin} enter={entering.get(widgetKey(p))} />,
+          <WidgetNote
+            p={p}
+            pinned={pin}
+            active={isActive(p, activeLine)}
+            atTop={pin}
+            enter={entering.get(widgetKey(p))}
+            replaces={!pin && replacingSet.has(widgetKey(p)) ? (original.has(widgetKey(p)) ? "original" : "aid") : undefined}
+          />,
           el,
           widgetKey(p),
         );
@@ -248,22 +290,122 @@ function useEntering(visible: Placement[], mounted: (key: string) => boolean): M
   return out;
 }
 
-/** Where each slot goes; slots aimed at the same spot keep their order. */
-function placeSlots(article: HTMLElement, visible: Placement[], pinned: Set<string>, map: Map<string, HTMLDivElement>) {
+/** The sticky strip of pinned aids (one slot-classed wrapper in the article). */
+const PINNED_CLASS = "mp-pinned";
+
+/**
+ * Where each slot goes; slots aimed at the same spot keep their order. Pinned
+ * slots go into the sticky strip under the title. Returns the strip, if any.
+ */
+function placeSlots(
+  article: HTMLElement,
+  visible: Placement[],
+  pinned: Set<string>,
+  original: Set<string>,
+  map: Map<string, HTMLDivElement>,
+): { strip: HTMLElement | null; replacing: Set<string> } {
+  unreplace(article);
+  const replacing = new Set<string>();
   const blocks = bodyBlocks(article);
   const title = blocks[0] && /^H1$/.test(blocks[0].tagName) ? blocks[0] : null;
   const top = title ? nextBlock(title) : (blocks[0] ?? null);
   const secondHeading = blocks.find((b, i) => i > 0 && /^H[1-6]$/.test(b.tagName)) ?? null;
+  let strip = article.querySelector<HTMLElement>(`:scope > .${PINNED_CLASS}`);
+  const anyPinned = visible.some((p) => pinned.has(widgetKey(p)) && map.has(widgetKey(p)));
+  if (anyPinned) {
+    if (!strip) {
+      strip = document.createElement("div");
+      strip.className = `${SLOT_CLASS} ${PINNED_CLASS}`;
+      strip.dataset.place = "top";
+      strip.setAttribute("role", "region");
+      strip.setAttribute("aria-label", "Pinned reading aids");
+      strip.dataset.testid = "pinned-aids";
+    }
+    if (strip.nextElementSibling !== top || strip.parentNode !== article) article.insertBefore(strip, top);
+  } else if (strip) {
+    strip.remove();
+    strip = null;
+  }
   for (const p of visible) {
     const el = map.get(widgetKey(p));
     if (!el) continue;
     el.dataset.place = pinned.has(widgetKey(p)) ? "top" : p.scope;
+    if (pinned.has(widgetKey(p)) && strip) {
+      strip.appendChild(el);
+      continue;
+    }
+    // A table / task list shown as an aid takes the place of its block (#63);
+    // the block is only hidden (display), and comes back with "Original".
+    const replaced = canReplace(p) ? replacedBlocks(blocks, p) : [];
+    if (replaced.length) {
+      replacing.add(widgetKey(p));
+      el.dataset.place = "replace";
+      article.insertBefore(el, replaced[0]);
+      if (!original.has(widgetKey(p)))
+        for (const b of replaced) {
+          b.classList.add(REPLACED_CLASS);
+          b.dataset.replacedBy = widgetKey(p);
+        }
+      continue;
+    }
     let before: Element | null;
-    if (pinned.has(widgetKey(p))) before = top;
-    else if (p.scope === "document" || blocks.length === 0) before = secondHeading;
+    if (p.scope === "document" || blocks.length === 0) before = secondHeading;
     else before = afterSource(blocks, p);
     article.insertBefore(el, before);
   }
+  return { strip, replacing };
+}
+
+/** Aids that stand in for the block they were built from (#63). */
+const REPLACING_KINDS = new Set(["DataTable", "Checklist"]);
+const REPLACED_CLASS = "mp-replaced";
+
+function canReplace(p: Placement): boolean {
+  return p.scope === "section" && REPLACING_KINDS.has(p.node.kind);
+}
+
+/** Show every block an aid stood in for. */
+function unreplace(article: HTMLElement) {
+  for (const b of Array.from(article.querySelectorAll<HTMLElement>(`:scope > .${REPLACED_CLASS}`))) {
+    b.classList.remove(REPLACED_CLASS);
+    delete b.dataset.replacedBy;
+  }
+}
+
+/**
+ * The body blocks an aid shows in full: blocks starting inside the aid's
+ * source lines, of the right element, whose rows / items are exactly the
+ * aid's. Anything else (a list mixing tasks and plain items, a table the aid
+ * shows only part of) keeps its block, and the aid sits after it as before.
+ */
+function replacedBlocks(blocks: HTMLElement[], p: Placement): HTMLElement[] {
+  const r = p.node.sourceRange;
+  if (!r) return [];
+  const last = r.end_column === 1 && r.end_line > r.start_line ? r.end_line - 1 : r.end_line;
+  const inside = blocks.filter((b) => {
+    const s = Number(b.dataset.lineStart);
+    const e = Number(b.dataset.lineEnd);
+    return Number.isFinite(s) && s >= r.start_line && s <= last && e <= last + 1;
+  });
+  if (inside.length === 0) return [];
+  if (p.node.kind === "DataTable") {
+    if (inside.length !== 1) return [];
+    const table = inside[0].matches("table") ? inside[0] : inside[0].querySelector(":scope > table");
+    if (!table) return [];
+    const rows = table.querySelectorAll(":scope > tbody > tr").length;
+    return rows === p.node.rows.length ? inside : [];
+  }
+  if (p.node.kind === "Checklist") {
+    let items = 0;
+    for (const b of inside) {
+      if (!b.matches("ul, ol")) return [];
+      const lis = Array.from(b.querySelectorAll(":scope > li"));
+      if (lis.some((li) => !li.querySelector(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]'))) return [];
+      items += lis.length;
+    }
+    return items === p.node.items.length ? inside : [];
+  }
+  return [];
 }
 
 /** The block after the last one inside the aid's source lines (its section as a fallback). */

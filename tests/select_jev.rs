@@ -14,7 +14,7 @@ const MARKER: &str = "ZZBODYMARKERZZ";
 fn doc() -> String {
     let filler = "これは長い本文です。".repeat(200); // 2000 chars
     format!(
-        "# Tool\n\nIntro paragraph.\n\n## Install\n\n```sh\ncargo build\ncargo install --path .\ncp a b\n```\n\n\
+        "# Tool\n\nIntro paragraph.\n\n## Install\n\n```toml\n[install]\npath = \".\"\nlocked = true\n```\n\n\
 ## Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\n| a | status |\n|---|---|\n| 1 | ok |\n| 2 | ok |\n| 3 | ng |\n\n\
 ## Notes\n\n{filler}{MARKER}\n\n- [ ] a\n- [ ] b\n- [ ] c\n\n## License\n\nMIT\n"
     )

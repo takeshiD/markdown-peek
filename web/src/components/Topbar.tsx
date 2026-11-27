@@ -1,14 +1,13 @@
 // Top bar: breadcrumb (repository / file), reading-aid controls (toggle,
-// model, stop / resume, status), command palette, theme, and view toggles.
+// model, stop / resume, status), command palette and theme. Guided reading, following live changes and the
+// shortcut list live in the command palette (and on keys g / ?), #66.
 import {
   BookOpenText,
   ChevronDown,
-  Eye,
   Command as CommandIcon,
   FileText,
   Folder,
   GitBranch,
-  Keyboard,
   ListTree,
   LocateFixed,
   Menu,
@@ -28,10 +27,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Kbd } from "@/components/ui/kbd";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuShortcut,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -137,35 +134,6 @@ function IconToggle({ label, pressed, onClick, icon: Icon, shortcut }: { label: 
   );
 }
 
-/** Secondary views and toggles, grouped so the bar stays quiet. */
-function ViewMenu({ autoscroll, guided }: { autoscroll: boolean; guided: boolean }) {
-  const active = autoscroll || guided;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className={cn("h-8 gap-1.5 px-2 font-normal", active ? "text-foreground" : "text-muted-foreground")} data-testid="view-menu">
-          <Eye aria-hidden="true" /> <span className="max-lg:sr-only">View</span>
-          <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuCheckboxItem checked={guided} onCheckedChange={(v) => setState({ guidedOpen: !!v })}>
-          <BookOpenText aria-hidden="true" /> Guided reading
-          <DropdownMenuShortcut>G</DropdownMenuShortcut>
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={autoscroll} onCheckedChange={(v) => setPrefs({ autoscroll: !!v })}>
-          <LocateFixed aria-hidden="true" /> Follow live changes
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => setState({ shortcutsOpen: true })}>
-          <Keyboard aria-hidden="true" /> Keyboard shortcuts
-          <DropdownMenuShortcut>?</DropdownMenuShortcut>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 export function Topbar({ mobile }: { mobile: boolean }) {
   const aids = useStore(aidsOn);
   const models = useStore((s) => s.models);
@@ -262,7 +230,6 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         shortcut="]"
       />
       <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-      <ViewMenu autoscroll={autoscroll} guided={guided} />
       <Button
         variant="outline"
         size="sm"

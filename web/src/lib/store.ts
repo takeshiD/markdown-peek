@@ -24,6 +24,8 @@ export interface DocPrefs {
   marks?: Record<string, boolean>;
   /** Current step per StepNavigator widget. */
   steps?: Record<string, number>;
+  /** Table / checklist aids the reader switched back to the original block (#63). */
+  original?: string[];
 }
 export interface Prefs {
   /** Reading aids on or off; `null` follows `[aids] default` in the config. */

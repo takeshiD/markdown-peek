@@ -93,6 +93,7 @@ const KIND_LABEL: Record<string, string> = {
   Chart: "Chart",
   NodeGraph: "Flow",
   Comparison: "Comparison",
+  DirectoryTree: "Directory tree",
   ConfigViewer: "Commands and config",
   Timeline: "Timeline",
   Callout: "Callout",

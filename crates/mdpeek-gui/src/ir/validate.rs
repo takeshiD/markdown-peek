@@ -27,7 +27,7 @@ pub enum ValidateError {
     RangeOutOfBounds(SourceRange, u32),
     #[error("invalid IR JSON: {0}")]
     Schema(String),
-    #[error("chart / graph / comparison data is malformed: {0}")]
+    #[error("chart / graph / comparison / tree data is malformed: {0}")]
     Chart(&'static str),
 }
 
@@ -76,6 +76,9 @@ fn validate_node(node: &mut UiNode, total_lines: u32) -> Result<(), ValidateErro
             return Err(ValidateError::Chart("comparison data is inconsistent"));
         }
     }
+    if let UiNode::DirectoryTree(t) = node {
+        check_tree(t)?;
+    }
     if let UiNode::Tabs(tabs) = node {
         for tab in tabs.tabs.iter_mut() {
             validate_nodes(&mut tab.children, total_lines)?;
@@ -106,6 +109,25 @@ fn check_chart(c: &super::node::ChartNode) -> Result<(), ValidateError> {
         if s.values.iter().flatten().any(|v| !v.is_finite()) {
             return Err(ValidateError::Chart("non-finite value"));
         }
+    }
+    Ok(())
+}
+
+/// A tree must be drawable as written: a bounded number of entries, starting
+/// at the top level, each at most one level deeper than the one before.
+fn check_tree(t: &super::node::DirectoryTreeNode) -> Result<(), ValidateError> {
+    const MAX_ENTRIES: usize = 1000;
+    const MAX_DEPTH: u32 = 32;
+    if t.entries.is_empty() || t.entries.len() > MAX_ENTRIES {
+        return Err(ValidateError::Chart("tree has no entries or too many"));
+    }
+    let mut prev: Option<u32> = None;
+    for e in &t.entries {
+        let ok = e.depth <= MAX_DEPTH && e.depth <= prev.map_or(0, |p| p + 1);
+        if !ok || e.name.trim().is_empty() {
+            return Err(ValidateError::Chart("tree depth or name is malformed"));
+        }
+        prev = Some(e.depth);
     }
     Ok(())
 }
@@ -143,6 +165,7 @@ fn nested_ranges(node: &UiNode) -> Vec<SourceRange> {
             .filter_map(|x| x.source_range)
             .chain(n.edges.iter().filter_map(|e| e.source_range))
             .collect(),
+        UiNode::DirectoryTree(n) => n.entries.iter().filter_map(|e| e.source_range).collect(),
         UiNode::ObligationMatrix(n) => {
             n.obligations.iter().filter_map(|o| o.source_range).collect()
         }
@@ -210,6 +233,16 @@ mod tests {
         })];
         validate_nodes(&mut nodes, 10).unwrap();
         assert!(nodes[0].meta().low_confidence);
+    }
+
+    #[test]
+    fn tree_depth_must_step_by_one() {
+        let ok = r#"[{"kind":"DirectoryTree","entries":[{"name":"a/","depth":0,"is_dir":true},{"name":"b","depth":1,"is_dir":false}]}]"#;
+        assert!(validate_json(ok, 10).is_ok());
+        let jump = r#"[{"kind":"DirectoryTree","entries":[{"name":"a/","depth":0,"is_dir":true},{"name":"b","depth":2,"is_dir":false}]}]"#;
+        assert!(matches!(validate_json(jump, 10), Err(ValidateError::Chart(_))));
+        let empty = r#"[{"kind":"DirectoryTree","entries":[]}]"#;
+        assert!(validate_json(empty, 10).is_err());
     }
 
     #[test]

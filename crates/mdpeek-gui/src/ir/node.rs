@@ -141,6 +141,7 @@ pub enum UiNode {
     Chart(ChartNode),
     NodeGraph(NodeGraphNode),
     Comparison(ComparisonNode),
+    DirectoryTree(DirectoryTreeNode),
 
     // --- reading lenses (design doc §8: derived reading aids, not body reprint) ---
     SemanticOutline(SemanticOutlineNode),
@@ -177,6 +178,7 @@ impl UiNode {
             UiNode::Chart(_) => "Chart",
             UiNode::NodeGraph(_) => "NodeGraph",
             UiNode::Comparison(_) => "Comparison",
+            UiNode::DirectoryTree(_) => "DirectoryTree",
             UiNode::SemanticOutline(_) => "SemanticOutline",
             UiNode::SummaryCards(_) => "SummaryCards",
             UiNode::DecisionLog(_) => "DecisionLog",
@@ -208,6 +210,7 @@ impl UiNode {
             UiNode::Chart(n) => &n.meta,
             UiNode::NodeGraph(n) => &n.meta,
             UiNode::Comparison(n) => &n.meta,
+            UiNode::DirectoryTree(n) => &n.meta,
             UiNode::SemanticOutline(n) => &n.meta,
             UiNode::SummaryCards(n) => &n.meta,
             UiNode::DecisionLog(n) => &n.meta,
@@ -239,6 +242,7 @@ impl UiNode {
             UiNode::Chart(n) => &mut n.meta,
             UiNode::NodeGraph(n) => &mut n.meta,
             UiNode::Comparison(n) => &mut n.meta,
+            UiNode::DirectoryTree(n) => &mut n.meta,
             UiNode::SemanticOutline(n) => &mut n.meta,
             UiNode::SummaryCards(n) => &mut n.meta,
             UiNode::DecisionLog(n) => &mut n.meta,
@@ -383,6 +387,36 @@ pub struct FlowEdge {
     pub source_range: Option<SourceRange>,
 }
 
+/// A directory layout drawn with tree glyphs (`├──` / `└──` / `│`) in a code
+/// block, as a collapsible tree (#64). Entries are in source order; `depth`
+/// gives the hierarchy (0 = top level, each entry at most one deeper than the
+/// one before). Names and comments are verbatim.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DirectoryTreeNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub entries: Vec<TreeEntry>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TreeEntry {
+    /// As written, e.g. `"crates/"` or `"lib.rs"`.
+    pub name: String,
+    pub depth: u32,
+    /// Written with a trailing `/` or has children.
+    pub is_dir: bool,
+    /// Text after `#` on the line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    /// The line carries a marker such as `★`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub marked: bool,
+    /// The source line of the entry.
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+
 /// Options compared on scored criteria (a comparison table), as side-by-side
 /// cards. Scores are table cells; nothing is weighted or invented.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -509,8 +543,8 @@ pub enum ConfigFormat {
     Yaml,
     Toml,
     Env,
-    /// Shell commands (copy-only; never executed). Used by the adaptive
-    /// selector's `ConfigViewer:commands` widget.
+    /// Shell commands (copy-only; never executed). Kept in the IR, but the
+    /// selector no longer offers a commands aid (#67).
     Shell,
 }
 

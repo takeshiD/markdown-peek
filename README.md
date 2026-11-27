@@ -48,7 +48,7 @@ The preview updates **in place** as you edit — only the blocks that changed re
 
 ![Reading aids arriving one by one with a spinner, ticking a checklist and stepping through steps inside the text, following a node graph's RETRY exit, focusing comparison cards on one criterion, switching the model for the session and making it the default, and turning reading aids off and on](docs/design/media/adaptive-tour.gif)
 
-The window has a top bar (repository / file breadcrumb, the **reading-aid controls**, a **View** menu, command palette, theme), **Files** on the left, the document, and the **Outline** on the right. With reading aids on, the document carries small widgets (steps, checklists, commands, charts, node graphs, comparison cards, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines: a chart under its table, a step navigator under its list, copyable commands under the code. Whole-document aids (outline by role, glossary, …) sit folded after the opening section. There is no reading-aid side pane.
+The window has a top bar (repository / file breadcrumb, the **reading-aid controls**, command palette, theme), **Files** on the left, the document, and the **Outline** on the right. With reading aids on, the document carries small widgets (steps, checklists, tables, charts, node graphs, comparison cards, directory trees, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines: a chart under its table, a step navigator under its list, a stage flow under a section that walks through stages. A **sortable table or an interactive checklist takes the place of the table / task list it was built from** (so it is not shown twice); its *Original* button switches that block back to the Markdown rendering, and turning aids off restores every block. Code blocks in the text have a **copy button**. Whole-document aids (outline by role, glossary, …) sit folded after the opening section. There is no reading-aid side pane.
 
 The reading-aid controls, left to right:
 
@@ -64,18 +64,20 @@ Settings that cannot work (an unset key variable, a key written in the config, a
 
 - **Charts**: a table whose columns are measures (`120 ms`, `$4.20`, `35%`, `1,200`) becomes a bar chart, or a line chart when its rows are dates, months, quarters or versions. Every value is a parsed table cell — nothing is estimated — and the tooltip and the screen-reader table show the cell text exactly as written. A column with mixed units, row numbers / IDs, or text is never plotted; a table with several measures shows one at a time with a switch (never two axes). The line chart can be read with ← / → when focused.
 - **Node graphs**: a flow written as arrows in a list (`Planning (Orchestrator) → Frontend, Backend`, `Verification --PASS--> Release`, `A -->|RETRY| B`) or as a table with *from* / *to* columns is drawn top-down; an edge written after the main flow that closes a loop (a retry) is dashed. Pick a node (chips below the graph, or click it) to see its description from the document (`- **Name**: …` or `Name (subtitle)`), where it comes from and where it goes; a node with labelled exits gets a switch (e.g. *PASS / RETRY*) that highlights where that exit leads.
+- **Stage flows**: a section whose subsections walk through the stages of a process one by one (`### 3.1 parser — markdown -> BlockTree`, `### 3.2 analyzer — …`) gets a top-down flow of those stages under its own text; the input / output a heading states (`A -> B`) labels the arrow, and each node links to its subsection.
+- **Directory trees**: a code block drawing a layout with `├──` / `└──` / `│` (or `|--`, `` `-- ``) becomes a tree whose folders open and close (keyboard: arrows, Home / End, Enter to jump to the line), with the `# comments` and ★ marks of the original.
 - **Comparison cards**: a table comparing 2–4 options on scored criteria (numbers out of 5 / 10 / 100, ★★★☆☆, or ◎ ○ △ ×) becomes one card per option with the scores as bars; other rows (durations, prices, …) are shown verbatim. The figure is the plain average of the option's scores (labelled as such); *Focus* on one criterion shows that cell and marks the best option. A **Recommended** badge appears only when the document says which option it recommends (e.g. `… Agent Swarm を推奨する` or `(推奨)` in the header), and the sentence is quoted under the cards.
 
-- Reading aids are **operable**, not copies of the text: tick checklist / action items (with a progress meter), step through a procedure (Step n of N, previous / next), copy one command or all of them (commands are never run), sort and filter tables. Ticks and the current step are kept per document in this browser only; **the Markdown file is never modified**, and *Reset to file* returns to what the file says.
+- Reading aids are **operable**, not copies of the text: tick checklist / action items (with a progress meter), step through a procedure (Step n of N, previous / next), sort and filter tables. Code is copied with the copy button on each code block (commands are never run). Ticks and the current step are kept per document in this browser only; **the Markdown file is never modified**, and *Reset to file* returns to what the file says.
 - Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and on its aid. Fold any aid from its title.
 - The ⓘ button on a widget explains **why it was chosen**: the model, confidence, how much it helps and the other candidates.
 - Aids a model has just chosen **rise into the text with a short overshoot** and a fading ring, so you can see what was added; aids reused from the cache appear without motion, and *reduce motion* keeps only the ring.
-- **Pin** an aid to move it to the top of the text (under the title), or **hide** it; both are remembered per document. Bring hidden ones back from *n hidden* above the text or from the command palette.
+- **Pin** an aid to keep it in view: it moves to a strip under the title that **sticks to the top of the document while you read** (capped in height; it scrolls inside). **Hide** an aid and a notification offers **Undo**; later, bring hidden aids back from *n hidden* above the text or from the command palette. Both are remembered per document.
 - While the model is choosing after an edit, the previous widgets stay visible; results for an older version of the file are never shown.
 - **Outline** (right): fuzzy heading filter and the current section marked as you scroll. Its header can **float** it over the document — drag the floating panel by its header (or focus its grip and use the arrow keys) — or **dock** it back as a sidebar; `]` hides or shows it.
 - Both sidebars can be resized by dragging the divider or by focusing it and pressing ← / →; `[` folds the Files rail. The aids toggle, theme, sizes, folds and the floating outline's place are remembered across reloads.
 - **Files** lists the Markdown of the branch you are on; the breadcrumb shows the repository and branch.
-- The **View** menu holds **Guided reading** (`g`), *Follow live changes* and the shortcut list.
+- **Guided reading** (`g`), *Follow live changes* and the shortcut list (`?`) are in the command palette.
 - Turning aids on or off or folding a sidebar keeps your place in the document.
 - On a phone (narrow screens) the document fills the screen with the aids in it; Files/Outline open as a sheet.
 
@@ -83,7 +85,7 @@ Settings that cannot work (an unset key variable, a key written in the config, a
 
 | Key | Action |
 |---|---|
-| `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, aids on / off, stop / resume, use another model, make it the default, theme, pin / hide / show aids |
+| `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, aids on / off, stop / resume, use another model, make it the default, theme, pin / hide / show aids, guided reading, follow live changes, keyboard shortcuts |
 | `a` | Reading aids on or off |
 | `[` | Fold or unfold the Files rail |
 | `]` | Show or hide the Outline (docked or floating) |
@@ -205,8 +207,8 @@ pager = "less -R"
 
 `mdpeek serve` shows reading aids chosen by a model; `mdpeek select <file>` prints
 the same choice as an **AdaptiveLayout** JSON (for each section, which widget to
-show — step navigator, checklist, table view, chart, node graph, comparison cards,
-command list, timeline, risk callout, … — or why nothing is shown).
+show — step navigator, checklist, table view, chart, node graph, stage flow,
+comparison cards, directory tree, timeline, risk callout, … — or why nothing is shown).
 
 **A model only picks; it never writes content.** Each widget is extracted from your
 document deterministically and carries its source line range; the model chooses

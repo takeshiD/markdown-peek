@@ -193,6 +193,22 @@
     background: var(--muted);
   }
   .markdown-body pre code:not(.mp-note-slot *) { font-size: 1em; background: none; padding: 0; white-space: pre; }
+  /* Copy button (#67): the code scrolls, the button stays in the corner. */
+  .markdown-body pre.mp-has-copy:not(.mp-note-slot *) { position: relative; overflow: hidden; padding: 0; }
+  .markdown-body pre.mp-has-copy > code:not(.mp-note-slot *) { display: block; overflow-x: auto; padding: 14px 44px 14px 16px; }
+  .mp-copy {
+    position: absolute; top: 6px; right: 6px; display: grid; place-items: center;
+    width: 30px; height: 30px; border-radius: 6px; border: 1px solid transparent;
+    color: var(--muted-foreground); background: color-mix(in srgb, var(--muted) 85%, transparent);
+    opacity: 0; transition: opacity 120ms, color 120ms, border-color 120ms; cursor: pointer;
+  }
+  .markdown-body pre:hover > .mp-copy, .mp-copy:focus-visible, .mp-copy[data-state] { opacity: 1; }
+  .mp-copy:hover { color: var(--foreground); border-color: var(--border); }
+  .mp-copy:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .mp-copy[data-state="copied"] { color: var(--ok, var(--primary)); }
+  .mp-copy[data-state="failed"] { color: var(--danger); }
+  @media (hover: none), (max-width: 767px) { .mp-copy { opacity: 1; width: 44px; height: 44px; top: 2px; right: 2px; } .markdown-body pre.mp-has-copy > code:not(.mp-note-slot *) { padding-right: 52px; } }
+  @media (prefers-reduced-motion: reduce) { .mp-copy { transition: none; } }
   .markdown-body table:not(.mp-note-slot *) {
     display: block;
     width: max-content;
@@ -305,8 +321,23 @@
      exclude `.mp-note-slot *`). */
   .mp-note-slot { display: block; margin: 0.25em 0 1.5em; font-family: var(--font-ui); font-size: 14px; line-height: 1.5; }
   .mp-note-slot[data-place="top"] { margin: 0 0 1.25em; }
-  .mp-note-slot[data-place="top"] + .mp-note-slot[data-place="top"] { margin-top: -0.5em; }
   .mp-note-slot:empty { display: none !important; }
+  /* A table / task list an aid stands in for (#63): hidden from the text only. */
+  .markdown-body > .mp-replaced { display: none !important; }
+  .mp-note-slot[data-place="replace"] { margin: 0 0 1em; }
+  /* Pinned aids (#61): a strip under the title that sticks to the top of the
+     document column, so a pinned aid stays in view while reading. Capped in
+     height (it scrolls inside) so the text below keeps most of the screen. */
+  .mp-note-slot.mp-pinned {
+    position: sticky; top: 0; z-index: 5;
+    max-height: min(45vh, 440px); overflow-y: auto; overscroll-behavior: contain;
+    margin: 0 -10px 1.25em; padding: 8px 10px 2px;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 6px 12px -10px color-mix(in srgb, var(--foreground) 35%, transparent);
+  }
+  .mp-pinned > .mp-note-slot[data-place] { margin: 0 0 8px; }
+  @media (max-width: 767px) { .mp-note-slot.mp-pinned { max-height: 32vh; } }
 
   /* An aid reads as an instrument set into the page: one hairline frame on a
      surface a step off the paper, no shadow, a quiet header. */
@@ -317,10 +348,23 @@
   .mp-aid[data-open="false"] { padding-bottom: 4px; }
   .mp-aid[data-active="true"] { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
   .mp-aid__head { display: flex; align-items: center; gap: 2px; min-height: 32px; }
+  /* Phones: with an extra action (Original, #63) the title takes its own row
+     rather than squeezing under the buttons. */
+  @media (max-width: 767px) {
+    .mp-aid__head { flex-wrap: wrap; }
+    .mp-aid[data-replaces] .mp-aid__head > h3 { flex: 1 0 100%; }
+  }
   .mp-aid__head .gui-srclink { margin-left: 2px; }
   .mp-aid__body { padding-top: 4px; }
   @media (prefers-reduced-motion: reduce) { .mp-aid { transition: none; } }
 
+  /* Moved by pin / unpin / undo (#61): a short ring where it landed. */
+  @keyframes mp-aid-moved {
+    from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 45%, transparent); }
+    to { box-shadow: 0 0 0 3px transparent; }
+  }
+  .mp-aid--moved { animation: mp-aid-moved 1.4s ease-out 1; }
+  @media (prefers-reduced-motion: reduce) { .mp-aid--moved { animation: none; outline: 2px solid var(--primary); outline-offset: 2px; } }
   /* An aid the model just chose: rises in with a small overshoot (a "back"
      ease), then a brief ring fades, so the reader sees what was added. Aids
      arriving together are staggered (--enter-delay). Reduced motion keeps
@@ -603,6 +647,46 @@
   .gui-cmp__facts dt { font-size: 12px; color: var(--muted-foreground); }
   .gui-cmp__facts dd { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
   .gui-cmp__source { margin-top: 8px; font-size: 12px; color: var(--muted-foreground); }
+
+  /* Directory tree (#64): folders fold; a hairline rail per level, like the
+     `│` the document drew. Names in the code face, comments muted beside. */
+  .gui-dtree { font-size: 13px; line-height: 1.45; }
+  .gui-dtree__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; margin: -2px 0 4px; }
+  .gui-dtree__count { font-size: 12.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .gui-dtree__tree, .gui-dtree__group { list-style: none; margin: 0; padding: 0; }
+  .gui-dtree__group { margin-left: 13px; padding-left: 6px; border-left: 1px solid var(--border); }
+  .gui-dtree__item { outline: none; }
+  .gui-dtree__row {
+    display: flex; align-items: flex-start; gap: 4px; min-height: 28px; padding: 3px 4px 3px 2px;
+    border-radius: 5px; cursor: default;
+  }
+  .gui-dtree__item[data-dir] > .gui-dtree__row { cursor: pointer; }
+  .gui-dtree__row:hover { background: var(--muted); }
+  .gui-dtree__item:focus-visible > .gui-dtree__row { outline: 2px solid var(--ring); outline-offset: -2px; }
+  .gui-dtree__twisty { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 20px; flex: none; color: var(--muted-foreground); }
+  .gui-dtree__icon { width: 15px; height: 15px; flex: none; margin-top: 2.5px; color: var(--muted-foreground); }
+  .gui-dtree__item[data-dir] > .gui-dtree__row .gui-dtree__icon { color: var(--foreground); }
+  .gui-dtree__label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; min-width: 0; flex: 1; padding-top: 1px; }
+  .gui-dtree__name { font-family: var(--font-code); font-size: 12.5px; overflow-wrap: anywhere; }
+  .gui-dtree__comment { color: var(--muted-foreground); font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
+  .gui-dtree__comment code { font-family: var(--font-code); font-size: 0.92em; background: var(--muted); border-radius: 3px; padding: 0.05em 0.3em; }
+  /* A line the document marks (★): heavier name, comment in ink. */
+  .gui-dtree__item[data-marked] > .gui-dtree__row .gui-dtree__name { font-weight: 700; }
+  .gui-dtree__item[data-marked] > .gui-dtree__row .gui-dtree__comment { color: var(--foreground); font-weight: 500; }
+  .gui-dtree__line { flex: none; margin-top: 1px; }
+  @media (hover: hover) {
+    .gui-dtree__line { opacity: 0; transition: opacity 120ms; }
+    .gui-dtree__row:hover .gui-dtree__line, .gui-dtree__item:focus-visible > .gui-dtree__row .gui-dtree__line { opacity: 1; }
+  }
+  @media (max-width: 767px) {
+    .gui-dtree__row { min-height: 44px; align-items: center; padding-block: 2px; }
+    .gui-dtree__icon { margin-top: 0; }
+    .gui-dtree__group { margin-left: 9px; padding-left: 4px; }
+    .gui-dtree__line { margin-top: 0; }
+  }
+  @media (forced-colors: active) {
+    .gui-dtree__item:focus-visible > .gui-dtree__row { outline-color: Highlight; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .gui-cmp__fill, .gui-cmp__rows > li, .gui-graph__node rect, .gui-graph__edge path { transition: none; }
   }

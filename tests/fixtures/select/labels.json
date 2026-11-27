@@ -2,7 +2,7 @@
   "README.md": {
     "fastgrep": "none",
     "Features": "none",
-    "Installation": "ConfigViewer:commands",
+    "Installation": "none",
     "Usage": "none",
     "Configuration": "ConfigViewer:config",
     "License": "none"
@@ -23,7 +23,7 @@
   "runbook-deploy.md": {
     "Prerequisites": "Checklist",
     "Steps": "StepNavigator",
-    "Commands": "ConfigViewer:commands",
+    "Commands": "none",
     "Rollback": "Callout:risk",
     "Contacts": "none"
   },

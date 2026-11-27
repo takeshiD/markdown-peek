@@ -9,6 +9,8 @@ import {
   Columns2,
   Workflow,
   EyeOff,
+  FileText,
+  FolderTree,
   Footprints,
   Info,
   ListChecks,
@@ -43,7 +45,7 @@ import { cn } from "cn";
 import { PanelChrome, SourceLink } from "./index";
 import { Render } from "../registry";
 import { docPrefs, useStore } from "../lib/store";
-import { bootAids, hideWidget, showWidget, stopAids, togglePin } from "../lib/actions";
+import { bootAids, hideWidget, showWidget, stopAids, toggleOriginal, togglePin } from "../lib/actions";
 import { jumpToRange } from "../lib/nav";
 import { WidgetKeyCtx } from "../lib/progress";
 import type { AdaptiveLayout, Placement } from "../lib/types";
@@ -81,6 +83,7 @@ const KIND_ICON: Record<string, LucideIcon> = {
   Chart: ChartColumn,
   NodeGraph: Workflow,
   Comparison: Columns2,
+  DirectoryTree: FolderTree,
 };
 
 function iconFor(p: Placement): LucideIcon {
@@ -135,6 +138,7 @@ export function WidgetNote({
   active,
   atTop,
   enter,
+  replaces,
 }: {
   p: Placement;
   pinned: boolean;
@@ -143,6 +147,11 @@ export function WidgetNote({
   atTop?: boolean;
   /** Just chosen by the model: animate in (value = stagger index). */
   enter?: number;
+  /**
+   * The aid stands in for its table / task list in the text (#63): "aid" while
+   * it does, "original" when the reader switched back to the Markdown block.
+   */
+  replaces?: "aid" | "original";
 }) {
   const layout = useStore((s) => s.layout)!;
   const [open, setOpen] = useState(p.scope !== "document");
@@ -152,6 +161,8 @@ export function WidgetNote({
   const r = p.node.sourceRange ?? p.anchor.range;
   const Icon = iconFor(p);
   const where = p.scope === "section" && atTop ? p.anchor.heading : p.scope === "document" ? "whole document" : "";
+  const showingOriginal = replaces === "original";
+  const bodyOpen = open && !showingOriginal;
   return (
     <section
       className="mp-aid group/note"
@@ -161,7 +172,8 @@ export function WidgetNote({
       data-kind={p.node.kind}
       data-scope={p.scope}
       data-active={active ? "true" : "false"}
-      data-open={open ? "true" : "false"}
+      data-open={bodyOpen ? "true" : "false"}
+      data-replaces={replaces}
       data-enter={enter != null ? "true" : undefined}
       style={enter != null ? ({ "--enter-delay": `${Math.min(enter, 6) * 70}ms` } as React.CSSProperties) : undefined}
       onAnimationEnd={(e) => {
@@ -175,17 +187,33 @@ export function WidgetNote({
             variant="ghost"
             size="sm"
             className="mp-aid__toggle -ml-1.5 h-7 min-w-0 gap-1.5 px-1.5 text-[13px] font-semibold max-md:h-11"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
+            aria-expanded={bodyOpen}
+            onClick={() => (showingOriginal ? toggleOriginal(p) : setOpen(!open))}
           >
-            <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none", open && "rotate-90")} aria-hidden="true" />
+            <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none", bodyOpen && "rotate-90")} aria-hidden="true" />
             <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
             <span className="truncate">{title}</span>
             {where && <span className="truncate text-[12.5px] font-normal text-muted-foreground">{where}</span>}
+            {showingOriginal && <span className="truncate text-[12.5px] font-normal text-muted-foreground">original shown below</span>}
           </Button>
         </h3>
         <SourceLink range={r} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
         <span className="flex-1" />
+        {replaces && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("mp-note-action h-7 gap-1 px-1.5 text-[12.5px] font-normal max-md:h-11 max-md:min-w-11", showingOriginal ? "text-primary" : "text-muted-foreground")}
+            aria-pressed={showingOriginal}
+            // A toggle keeps one name; aria-pressed carries the state (APG).
+            aria-label={`Show the original ${title.toLowerCase()}`}
+            title={showingOriginal ? "Show as a reading aid" : "Show the original Markdown"}
+            onClick={() => toggleOriginal(p)}
+            data-testid="show-original"
+          >
+            <FileText aria-hidden="true" /> <span className="max-sm:sr-only">Original</span>
+          </Button>
+        )}
         <WhyPopover p={p} layout={layout} />
         <Button
           variant="ghost"
@@ -201,7 +229,7 @@ export function WidgetNote({
           <EyeOff />
         </Button>
       </header>
-      {open && (
+      {bodyOpen && (
         <div className="mp-aid__body">
           <PanelChrome.Provider value="bare">
             <WidgetKeyCtx.Provider value={widgetKey(p)}>

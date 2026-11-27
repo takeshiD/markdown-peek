@@ -364,6 +364,8 @@ pub fn spawn_serve(
         .arg("0")
         .env("HOME", dir)
         .env("XDG_CONFIG_HOME", dir)
+        // The disk cache must land in $HOME/.cache, not an inherited shared dir.
+        .env_remove("XDG_CACHE_HOME")
         .env("RUST_LOG", "info")
         .env_remove(super_key())
         .stdout(Stdio::piped())

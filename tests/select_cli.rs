@@ -147,7 +147,8 @@ fn fake_provider_is_scripted_and_deterministic() {
             .cloned()
     };
     assert_eq!(find("Steps").unwrap()["why"]["by"], "fake");
-    assert_eq!(skip("Commands").unwrap()["reason_code"], "low_helps");
+    // Shell blocks offer no aid any more (#67): nothing to ask about.
+    assert_eq!(skip("Commands").unwrap()["reason_code"], "no_candidates");
     assert_eq!(
         skip("Prerequisites").unwrap()["reason_code"],
         "low_confidence"
@@ -391,7 +392,7 @@ fn documented_example_fake_script_works() {
         })
         .collect();
     assert!(
-        skipped.contains(&("Commands".into(), "low_helps".into())),
+        skipped.contains(&("Commands".into(), "no_candidates".into())),
         "{skipped:?}"
     );
     assert!(
@@ -425,7 +426,7 @@ fn malformed_fake_script_reports_reason_on_stderr() {
 #[test]
 fn crlf_documents_yield_clean_widget_text() {
     let dir = tempfile::tempdir().unwrap();
-    let md = "# T\r\n\r\n## Install\r\n\r\n```sh\r\ncargo build\r\ncargo test\r\ncp a b\r\n```\r\n";
+    let md = "# T\r\n\r\n## Install\r\n\r\n- [ ] cargo build\r\n- [ ] cargo test\r\n- [x] cp a b\r\n";
     let file = dir.path().join("README.md");
     std::fs::write(&file, md).unwrap();
     let cfg = fake_config(dir.path(), None);

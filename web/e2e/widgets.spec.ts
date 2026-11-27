@@ -35,11 +35,11 @@ test.describe("with the fake selector", () => {
     const outline = page.getByRole("navigation", { name: "Outline" });
     await expect(outline.getByRole("link", { name: "手順", exact: true })).toHaveAttribute("aria-current", "location");
     await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "true");
-    await page.locator("article h2", { hasText: "コマンド" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
-    await expect(outline.getByRole("link", { name: "コマンド" })).toHaveAttribute("aria-current", "location");
+    await page.locator("article h2", { hasText: "前提条件" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
+    await expect(outline.getByRole("link", { name: "前提条件" })).toHaveAttribute("aria-current", "location");
     await expect(outline.getByRole("link", { name: "手順", exact: true })).not.toHaveAttribute("aria-current", "location");
     await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "false");
-    await expect(page.locator("article").locator('[data-kind="ConfigViewer"]')).toHaveAttribute("data-active", "true");
+    await expect(page.locator("article").locator('[data-kind="Checklist"]')).toHaveAttribute("data-active", "true");
   });
 
   test("R7: why-this-widget shows the model, confidence, helps and alternatives", async ({ page, server }) => {
@@ -66,30 +66,32 @@ test.describe("with the fake selector", () => {
     await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
     await expect(pane.locator('.mp-note-slot[data-place="top"] [data-kind="StepNavigator"]')).toBeVisible();
     expect(await pane.evaluate((a) => (a.children[1] as HTMLElement).dataset.place)).toBe("top");
-    await pane.getByRole("button", { name: "Hide Commands" }).click();
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(0);
+    await pane.getByRole("button", { name: "Hide Checklist" }).click();
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(0);
     await expect(page.getByTestId("live-region")).toHaveText(/hidden/);
+    // Hidden: the task list it stood in for is back in the text (#63).
+    await expect(pane.locator("ul:has(> li > input[type=checkbox])").first()).toBeVisible();
 
     await page.reload();
     await openApp(page, server);
     await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
     await expect(pane.getByRole("button", { name: "Unpin Steps from the top" })).toBeVisible();
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(0);
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(0);
 
     // Another document has its own (empty) choices.
     await page.getByRole("button", { name: "deploy-guide-v2.md", exact: true }).click();
     await expect(page.getByTestId("breadcrumb-file")).toContainText("deploy-guide-v2.md");
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(1);
     await expect(pane.getByRole("button", { name: "Pin Steps to the top" })).toBeVisible();
     await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
 
     await page.getByTestId("hidden-aids").click();
     await expect(page.getByTestId("hidden-aids")).toHaveText(/1 hidden/);
-    await page.getByRole("menuitem", { name: /in コマンド/ }).click();
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
+    await page.getByRole("menuitem", { name: /in 前提条件/ }).click();
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(1);
     await page.reload();
     await openApp(page, server);
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(1);
   });
 });
 

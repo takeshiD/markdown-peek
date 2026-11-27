@@ -10,7 +10,7 @@
 //!   "doc_type": { "value": "readme", "confidence": 0.9 },
 //!   "document": { "widget": "SemanticOutline", "confidence": 0.9, "helps": 0.8 },
 //!   "sections": {
-//!     "Install": { "widget": "ConfigViewer:commands", "confidence": 0.95, "helps": 0.9 },
+//!     "Steps": { "widget": "StepNavigator", "confidence": 0.95, "helps": 0.9 },
 //!     "License": { "helps": 0.1 }
 //!   },
 //!   "default": "rules"

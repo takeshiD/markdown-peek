@@ -1,0 +1,3 @@
+SourceRange parser ──┬─▶ Layer2 analyzer ──▶ Layer3 IR/generator ──▶ Layer3 renderer
+                     └─▶ #16 差分 (BlockId 安定化)
+#14 worktree ────────────────────────────────────────────────────▶ Layer4

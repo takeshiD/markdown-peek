@@ -1,7 +1,7 @@
 // Overlays: command palette, keyboard shortcuts, guided reading panel, and
 // the mobile Files / Outline sheet.
 import { useEffect, useRef, useState } from "react";
-import { Bot, EyeOff, FileText, Hash, Monitor, Moon, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
+import { BookOpenText, Bot, EyeOff, FileText, Hash, Keyboard, LocateFixed, Monitor, Moon, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -46,6 +46,8 @@ export function CommandPalette() {
   const layout = useStore((s) => s.layout);
   const models = useStore((s) => s.models);
   const aids = useStore(aidsOn);
+  const guided = useStore((s) => s.guidedOpen);
+  const autoscroll = useStore((s) => s.prefs.autoscroll);
   const { visible, hidden, pinned } = useVisiblePlacements();
   const [query, setQuery] = useState("");
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -92,8 +94,9 @@ export function CommandPalette() {
     { id: "v:rail", group: "View", label: "Show or hide files", shortcut: "[", action: () => keepReadingPosition(() => setPrefs({ railCollapsed: !getState().prefs.railCollapsed })) },
     { id: "v:outline", group: "View", label: "Show or hide the outline", shortcut: "]", action: toggleOutline },
     { id: "v:float", group: "View", label: "Float or dock the outline", extras: ["floating", "pin outline", "picture in picture"], action: () => setOutlineFloating(!getState().prefs.outlineFloating) },
-    { id: "v:guided", group: "View", label: "Guided reading", shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
-    { id: "v:follow", group: "View", label: "Follow live changes on or off", extras: ["autoscroll"], action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },
+    { id: "v:guided", group: "View", label: guided ? "Close guided reading" : "Guided reading", extras: ["scrolly", "explain"], icon: <BookOpenText />, shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
+    { id: "v:follow", group: "View", label: autoscroll ? "Stop following live changes" : "Follow live changes", extras: ["autoscroll", "live", "on", "off"], icon: <LocateFixed />, action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },
+    { id: "v:shortcuts", group: "View", label: "Keyboard shortcuts", extras: ["keys", "help", "keybindings"], icon: <Keyboard />, shortcut: "?", action: () => setState({ shortcutsOpen: true }) },
   );
   if (layout) {
     const where = (p: (typeof visible)[number]) => (p.scope === "section" ? ` in ${p.anchor.heading}` : "");

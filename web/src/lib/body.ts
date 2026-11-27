@@ -3,6 +3,7 @@
 //
 // The body HTML comes only from mdpeek's own renderer (design §8: trusted
 // fragment); widget content never goes through innerHTML.
+import { announce } from "./store";
 
 declare global {
   interface Window {
@@ -115,14 +116,85 @@ function loadScript(src: string): Promise<void> {
   }));
 }
 
+// Named access on `window` (an element with id="mermaid" is `window.mermaid`)
+// makes the global truthy before the script has loaded when the document has
+// a heading such as `# Mermaid` (#60). Check for the functions we call.
+export function hljsLoaded(): boolean {
+  return typeof window.hljs?.highlightElement === "function";
+}
+export function mermaidLoaded(): boolean {
+  return typeof window.mermaid?.initialize === "function" && typeof window.mermaid?.run === "function";
+}
+
 let mermaidReady = false;
 function ensureMermaid(dark: boolean) {
-  if (!window.mermaid) return false;
+  if (!mermaidLoaded()) return false;
   if (!mermaidReady) {
-    window.mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict" });
+    window.mermaid!.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict" });
     mermaidReady = true;
   }
   return true;
+}
+
+const COPY_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+const CHECK_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * A copy button on each code block of the body (#67: replaces the separate
+ * "Commands" aid, which only repeated the blocks). Icons are our own static
+ * markup; the copied text is the code's text content.
+ */
+function addCopyButton(pre: HTMLElement, code: Element) {
+  if (pre.querySelector(":scope > .mp-copy")) return;
+  pre.classList.add("mp-has-copy");
+  const lang = Array.from(code.classList).find((c) => c.startsWith("language-"))?.slice(9);
+  const label = `Copy ${lang ? `${lang} ` : ""}code`;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "mp-copy";
+  b.setAttribute("aria-label", label);
+  b.title = label;
+  b.innerHTML = COPY_ICON;
+  let timer = 0;
+  b.addEventListener("click", async () => {
+    const ok = await writeClipboard((code.textContent ?? "").replace(/\n$/, ""));
+    b.innerHTML = ok ? CHECK_ICON : COPY_ICON;
+    b.dataset.state = ok ? "copied" : "failed";
+    b.setAttribute("aria-label", ok ? "Copied" : "Copy failed");
+    // The label change alone is not reliably read out: say it in the live region.
+    announce(ok ? "Code copied" : "Could not copy the code");
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      b.innerHTML = COPY_ICON;
+      delete b.dataset.state;
+      b.setAttribute("aria-label", label);
+    }, 1600);
+  });
+  pre.insertBefore(b, pre.firstChild);
 }
 
 /** Highlight code, draw mermaid diagrams and typeset math inside `nodes`. */
@@ -132,7 +204,11 @@ export function enhance(nodes: Element[]) {
   for (const n of nodes) {
     n.querySelectorAll("pre code").forEach((c) => {
       if (c.classList.contains("language-mermaid")) diagrams.push(c);
-      else if (!c.classList.contains("language-math")) codes.push(c);
+      else if (!c.classList.contains("language-math")) {
+        codes.push(c);
+        const pre = c.parentElement;
+        if (pre?.tagName === "PRE") addCopyButton(pre, c);
+      }
     });
   }
   // GFM task-list checkboxes come without a label: name them by their item.
@@ -144,7 +220,7 @@ export function enhance(nodes: Element[]) {
   }
   if (codes.length) {
     const run = () => codes.forEach((c) => c.isConnected && window.hljs!.highlightElement(c));
-    if (window.hljs) run();
+    if (hljsLoaded()) run();
     else loadScript(HLJS_SRC).then(run, () => {});
   }
   if (diagrams.length) {
@@ -157,13 +233,13 @@ export function enhance(nodes: Element[]) {
         /* a broken diagram stays as its source */
       }
     };
-    if (window.mermaid) draw();
+    if (mermaidLoaded()) draw();
     else loadScript(MERMAID_SRC).then(draw, () => {});
   }
   const mj = window.MathJax;
-  if (mj?.typesetPromise) {
+  if (typeof mj?.typesetPromise === "function") {
     const go = () => mj.typesetPromise!(nodes).catch(() => {});
-    if (mj.startup?.promise) mj.startup.promise.then(go).catch(() => {});
+    if (typeof mj.startup?.promise?.then === "function") mj.startup.promise.then(go).catch(() => {});
     else go();
   }
 }

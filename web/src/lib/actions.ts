@@ -331,6 +331,24 @@ export function connectSocket() {
 
 // ---- widgets --------------------------------------------------------------
 
+/**
+ * Scroll a reading aid into view and flash it, so the reader sees where it
+ * went (a pinned aid jumps to the top of the text, #61).
+ */
+export function revealWidget(key: string) {
+  window.requestAnimationFrame(() => {
+    const el = document.querySelector<HTMLElement>(`[data-widget="${CSS.escape(key)}"]`);
+    if (!el) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
+    el.classList.remove("mp-aid--moved");
+    void el.offsetWidth;
+    el.classList.add("mp-aid--moved");
+    window.setTimeout(() => el.classList.remove("mp-aid--moved"), 1600);
+    el.querySelector<HTMLElement>(".mp-aid__toggle")?.focus({ preventScroll: true });
+  });
+}
+
 export function togglePin(p: Placement) {
   const k = widgetKey(p);
   let pinned = false;
@@ -338,17 +356,65 @@ export function togglePin(p: Placement) {
     pinned = !d.pinned.includes(k);
     return { ...d, pinned: pinned ? [...d.pinned, k] : d.pinned.filter((x) => x !== k) };
   });
-  announce(`${kindLabel(p.node.kind)} ${pinned ? "pinned" : "unpinned"}`);
+  const name = kindLabel(p.node.kind);
+  // The aid moves away from under the pointer (to the top, or back to its
+  // section): say where it went and offer to go there, so it does not look
+  // like it vanished (#61).
+  announce(`${name} ${pinned ? "pinned to the top" : "unpinned, back in its section"}`);
+  notify(
+    {
+      kind: "info",
+      title: pinned ? `${name} pinned to the top` : `${name} back in its section`,
+      body: [pinned ? "It stays at the top of the text while you read." : p.scope === "section" ? `Under “${p.anchor.heading}”.` : ""].filter(Boolean),
+      // Pinned aids stick at the top, already in view; one put back can be far away.
+      ...(pinned ? {} : { action: { label: "Show it", run: () => revealWidget(k) } }),
+    },
+    `aid-move:${k}`,
+  );
 }
 
 export function hideWidget(p: Placement) {
   const k = widgetKey(p);
   // Spread `d`: ticks and step positions of other aids must survive a hide.
   updateDocPrefs((d) => ({ ...d, pinned: d.pinned.filter((x) => x !== k), hidden: d.hidden.includes(k) ? d.hidden : [...d.hidden, k] }));
-  announce(`${kindLabel(p.node.kind)} hidden. Restore it from Hidden.`);
+  const name = kindLabel(p.node.kind);
+  announce(`${name} hidden. Undo from the notification, or restore it from Hidden above the text.`);
+  // Hiding is intended, but the way back must be obvious and close (#61).
+  notify(
+    {
+      kind: "info",
+      title: `${name} hidden`,
+      body: ["Bring it back with Undo, or later from “hidden” above the text or the command palette."],
+      action: {
+        label: "Undo",
+        run: () => {
+          showWidget(k);
+          revealWidget(k);
+        },
+      },
+    },
+    `aid-hide:${k}`,
+  );
+}
+
+/**
+ * A table / checklist aid stands in for its block in the text (#63); this
+ * switches one of them back to the original Markdown rendering, or again to
+ * the aid. Display only: the file is never touched.
+ */
+export function toggleOriginal(p: Placement) {
+  const k = widgetKey(p);
+  let original = false;
+  updateDocPrefs((d) => {
+    const cur = d.original ?? [];
+    original = !cur.includes(k);
+    return { ...d, original: original ? [...cur, k] : cur.filter((x) => x !== k) };
+  });
+  announce(original ? `Showing the original ${kindLabel(p.node.kind).toLowerCase()} from the text` : `Showing the ${kindLabel(p.node.kind).toLowerCase()} as a reading aid`);
 }
 
 export function showWidget(key: string) {
   updateDocPrefs((d) => ({ ...d, hidden: d.hidden.filter((x) => x !== key) }));
+  dismiss(`aid-hide:${key}`);
   announce("Reading aid shown again");
 }
