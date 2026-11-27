@@ -14,8 +14,10 @@
 
 pub mod cache;
 pub mod chart;
+pub mod compare;
 pub mod eval;
 pub mod fake;
+pub mod graph;
 pub mod jev;
 pub mod sections;
 

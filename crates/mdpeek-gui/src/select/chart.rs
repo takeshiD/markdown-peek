@@ -57,7 +57,7 @@ fn temporal_re() -> &'static Regex {
 }
 
 /// Strip inline Markdown that wraps a whole cell (`**12**`, `` `3` ``).
-fn plain(cell: &str) -> String {
+pub(crate) fn plain(cell: &str) -> String {
     let mut t = cell.trim();
     loop {
         let before = t;
@@ -75,7 +75,7 @@ fn plain(cell: &str) -> String {
     t.to_string()
 }
 
-fn is_blank(cell: &str) -> bool {
+pub(crate) fn is_blank(cell: &str) -> bool {
     matches!(
         cell,
         "" | "-" | "—" | "–" | "n/a" | "N/A" | "NA" | "?" | "TBD" | "tbd"
@@ -84,13 +84,13 @@ fn is_blank(cell: &str) -> bool {
 
 /// A parsed numeric cell: value plus its affix (`"$"` prefix or `"ms"` suffix).
 #[derive(Debug, Clone, PartialEq)]
-struct Num {
-    value: f64,
-    unit: Option<String>,
-    prefix: bool,
+pub(crate) struct Num {
+    pub(crate) value: f64,
+    pub(crate) unit: Option<String>,
+    pub(crate) prefix: bool,
 }
 
-fn parse_cell(cell: &str) -> Option<Num> {
+pub(crate) fn parse_cell(cell: &str) -> Option<Num> {
     let c = number_re().captures(cell)?;
     let raw = c["num"].replace(',', "").replace('−', "-");
     let value: f64 = raw.parse().ok()?;

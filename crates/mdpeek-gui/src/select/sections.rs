@@ -20,7 +20,7 @@ use crate::ir::node::*;
 
 /// Bumped whenever the candidate catalogue / prefilter / extraction changes.
 /// Part of the selection cache key.
-pub const REGISTRY_VERSION: u32 = 2;
+pub const REGISTRY_VERSION: u32 = 3;
 
 /// Deterministic features of a section (sent to Jev instead of the full text).
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -36,6 +36,10 @@ pub struct Features {
     pub status_column: bool,
     /// Measure columns of the section's chartable table (0 = not chartable).
     pub chart_series: usize,
+    /// Edges of a flow written as arrows / a from-to table (0 = none).
+    pub flow_edges: usize,
+    /// Options of a scored comparison table (0 = none).
+    pub compared_options: usize,
     pub shell_blocks: usize,
     pub command_lines: usize,
     pub config_blocks: usize,
@@ -307,6 +311,7 @@ pub fn plan_document(
         let mut configs: Vec<(ConfigFormat, String, SourceRange)> = Vec::new();
         let mut events: Vec<TimelineEvent> = Vec::new();
         let mut tables: Vec<(Vec<String>, Vec<Vec<String>>, SourceRange)> = Vec::new();
+        let mut list_items: Vec<(String, SourceRange)> = Vec::new();
         let mut alert: Option<(String, SourceRange)> = None;
         let mut risk_para: Option<(String, SourceRange)> = None;
 
@@ -332,6 +337,7 @@ pub fn plan_document(
                     for item in &b.children {
                         let BlockKind::Item { task } = item.kind else { continue };
                         let title = source_title(&lines, conv(item.range));
+                        list_items.push((title.clone(), conv(item.range)));
                         if let Some(done) = task {
                             f.task_items += 1;
                             if done {
@@ -554,6 +560,48 @@ pub fn plan_document(
                 description: "Chart of the numeric columns of the section's table (values parsed verbatim from the cells)",
                 score: s,
                 node: UiNode::Chart(chart),
+            });
+        }
+        // A flow written as arrows reads faster as a graph.
+        if let Some(mut g) = super::graph::graph_from_section(
+            &list_items,
+            &tables,
+            (!heading.is_empty()).then(|| heading.clone()),
+            meta(range, 0.0),
+        ) {
+            f.flow_edges = g.edges.len();
+            let s = 0.72 + if super::graph::is_flow_heading(&heading) { 0.06 } else { 0.0 };
+            g.meta.source_range = span(
+                g.edges.iter().filter_map(|e| e.source_range).chain(g.nodes.iter().filter_map(|n| n.source_range)),
+            );
+            g.meta.confidence = Some(s);
+            cands.push(Candidate {
+                id: "NodeGraph",
+                description: "Interactive node graph of the flow the section writes as arrows or a from/to table",
+                score: s,
+                node: UiNode::NodeGraph(g),
+            });
+        }
+        // Options scored on criteria read faster side by side.
+        if let Some(mut c) = tables.iter().find_map(|(header, rows, r)| {
+            super::compare::comparison_from_table(
+                header,
+                rows,
+                &body,
+                (!heading.is_empty()).then(|| heading.clone()),
+                meta(*r, 0.0),
+            )
+        }) {
+            f.compared_options = c.options.len();
+            let cue = super::compare::is_comparison_heading(&heading)
+                || tables.iter().any(|(h, _, _)| h.first().is_some_and(|x| super::compare::is_comparison_heading(x)));
+            let s = 0.72 + if cue { 0.08 } else { 0.0 };
+            c.meta.confidence = Some(s);
+            cands.push(Candidate {
+                id: "Comparison",
+                description: "Side-by-side cards comparing the options of the section's table on its scored criteria",
+                score: s,
+                node: UiNode::Comparison(c),
             });
         }
         if f.command_lines >= 2 {

@@ -27,7 +27,7 @@ pub enum ValidateError {
     RangeOutOfBounds(SourceRange, u32),
     #[error("invalid IR JSON: {0}")]
     Schema(String),
-    #[error("chart data is malformed: {0}")]
+    #[error("chart / graph / comparison data is malformed: {0}")]
     Chart(&'static str),
 }
 
@@ -56,6 +56,25 @@ fn validate_node(node: &mut UiNode, total_lines: u32) -> Result<(), ValidateErro
     }
     if let UiNode::Chart(c) = node {
         check_chart(c)?;
+    }
+    if let UiNode::NodeGraph(g) = node
+        && g.edges.iter().any(|e| {
+            !g.nodes.iter().any(|n| n.id == e.from) || !g.nodes.iter().any(|n| n.id == e.to)
+        })
+    {
+        return Err(ValidateError::Chart("graph edge names an unknown node"));
+    }
+    if let UiNode::Comparison(c) = node {
+        let n = c.options.len();
+        let bad_len = c.criteria.iter().any(|r| r.scores.len() != n || r.cells.len() != n)
+            || c.facts.iter().any(|f| f.cells.len() != n);
+        let bad_val = c.criteria.iter().any(|r| {
+            !(r.max.is_finite() && r.max > 0.0)
+                || r.scores.iter().flatten().any(|v| !v.is_finite() || *v < 0.0 || *v > r.max)
+        });
+        if n < 2 || bad_len || bad_val || c.recommended.is_some_and(|i| i >= n) {
+            return Err(ValidateError::Chart("comparison data is inconsistent"));
+        }
     }
     if let UiNode::Tabs(tabs) = node {
         for tab in tabs.tabs.iter_mut() {
@@ -117,6 +136,12 @@ fn nested_ranges(node: &UiNode) -> Vec<SourceRange> {
             .groups
             .iter()
             .flat_map(|g| g.items.iter().filter_map(|i| i.source_range))
+            .collect(),
+        UiNode::NodeGraph(n) => n
+            .nodes
+            .iter()
+            .filter_map(|x| x.source_range)
+            .chain(n.edges.iter().filter_map(|e| e.source_range))
             .collect(),
         UiNode::ObligationMatrix(n) => {
             n.obligations.iter().filter_map(|o| o.source_range).collect()

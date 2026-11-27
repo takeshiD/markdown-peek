@@ -139,6 +139,8 @@ pub enum UiNode {
     LogTimeline(LogTimelineNode),
     CommitGraph(CommitGraphNode),
     Chart(ChartNode),
+    NodeGraph(NodeGraphNode),
+    Comparison(ComparisonNode),
 
     // --- reading lenses (design doc §8: derived reading aids, not body reprint) ---
     SemanticOutline(SemanticOutlineNode),
@@ -173,6 +175,8 @@ impl UiNode {
             UiNode::LogTimeline(_) => "LogTimeline",
             UiNode::CommitGraph(_) => "CommitGraph",
             UiNode::Chart(_) => "Chart",
+            UiNode::NodeGraph(_) => "NodeGraph",
+            UiNode::Comparison(_) => "Comparison",
             UiNode::SemanticOutline(_) => "SemanticOutline",
             UiNode::SummaryCards(_) => "SummaryCards",
             UiNode::DecisionLog(_) => "DecisionLog",
@@ -202,6 +206,8 @@ impl UiNode {
             UiNode::LogTimeline(n) => &n.meta,
             UiNode::CommitGraph(n) => &n.meta,
             UiNode::Chart(n) => &n.meta,
+            UiNode::NodeGraph(n) => &n.meta,
+            UiNode::Comparison(n) => &n.meta,
             UiNode::SemanticOutline(n) => &n.meta,
             UiNode::SummaryCards(n) => &n.meta,
             UiNode::DecisionLog(n) => &n.meta,
@@ -231,6 +237,8 @@ impl UiNode {
             UiNode::LogTimeline(n) => &mut n.meta,
             UiNode::CommitGraph(n) => &mut n.meta,
             UiNode::Chart(n) => &mut n.meta,
+            UiNode::NodeGraph(n) => &mut n.meta,
+            UiNode::Comparison(n) => &mut n.meta,
             UiNode::SemanticOutline(n) => &mut n.meta,
             UiNode::SummaryCards(n) => &mut n.meta,
             UiNode::DecisionLog(n) => &mut n.meta,
@@ -342,6 +350,78 @@ pub struct ChartNode {
     pub label_header: String,
     pub labels: Vec<String>,
     pub series: Vec<ChartSeries>,
+}
+
+/// A flow written as arrows in the document (`A → B`, `A --PASS--> B`, or a
+/// from / to table), drawn as an interactive node graph.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeGraphNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub nodes: Vec<FlowNode>,
+    pub edges: Vec<FlowEdge>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlowNode {
+    pub id: String,
+    pub label: String,
+    /// Subtitle / description written next to the node in the document.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlowEdge {
+    pub from: String,
+    pub to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+
+/// Options compared on scored criteria (a comparison table), as side-by-side
+/// cards. Scores are table cells; nothing is weighted or invented.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComparisonNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub options: Vec<ComparisonOption>,
+    /// Scored rows, one cell per option.
+    pub criteria: Vec<ComparisonCriterion>,
+    /// Other rows (durations, prices, notes), shown verbatim.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub facts: Vec<ComparisonFact>,
+    /// Option the document itself recommends (a cue such as 推奨 / recommended).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<usize>,
+    /// Where the recommendation is stated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_by: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComparisonOption {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComparisonCriterion {
+    pub name: String,
+    /// Top of the scale the cells are written on (5, 10, 100; 5 for ★, 3 for ◎○△×).
+    pub max: f64,
+    pub scores: Vec<Option<f64>>,
+    pub cells: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComparisonFact {
+    pub name: String,
+    pub cells: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
