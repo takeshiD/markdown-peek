@@ -14,7 +14,7 @@ test.use({ serverOptions: { fake: FAKE } });
 
 test("checklist ticks show progress, survive reload, and reset to the file", async ({ page, server }) => {
   await openApp(page, server);
-  const note = page.getByTestId("widgets-pane").locator('[data-kind="Checklist"]');
+  const note = page.locator("article").locator('[data-kind="Checklist"]');
   await expect(note).toContainText("1 of 4 done");
   const first = note.getByRole("checkbox").first();
   await expect(first).toHaveAttribute("aria-checked", "false");
@@ -32,7 +32,7 @@ test("checklist ticks show progress, survive reload, and reset to the file", asy
 
 test("the stepper moves with buttons and keeps its place per document", async ({ page, server }) => {
   await openApp(page, server);
-  const note = page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]');
+  const note = page.locator("article").locator('[data-kind="StepNavigator"]');
   await expect(note).toContainText("Step 1 of 5");
   await expect(note.getByRole("button", { name: "Previous step" })).toBeDisabled();
   await note.getByRole("button", { name: "Next step" }).click();
@@ -41,7 +41,7 @@ test("the stepper moves with buttons and keeps its place per document", async ({
   await expect(note.locator('li[aria-current="step"]')).toContainText("デプロイパイプラインを実行する");
   await expect(note.locator("li.is-done")).toHaveCount(2);
   await page.reload();
-  await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]')).toContainText("Step 3 of 5");
+  await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toContainText("Step 3 of 5");
   await note.locator("li").nth(4).getByRole("button").first().click();
   await expect(note).toContainText("Step 5 of 5");
   await expect(note.getByRole("button", { name: "Next step" })).toBeDisabled();
@@ -50,7 +50,7 @@ test("the stepper moves with buttons and keeps its place per document", async ({
 test("commands are copied line by line or all at once, never run", async ({ page, server, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await openApp(page, server);
-  const note = page.getByTestId("widgets-pane").locator('[data-kind="ConfigViewer"]');
+  const note = page.locator("article").locator('[data-kind="ConfigViewer"]');
   await expect(note.locator("header h3")).toHaveText(/^Commands/);
   await note.getByRole("button", { name: "Copy command 2" }).click();
   await expect(note.getByRole("button", { name: "Copied command 2" })).toBeVisible();
@@ -64,7 +64,7 @@ test("commands are copied line by line or all at once, never run", async ({ page
 
 test("hiding another aid keeps ticks and the current step", async ({ page, server }) => {
   await openApp(page, server);
-  const pane = page.getByTestId("widgets-pane");
+  const pane = page.locator("article");
   const list = pane.locator('[data-kind="Checklist"]');
   const steps = pane.locator('[data-kind="StepNavigator"]');
   await list.getByRole("checkbox").first().click();
@@ -75,5 +75,5 @@ test("hiding another aid keeps ticks and the current step", async ({ page, serve
   await expect(list).toContainText("2 of 4 done");
   await expect(steps).toContainText("Step 2 of 5");
   await page.reload();
-  await expect(page.getByTestId("widgets-pane").locator('[data-kind="Checklist"]')).toContainText("2 of 4 done");
+  await expect(page.locator("article").locator('[data-kind="Checklist"]')).toContainText("2 of 4 done");
 });

@@ -96,11 +96,20 @@ export function SelectorStatus({ compact }: { compact?: boolean }) {
                   ? "nothing"
                   : `${layout.selector.requests} request${layout.selector.requests > 1 ? "s" : ""} (headings, short excerpts, counts)`}
               </dd>
+              <dt className="text-muted-foreground">Document type</dt>
+              <dd>
+                {layout.doc_type.value} ({Math.round(layout.doc_type.confidence * 100)}%, {layout.doc_type.by})
+              </dd>
               <dt className="text-muted-foreground">Revision</dt>
               <dd>{layout.revision}</dd>
             </>
           )}
         </dl>
+        {layout && layout.placements.length === 0 && state !== "selecting" && (
+          <p className="mt-2 text-muted-foreground" data-testid="widgets-empty">
+            No reading aids for this document: the {nameOf(layout.selector.provider)} selector found nothing that would help beyond the text itself.
+          </p>
+        )}
         {err && <p className="mt-2 text-danger">{err}</p>}
         <Button variant="outline" size="sm" className="mt-3" onClick={() => fetchAdaptive("reselect")}>
           <RefreshCw /> Choose again

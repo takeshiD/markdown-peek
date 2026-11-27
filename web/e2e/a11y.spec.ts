@@ -19,9 +19,10 @@ for (const scheme of ["light", "dark"] as const) {
   test(`axe: no serious/critical violations (${scheme})`, async ({ page, server }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await openApp(page, server);
-    await axe(page, `${scheme} split`);
-    await page.locator("body").press("3");
     await axe(page, `${scheme} adaptive`);
+    await page.locator("body").press("1");
+    await axe(page, `${scheme} read`);
+    await page.locator("body").press("2");
     await page.getByRole("button", { name: "Why this reading aid: Steps" }).first().click();
     await axe(page, `${scheme} popover`);
     await page.keyboard.press("Escape");
@@ -45,7 +46,6 @@ test("skip link, landmarks and visible focus", async ({ page, server }) => {
   await expect(page.getByRole("banner")).toHaveCount(1);
   await expect(page.getByRole("main")).toHaveCount(1);
   await expect(page.getByRole("complementary", { name: "Files and outline" })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Reading aids" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
 
   // Tab through the first 25 stops: every focused element shows a ring/outline.
@@ -66,17 +66,17 @@ test("skip link, landmarks and visible focus", async ({ page, server }) => {
 test("every control is reachable by keyboard: modes, panes, widgets, why, pin", async ({ page, server }) => {
   await openApp(page, server);
   // Mode switch: arrow keys inside the radio group.
-  await page.getByRole("radio", { name: "Split mode" }).focus();
+  await page.getByRole("radio", { name: "Adaptive mode" }).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByRole("radio", { name: "Read mode" })).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("radio", { name: "Read mode" })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("radio", { name: "Adaptive mode" })).toBeFocused();
   await page.keyboard.press("Space");
   await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
-  await page.keyboard.press("ArrowLeft");
-  await expect(page.getByRole("radio", { name: "Split mode" })).toBeFocused();
-  await page.keyboard.press("Space");
-  await expect(page.getByRole("radio", { name: "Split mode" })).toHaveAttribute("aria-checked", "true");
   // A widget's buttons by Tab from its source chip.
-  const steps = page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]');
+  const steps = page.locator("article").locator('[data-kind="StepNavigator"]');
   await steps.locator("header .gui-srclink").focus();
   await page.keyboard.press("Tab");
   await expect(steps.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
@@ -85,9 +85,9 @@ test("every control is reachable by keyboard: modes, panes, widgets, why, pin", 
   await page.keyboard.press("Escape");
   await expect(steps.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(steps.getByRole("button", { name: "Pin Steps" })).toBeFocused();
+  await expect(steps.getByRole("button", { name: "Pin Steps to the top" })).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(steps.getByRole("button", { name: "Unpin Steps" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('article [data-kind="StepNavigator"]').getByRole("button", { name: "Unpin Steps from the top" })).toHaveAttribute("aria-pressed", "true");
   // Shortcuts help lists the keys.
   await page.locator("body").press("?");
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Adaptive mode");
@@ -101,14 +101,15 @@ test("state changes are announced to screen readers", async ({ page, server }) =
   await page.locator("body").press("1");
   await expect(live).toHaveText("Read mode");
   await page.locator("body").press("2");
-  await page.getByRole("button", { name: "Choose reading aids again" }).click();
+  await page.getByTestId("selector-status").click();
+  await page.getByRole("button", { name: "Choose again" }).click();
   await expect(live).toHaveText(/Reading aids updated: \d+ aids? chosen by fake/);
 });
 
 test("prefers-reduced-motion stops animations and transitions", async ({ page, server }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openApp(page, server);
-  await page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"] header .gui-srclink').click();
+  await page.locator("article").locator('[data-kind="StepNavigator"] header .gui-srclink').click();
   const t = await page.evaluate(() => {
     const ol = document.querySelector("article > ol")!;
     const s = getComputedStyle(ol);
@@ -121,7 +122,7 @@ test("prefers-reduced-motion stops animations and transitions", async ({ page, s
   expect(t.smooth).toBe("auto");
 });
 
-test("tabbing from page load: every stop shows a focus indicator (top bar, rail incl. tab panel, document, widgets; Outline and Files)", async ({ page, server }) => {
+test("tabbing from page load: every stop shows a focus indicator (top bar, rail incl. tab panel, document, aids; Outline and Files)", async ({ page, server }) => {
   const visibleFocus = () =>
     page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null;
@@ -130,7 +131,7 @@ test("tabbing from page load: every stop shows a focus indicator (top bar, rail 
       const outline = s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0;
       const ring = s.boxShadow !== "none";
       const label = `${el.tagName}[${el.getAttribute("role") ?? ""}] ${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 30)}`;
-      const where = el.closest("header") ? "topbar" : el.closest("[data-testid=rail]") ? "rail" : el.closest("[data-testid=widgets-pane]") ? "widgets" : el.closest("main") ? "document" : "other";
+      const where = el.closest("header") ? "topbar" : el.closest("[data-testid=rail]") ? "rail" : el.closest("[data-widget]") ? "aids" : el.closest("main") ? "document" : "other";
       return { ok: outline || ring, label, role: el.getAttribute("role") ?? "", where };
     });
   for (const tab of ["Outline", "Files"]) {
@@ -155,7 +156,7 @@ test("tabbing from page load: every stop shows a focus indicator (top bar, rail 
     expect(missing, `${tab}: tab stops without a visible outline/ring`).toEqual([]);
     // The pass really went through the rail's tab panel.
     expect(seen.has("tabpanel"), `${tab}: reached the rail tab panel`).toBe(true);
-    for (const a of ["topbar", "rail", "document", "widgets"]) expect(areas.has(a), `${tab}: reached ${a}`).toBe(true);
+    for (const a of ["topbar", "rail", "document", "aids"]) expect(areas.has(a), `${tab}: reached ${a}`).toBe(true);
   }
   // The tab panel's indicator is actually painted (a ring), not just a computed value.
   await page.getByRole("tabpanel").focus();

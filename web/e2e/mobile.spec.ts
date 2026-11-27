@@ -58,25 +58,23 @@ async function tapTargets(page: Page, scope: string) {
 test("single pane without horizontal scroll in every mode", async ({ page, server }) => {
   await openApp(page, server);
   await expect(page.getByTestId("rail")).toHaveCount(0);
-  await expect(page.getByTestId("widgets-pane")).toHaveCount(0);
   await expect(page.locator("article h1")).toBeInViewport();
   await noHorizontalScroll(page);
   await tapTargets(page, "header");
-  for (const mode of ["Adaptive", "Read", "Split"]) {
+  for (const mode of ["Read", "Adaptive"]) {
     await page.getByRole("button", { name: "More" }).tap();
     await page.getByRole("menuitemradio", { name: mode }).tap();
     await expect(page.getByRole("menu")).toHaveCount(0);
     await noHorizontalScroll(page);
   }
-  // Adaptive on a phone: widgets follow their section inside the text.
-  await page.getByRole("button", { name: "More" }).tap();
-  await page.getByRole("menuitemradio", { name: "Adaptive" }).tap();
-  await expect(page.locator('article .mp-note-slot[data-place="inline"] [data-kind="StepNavigator"]')).toBeVisible();
+  // Adaptive on a phone: aids sit inside the text, after their lines.
+  await expect(page.locator('article .mp-note-slot [data-kind="StepNavigator"]')).toBeVisible();
+  await page.locator('article [data-kind="StepNavigator"]').scrollIntoViewIfNeeded();
   await noHorizontalScroll(page);
   await tapTargets(page, "article .mp-note-slot");
 });
 
-test("files, outline and widgets open in sheets and close again", async ({ page, server }) => {
+test("files and outline open in a sheet; re-selecting works from the status popover", async ({ page, server }) => {
   await openApp(page, server);
   await page.getByRole("button", { name: "Files and outline" }).tap();
   const sheet = page.getByRole("dialog", { name: "Outline" });
@@ -99,29 +97,16 @@ test("files, outline and widgets open in sheets and close again", async ({ page,
 
   let adaptiveCalls = 0;
   page.on("request", (r) => r.url().endsWith("/api/adaptive") && adaptiveCalls++);
-  await page.getByTestId("open-widgets").tap();
-  const w = page.getByRole("dialog", { name: "Reading aids" });
-  await expect(w.locator('[data-kind="StepNavigator"]')).toBeVisible();
-  await tapTargets(page, "[role=dialog]");
-  // Re-select from the sheet: the button itself receives the tap, the sheet
-  // stays open, and a new selection runs.
-  const reselect = w.getByRole("button", { name: "Choose reading aids again" });
+  // No reading-aid sheet on a phone either: the aids are in the text.
+  await expect(page.getByTestId("open-widgets")).toHaveCount(0);
+  await page.getByTestId("selector-status").tap();
+  const pop = page.getByRole("dialog", { name: "Reading-aid selector" });
+  await expect(pop).toBeVisible();
   const before = adaptiveCalls;
-  await reselect.tap();
+  await pop.getByRole("button", { name: "Choose again" }).tap();
   await expect.poll(() => adaptiveCalls).toBeGreaterThan(before);
-  await expect(w).toBeVisible();
   await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");
-  await expect(w.locator('[data-kind="StepNavigator"]')).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator('article [data-kind="StepNavigator"]')).toBeAttached();
   await noHorizontalScroll(page);
-
-  // Generated UI sheet (opened from the More menu).
-  await page.getByRole("button", { name: "More" }).tap();
-  await page.getByRole("menuitem", { name: "Generated UI" }).tap();
-  const lens = page.getByRole("dialog", { name: "Generated UI" });
-  await expect(lens.getByTestId("lens-body").locator(".gui-panel").first()).toBeVisible({ timeout: 15_000 });
-  await tapTargets(page, "[role=dialog]");
-  await lens.getByRole("button", { name: "Close" }).tap();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
 });

@@ -23,9 +23,6 @@ for (const theme of ["light", "dark"] as const) {
 
     test(`desktop modes (${theme})`, async ({ page, server }) => {
       await openApp(page, server);
-      await page.locator("article h2", { hasText: "前提条件" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
-      await shot(page, `${theme}-desktop-split`);
-      await page.locator("body").press("3");
       await expect(page.locator('article [data-kind="StepNavigator"]').first()).toBeVisible();
       await page.locator("article h2", { hasText: "前提条件" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
       await shot(page, `${theme}-desktop-adaptive`);
@@ -36,15 +33,32 @@ for (const theme of ["light", "dark"] as const) {
     test(`mobile (${theme})`, async ({ page, server }) => {
       await page.setViewportSize({ width: 390, height: 844 });
       await openApp(page, server);
-      await shot(page, `${theme}-mobile-read`);
-      await page.getByTestId("open-widgets").click();
-      await expect(page.getByRole("dialog", { name: "Reading aids" })).toBeVisible();
-      await shot(page, `${theme}-mobile-widgets-sheet`);
-      await page.keyboard.press("Escape");
-      await page.getByRole("button", { name: "More" }).click();
-      await page.getByRole("menuitemradio", { name: "Adaptive" }).click();
       await page.locator("article h2", { hasText: "手順" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
       await shot(page, `${theme}-mobile-adaptive`);
+      await page.getByRole("button", { name: "More" }).click();
+      await page.getByRole("menuitemradio", { name: "Read" }).click();
+      await page.locator("article h1").evaluate((h) => h.scrollIntoView({ block: "start" }));
+      await shot(page, `${theme}-mobile-read`);
+    });
+
+    test(`charts (${theme})`, async ({ page }) => {
+      const server = await startServer({ file: "metrics.md" });
+      try {
+        await openApp(page, server);
+        await expect(page.getByTestId("chart-bars")).toBeVisible();
+        await page.locator("article h2", { hasText: "サービス別" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
+        await shot(page, `${theme}-desktop-chart-bar`);
+        await page.locator("article h2", { hasText: "月別" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
+        await page.getByTestId("chart-line").focus();
+        await page.keyboard.press("End");
+        await page.keyboard.press("ArrowLeft");
+        await shot(page, `${theme}-desktop-chart-line`);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.locator("article h2", { hasText: "サービス別" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
+        await shot(page, `${theme}-mobile-chart`);
+      } finally {
+        await server.stop();
+      }
     });
 
     test(`states (${theme})`, async ({ page, server }) => {
@@ -52,13 +66,17 @@ for (const theme of ["light", "dark"] as const) {
       await openApp(page, server);
       await page.getByRole("tab", { name: "Files" }).click();
       await page.getByRole("button", { name: "notes.md", exact: true }).click();
+      await page.getByTestId("selector-status").click();
       await expect(page.getByTestId("widgets-empty")).toBeVisible();
       await shot(page, `${theme}-state-no-widgets`);
+      await page.keyboard.press("Escape");
 
       // Error: /api/adaptive fails; the text stays readable.
       await page.route("**/api/adaptive", (r) => r.fulfill({ status: 500, body: "{}" }));
       await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
-      await page.getByRole("button", { name: "Choose reading aids again" }).click();
+      await page.getByTestId("selector-status").click();
+      await page.getByRole("button", { name: "Choose again" }).click();
+      await page.keyboard.press("Escape");
       await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "error");
       await shot(page, `${theme}-state-error`);
       await page.unroute("**/api/adaptive");

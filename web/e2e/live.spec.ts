@@ -16,7 +16,7 @@ test("editing the file patches changed blocks in place, keeps scroll and old wid
   await page.evaluate(() => {
     document.querySelectorAll("article > *").forEach((e) => ((e as HTMLElement & { __mark?: boolean }).__mark = true));
   });
-  const stepsBefore = await page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"] li').count();
+  const stepsBefore = await page.locator("article").locator('[data-kind="StepNavigator"] li').count();
 
   await editFile(server, "deploy-guide.md", (s) =>
     s.replace("5. マージの凍結を解除する。", "5. マージの凍結を解除する。\n6. リリースノートを公開する。").replace("ピーク時は 10", "ピーク時は 12"),
@@ -28,7 +28,7 @@ test("editing the file patches changed blocks in place, keeps scroll and old wid
   await expect(page.locator("article > ol").first()).toHaveClass(/mp-changed/);
   // Selection is still running (fake delay): status says so, old widgets stay.
   await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "selecting");
-  await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"] li')).toHaveCount(stepsBefore);
+  await expect(page.locator("article").locator('[data-kind="StepNavigator"] li')).toHaveCount(stepsBefore);
 
   const kept = await page.evaluate(() =>
     Array.from(document.querySelectorAll("article > *")).map((e) => [e.tagName, !!(e as HTMLElement & { __mark?: boolean }).__mark]),
@@ -41,8 +41,8 @@ test("editing the file patches changed blocks in place, keeps scroll and old wid
 
   // New selection arrives and replaces the widget.
   await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready", { timeout: 10_000 });
-  await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"] li')).toHaveCount(stepsBefore + 1);
-  await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]')).toContainText("リリースノートを公開する");
+  await expect(page.locator("article").locator('[data-kind="StepNavigator"] li')).toHaveCount(stepsBefore + 1);
+  await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toContainText("リリースノートを公開する");
 });
 
 test("a layout for an older revision is ignored", async ({ page, server }) => {
@@ -72,7 +72,7 @@ test("a layout for an older revision is ignored", async ({ page, server }) => {
   inject!(JSON.stringify(stale));
   await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready", { timeout: 10_000 });
   // The stale (empty) layout never replaced the widgets.
-  await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]')).toBeVisible();
+  await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toBeVisible();
   await expect(page.getByTestId("widgets-empty")).toHaveCount(0);
   await page.getByTestId("selector-status").click();
   await expect(page.getByRole("dialog")).not.toContainText("STALE-MODEL");

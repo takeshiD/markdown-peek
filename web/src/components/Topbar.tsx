@@ -4,7 +4,6 @@ import {
   BookOpenText,
   ChevronDown,
   Eye,
-  Columns2,
   Command as CommandIcon,
   FileText,
   Folder,
@@ -16,8 +15,6 @@ import {
   Moon,
   MoreHorizontal,
   PanelLeft,
-  PanelRight,
-  Rows3,
   Sparkles,
   Sun,
   TextQuote,
@@ -42,60 +39,32 @@ import {
 import { getState, setPrefs, setState, useStore } from "../lib/store";
 import { keepReadingPosition } from "../lib/nav";
 import { selectFile, setMode, setTheme } from "../lib/actions";
-import type { Group, Mode, ThemePref } from "../lib/types";
+import type { Mode, ThemePref } from "../lib/types";
 import { SelectorStatus } from "./SelectorStatus";
-import { groupLabel } from "./Rail";
+import { repoLabel } from "./Rail";
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? "⌘" : "Ctrl";
 
 export const MODES: { value: Mode; label: string; key: string; icon: typeof TextQuote; hint: string }[] = [
-  { value: "read", label: "Read", key: "1", icon: TextQuote, hint: "Document only" },
-  { value: "split", label: "Split", key: "2", icon: Columns2, hint: "Widgets in a side pane" },
-  { value: "adaptive", label: "Adaptive", key: "3", icon: Rows3, hint: "Widgets beside their sections" },
+  { value: "read", label: "Read", key: "1", icon: TextQuote, hint: "The text alone" },
+  { value: "adaptive", label: "Adaptive", key: "2", icon: Sparkles, hint: "Reading aids and charts inside the text" },
 ];
-
-export function groupForPath(groups: Group[], path: string): Group | null {
-  let best: Group | null = null;
-  for (const g of groups) if ((path === g.root || path.startsWith(g.root + "/")) && (!best || g.root.length > best.root.length)) best = g;
-  return best;
-}
 
 function Breadcrumb({ touch }: { touch?: boolean }) {
   const tree = useStore((s) => s.tree);
   const path = useStore((s) => s.doc.path);
   const title = useStore((s) => s.doc.title);
-  const by = useStore((s) => s.prefs.groupBy);
-  const groups = tree?.tree.groups.filter((g) => g.files.length) ?? [];
-  const group = groupForPath(groups, path);
+  const group = tree?.tree.groups[0] ?? null;
   const rel = group?.files.find((f) => f.path === path)?.rel ?? title;
-  const switchGroup = (g: Group) => {
-    const same = g.files.find((f) => f.rel === rel) ?? g.files[0];
-    if (same) void selectFile(same.path);
-  };
   return (
     <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden text-[13px]">
       {group && !touch && (
         <div className="flex min-w-0 shrink items-center gap-0.5 max-lg:hidden">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 min-w-0 max-w-48 shrink gap-1.5 px-2 font-medium" aria-label={`Repository: ${groupLabel(group, by)}. Switch ${by}`}>
-                {by === "branch" ? <GitBranch aria-hidden="true" /> : <Folder aria-hidden="true" />}
-                <span className="truncate">{groupLabel(group, by)}</span>
-                <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-h-80 overflow-auto">
-              <DropdownMenuLabel>Switch {by}</DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={group.root} onValueChange={(v) => { const g = groups.find((x) => x.root === v); if (g) switchGroup(g); }}>
-                {groups.map((g) => (
-                  <DropdownMenuRadioItem key={g.root} value={g.root}>
-                    {groupLabel(g, by)}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <span className="flex h-8 min-w-0 max-w-56 shrink items-center gap-1.5 px-2 font-medium" title={group.root} data-testid="breadcrumb-repo">
+            {group.branch ? <GitBranch className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+            <span className="truncate">{repoLabel(group)}</span>
+          </span>
           <span className="text-muted-foreground/60" aria-hidden="true">
             /
           </span>
@@ -116,7 +85,7 @@ function Breadcrumb({ touch }: { touch?: boolean }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="max-h-96 max-w-[90vw] overflow-auto">
-          <DropdownMenuLabel>Switch file{group ? ` in ${groupLabel(group, by)}` : ""}</DropdownMenuLabel>
+          <DropdownMenuLabel>Switch file</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={path} onValueChange={(v) => void selectFile(v)}>
             {(group?.files ?? []).map((f) => (
               <DropdownMenuRadioItem key={f.path} value={f.path} className={cn(touch && "min-h-11")}>
@@ -199,8 +168,8 @@ function IconToggle({ label, pressed, onClick, icon: Icon, shortcut }: { label: 
 }
 
 /** Secondary views and toggles, grouped so the bar stays quiet. */
-function ViewMenu({ autoscroll, guided, lens }: { autoscroll: boolean; guided: boolean; lens: boolean }) {
-  const active = autoscroll || guided || lens;
+function ViewMenu({ autoscroll, guided }: { autoscroll: boolean; guided: boolean }) {
+  const active = autoscroll || guided;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -210,12 +179,9 @@ function ViewMenu({ autoscroll, guided, lens }: { autoscroll: boolean; guided: b
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuCheckboxItem checked={guided} onCheckedChange={(v) => setState({ guidedOpen: !!v, lensOpen: false })}>
+        <DropdownMenuCheckboxItem checked={guided} onCheckedChange={(v) => setState({ guidedOpen: !!v })}>
           <BookOpenText aria-hidden="true" /> Guided reading
           <DropdownMenuShortcut>G</DropdownMenuShortcut>
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={lens} onCheckedChange={(v) => setState({ lensOpen: !!v })}>
-          <Sparkles aria-hidden="true" /> Generated UI
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={autoscroll} onCheckedChange={(v) => setPrefs({ autoscroll: !!v })}>
           <LocateFixed aria-hidden="true" /> Follow live changes
@@ -233,10 +199,8 @@ function ViewMenu({ autoscroll, guided, lens }: { autoscroll: boolean; guided: b
 export function Topbar({ mobile }: { mobile: boolean }) {
   const mode = useStore((s) => s.prefs.mode);
   const railCollapsed = useStore((s) => s.prefs.railCollapsed);
-  const widgetsCollapsed = useStore((s) => s.prefs.widgetsCollapsed);
   const autoscroll = useStore((s) => s.prefs.autoscroll);
   const guided = useStore((s) => s.guidedOpen);
-  const lens = useStore((s) => s.lensOpen);
   const theme = useStore((s) => s.prefs.theme);
 
   if (mobile) {
@@ -249,9 +213,6 @@ export function Topbar({ mobile }: { mobile: boolean }) {
           <Breadcrumb touch />
         </div>
         <SelectorStatus compact />
-        <Button variant="ghost" className="size-11" aria-label="Reading aids" onClick={() => setState({ sheet: "widgets" })} data-testid="open-widgets">
-          <PanelRight />
-        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="size-11" aria-label="More">
@@ -281,9 +242,6 @@ export function Topbar({ mobile }: { mobile: boolean }) {
             <DropdownMenuItem className="min-h-11" onSelect={() => setState({ guidedOpen: !getState().guidedOpen })}>
               <BookOpenText /> {guided ? "Stop guided reading" : "Guided reading"}
             </DropdownMenuItem>
-            <DropdownMenuItem className="min-h-11" onSelect={() => setState({ lensOpen: true })}>
-              <Sparkles /> Generated UI
-            </DropdownMenuItem>
             <DropdownMenuItem className="min-h-11" onSelect={() => setPrefs({ autoscroll: !autoscroll })}>
               <LocateFixed /> {autoscroll ? "Stop following changes" : "Follow changes"}
             </DropdownMenuItem>
@@ -295,29 +253,18 @@ export function Topbar({ mobile }: { mobile: boolean }) {
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
-      {mode !== "read" && (
-        <IconToggle
-          label={railCollapsed ? "Show files and outline" : "Hide files and outline"}
-          pressed={!railCollapsed}
-          onClick={() => keepReadingPosition(() => setPrefs({ railCollapsed: !railCollapsed }))}
-          icon={PanelLeft}
-          shortcut="["
-        />
-      )}
+      <IconToggle
+        label={railCollapsed ? "Show files and outline" : "Hide files and outline"}
+        pressed={!railCollapsed}
+        onClick={() => keepReadingPosition(() => setPrefs({ railCollapsed: !railCollapsed }))}
+        icon={PanelLeft}
+        shortcut="["
+      />
       <Breadcrumb />
       <SelectorStatus />
       <ModeSwitch />
-      {mode === "split" && (
-        <IconToggle
-          label={widgetsCollapsed ? "Show reading aids" : "Hide reading aids"}
-          pressed={!widgetsCollapsed}
-          onClick={() => keepReadingPosition(() => setPrefs({ widgetsCollapsed: !widgetsCollapsed }))}
-          icon={PanelRight}
-          shortcut="]"
-        />
-      )}
       <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-      <ViewMenu autoscroll={autoscroll} guided={guided} lens={lens} />
+      <ViewMenu autoscroll={autoscroll} guided={guided} />
       <Button
         variant="outline"
         size="sm"

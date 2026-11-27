@@ -7,7 +7,6 @@ import { useSyncExternalStore } from "react";
 import type { HeadingInfo } from "./body";
 import type {
   AdaptiveLayout,
-  DiffState,
   DocPayload,
   Mode,
   SelectState,
@@ -31,24 +30,18 @@ export interface Prefs {
   theme: ThemePref;
   railSize: number;
   railCollapsed: boolean;
-  widgetsSize: number;
-  widgetsCollapsed: boolean;
   railTab: "files" | "outline";
   autoscroll: boolean;
-  groupBy: "worktree" | "branch";
   docs: Record<string, DocPrefs>;
 }
 
 export const DEFAULT_PREFS: Prefs = {
-  mode: "split",
+  mode: "adaptive",
   theme: "system",
   railSize: 256,
   railCollapsed: false,
-  widgetsSize: 360,
-  widgetsCollapsed: false,
   railTab: "outline",
   autoscroll: false,
-  groupBy: "worktree",
   docs: {},
 };
 
@@ -61,9 +54,12 @@ function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_PREFS, theme: defaultTheme() };
-    const p = JSON.parse(raw) as Partial<Prefs>;
+    const p = JSON.parse(raw) as Partial<Prefs> & Record<string, unknown>;
+    // Settings of removed features (side pane, worktree grouping) are dropped.
+    for (const k of ["widgetsSize", "widgetsCollapsed", "groupBy"]) delete p[k];
     const out = { ...DEFAULT_PREFS, theme: defaultTheme(), ...p };
-    if (!["read", "split", "adaptive"].includes(out.mode)) out.mode = "split";
+    // "split" (aids in a side pane) was folded into adaptive (aids in the text).
+    if (!["read", "adaptive"].includes(out.mode)) out.mode = "adaptive";
     if (!["light", "dark", "system"].includes(out.theme)) out.theme = "system";
     if (typeof out.docs !== "object" || !out.docs) out.docs = {};
     return out;
@@ -93,17 +89,13 @@ export interface State {
   select: SelectState;
   selectError: string | null;
   tree: TreeResponse | null;
-  diff: DiffState | null;
-  diffHtml: string;
-  compareA: string | null;
   headings: HeadingInfo[];
   /** Source line of the heading of the section currently in view. */
   activeLine: number | null;
   paletteOpen: boolean;
   shortcutsOpen: boolean;
-  lensOpen: boolean;
   guidedOpen: boolean;
-  sheet: null | "files" | "outline" | "widgets";
+  sheet: null | "files" | "outline";
   /** Polite announcement for screen readers (selector / mode changes). */
   announce: string;
   connected: boolean;
@@ -124,14 +116,10 @@ export function initStore(doc: DocPayload) {
     select: "selecting",
     selectError: null,
     tree: null,
-    diff: null,
-    diffHtml: "",
-    compareA: null,
     activeLine: null,
     headings: [],
     paletteOpen: false,
     shortcutsOpen: false,
-    lensOpen: false,
     guidedOpen: false,
     sheet: null,
     announce: "",

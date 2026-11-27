@@ -1,10 +1,10 @@
 // Server I/O and user actions. Components call these; they update the store.
 import { announce, getState, setPrefs, setState, updateDocPrefs } from "./store";
 import { keepReadingPosition } from "./nav";
-import type { AdaptiveLayout, DiffState, DocPayload, Mode, Placement, ThemePref, TreeResponse } from "./types";
+import type { AdaptiveLayout, DocPayload, Mode, Placement, ThemePref, TreeResponse } from "./types";
 import { fallbackText, kindLabel, widgetKey } from "./types";
 
-const MODE_LABEL: Record<Mode, string> = { read: "Read", split: "Split", adaptive: "Adaptive" };
+const MODE_LABEL: Record<Mode, string> = { read: "Read", adaptive: "Adaptive" };
 
 export function setMode(mode: Mode) {
   if (getState().prefs.mode === mode) return;
@@ -72,7 +72,6 @@ export async function fetchTree() {
 }
 
 export async function selectFile(path: string) {
-  if (getState().diff) setState({ diff: null, diffHtml: "" });
   try {
     const res = await fetch("/api/select", {
       method: "POST",
@@ -117,16 +116,13 @@ export function onSocketMessage(raw: string) {
     return;
   }
   if (msg.type === "update") {
-    if (getState().diff) return;
     applyDoc(msg as unknown as DocPayload);
   } else if (msg.type === "adaptive") {
     const layout = msg.layout as AdaptiveLayout;
     if (layout && typeof msg.revision === "number") layout.revision = msg.revision;
     // The layout belongs to whatever file is active on the server; only use it
     // when the body we show is that file (the server only selects for it).
-    if (!getState().diff) acceptLayout(layout, "ws");
-  } else if (msg.type === "diff-update") {
-    if (getState().diff) setState({ diffHtml: String(msg.html ?? "") });
+    acceptLayout(layout, "ws");
   }
 }
 
@@ -143,43 +139,6 @@ export function connectSocket() {
     };
   };
   open();
-}
-
-// ---- diff (#15) -----------------------------------------------------------
-
-export async function requestDiff(next: DiffState) {
-  setState({ diff: next, compareA: null });
-  try {
-    const res = await fetch("/api/diff", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
-    if (!res.ok) throw new Error(String(res.status));
-    const d = (await res.json()) as { html: string };
-    setState({ diffHtml: d.html });
-    announce("Comparison open");
-  } catch {
-    setState({ diffHtml: "<p>Could not compare these files.</p>" });
-  }
-}
-
-export function compareWith(path: string) {
-  const a = getState().compareA;
-  if (!a) {
-    setState({ compareA: path });
-    announce("Picked for comparison. Choose a second file.");
-  } else if (a === path) {
-    setState({ compareA: null });
-  } else {
-    void requestDiff({ a, b: path, mode: "source", layout: "unified" });
-    setState({ sheet: null });
-  }
-}
-
-export function closeDiff() {
-  setState({ diff: null, diffHtml: "" });
-  void selectFile(getState().doc.path);
 }
 
 // ---- widgets --------------------------------------------------------------

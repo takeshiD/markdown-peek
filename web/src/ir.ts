@@ -185,6 +185,16 @@ export interface ObligationT {
   sourceRange?: SourceRange;
 }
 
+/** One numeric column of a chart's source table (`values[i]` ↔ `labels[i]`;
+ *  `cells[i]` is the cell text exactly as written in the document). */
+export interface ChartSeries {
+  name: string;
+  unit?: string;
+  unit_prefix?: boolean;
+  values: (number | null)[];
+  cells: string[];
+}
+
 // Discriminated union — `kind` selects the component in the registry.
 export type UiNode = NodeMeta &
   (
@@ -205,6 +215,7 @@ export type UiNode = NodeMeta &
     | { kind: "DependencyGraph"; nodes: GraphNode[]; edges: GraphEdge[] }
     | { kind: "LogTimeline"; entries: LogEntryT[] }
     | { kind: "CommitGraph"; commits: Commit[] }
+    | { kind: "Chart"; chart: "bar" | "line"; title?: string; label_header: string; labels: string[]; series: ChartSeries[] }
     | { kind: "Glossary"; terms: GlossaryTerm[] }
     | { kind: "CharacterRoster"; characters: CharacterT[] }
     | { kind: "StepNavigator"; steps: StepT[] }

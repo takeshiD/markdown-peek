@@ -45,11 +45,12 @@ test("Ctrl+K filters and runs file, heading, mode, theme and re-select commands"
 
 test("the top-bar button opens the same palette; arrow keys pick an item", async ({ page, server }) => {
   await openApp(page, server);
+  await page.locator("body").press("1");
   await page.getByTestId("open-palette").click();
   await page.getByTestId("palette-input").fill("mode");
-  await page.keyboard.press("ArrowDown"); // Read → Split
+  await page.keyboard.press("ArrowDown"); // Read → Adaptive
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("radio", { name: "Split mode" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
 });
 
 test("partial queries run the intended command and never pin or hide by accident", async ({ page, server }) => {
@@ -64,14 +65,13 @@ test("partial queries run the intended command and never pin or hide by accident
     return page.getByRole("dialog", { name: "Command palette" }).locator('[cmdk-item][data-selected="true"]');
   };
 
-  // "again" → Choose reading aids again (not "Show or hide the reading-aid pane").
+  // "again" → Choose reading aids again.
   let sel = await top("again");
   await expect(sel).toHaveText(/Choose reading aids again/);
   const before = adaptiveCalls;
   await page.keyboard.press("Enter");
   await expect.poll(() => adaptiveCalls).toBeGreaterThan(before);
-  await expect(page.getByTestId("widgets-pane")).toBeVisible();
-  await expect.poll(async () => (await page.getByTestId("widgets-pane").boundingBox())?.width ?? 0).toBeGreaterThan(200);
+  await expect(page.locator("article [data-widget]").first()).toBeVisible();
 
   // A partial heading.
   sel = await top("ロール");
@@ -94,7 +94,7 @@ test("partial queries run the intended command and never pin or hide by accident
   // Scattered letters alone never select a pin / hide / show action.
   await page.getByRole("tab", { name: "Files" }).click();
   await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
-  await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]')).toBeVisible();
+  await expect(page.locator('article [data-kind="StepNavigator"]')).toBeVisible();
   sel = await top("nts");
   await expect(sel).not.toHaveText(/^(Pin|Unpin|Hide|Show) /);
   await page.keyboard.press("Escape");

@@ -1,7 +1,31 @@
-// Reading-aid widgets: margin notes (Adaptive), the Split list, the "why this
-// widget" popover, hidden-widget restore and the selector status.
+// Reading aids shown inside the document: the aid block itself, the "why this
+// aid" popover, and the strip above the text (errors, hidden-aid restore).
 import { useId, useState } from "react";
-import { ChevronRight, EyeOff, Info, Pin, PinOff, RefreshCw, Undo2 } from "lucide-react";
+import {
+  CalendarRange,
+  ChartColumn,
+  ChartLine,
+  ChevronRight,
+  EyeOff,
+  Footprints,
+  Info,
+  ListChecks,
+  ListTodo,
+  ListTree,
+  type LucideIcon,
+  MessageCircleQuestion,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Scale,
+  Sparkles,
+  SquareTerminal,
+  Table2,
+  TextQuote,
+  TriangleAlert,
+  BookA,
+  Undo2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -35,6 +59,28 @@ export function useVisiblePlacements(): { visible: Placement[]; hidden: Placemen
   const visible = all.filter((p) => !hiddenSet.has(widgetKey(p)));
   visible.sort((a, b) => Number(pinned.has(widgetKey(b))) - Number(pinned.has(widgetKey(a))));
   return { visible, hidden: all.filter((p) => hiddenSet.has(widgetKey(p))), pinned };
+}
+
+const KIND_ICON: Record<string, LucideIcon> = {
+  StepNavigator: Footprints,
+  Checklist: ListChecks,
+  ActionItems: ListTodo,
+  DataTable: Table2,
+  ConfigViewer: SquareTerminal,
+  Timeline: CalendarRange,
+  Callout: TriangleAlert,
+  RiskPanel: TriangleAlert,
+  SemanticOutline: ListTree,
+  OpenQuestions: MessageCircleQuestion,
+  DecisionLog: Scale,
+  Glossary: BookA,
+  Chart: ChartColumn,
+};
+
+function iconFor(p: Placement): LucideIcon {
+  if (p.node.kind === "Chart") return p.node.chart === "line" ? ChartLine : ChartColumn;
+  if (p.node.kind === "Callout") return TextQuote;
+  return KIND_ICON[p.node.kind] ?? Sparkles;
 }
 
 export function WhyPopover({ p, layout }: { p: Placement; layout: AdaptiveLayout }) {
@@ -75,68 +121,66 @@ export function WhyPopover({ p, layout }: { p: Placement; layout: AdaptiveLayout
   );
 }
 
-/** One widget as a margin note: source chip + title, then the content. */
+/**
+ * One reading aid, set into the text right after the lines it was built from
+ * (or at the top when pinned). Whole-document aids start folded.
+ */
 export function WidgetNote({
   p,
   pinned,
   active,
-  compact,
-  collapsible,
-  besideSection,
+  atTop,
 }: {
   p: Placement;
   pinned: boolean;
   active: boolean;
-  compact?: boolean;
-  /** Start folded (whole-document aids in the margin stay out of the way). */
-  collapsible?: boolean;
-  /** Rendered next to its own section (Adaptive): the section name is implied. */
-  besideSection?: boolean;
+  /** Shown in the pinned strip at the top, away from its section. */
+  atTop?: boolean;
 }) {
   const layout = useStore((s) => s.layout)!;
-  const [open, setOpen] = useState(!collapsible);
+  const [open, setOpen] = useState(p.scope !== "document");
   // A shell block reads better as "Commands" than the generic kind label.
   const title =
     p.node.kind === "ConfigViewer" && (p.node as { format?: string }).format === "shell" ? "Commands" : kindLabel(p.node.kind);
   const r = p.node.sourceRange ?? p.anchor.range;
+  const Icon = iconFor(p);
+  const where = p.scope === "section" && atTop ? p.anchor.heading : p.scope === "document" ? "whole document" : "";
   return (
     <section
-      className={cn(
-        "group/note relative border-l-2 pl-3 transition-colors",
-        active ? "border-primary" : "border-border",
-        compact ? "py-1" : "py-1.5",
-      )}
+      className="mp-aid group/note"
       aria-label={`${title}${p.scope === "section" ? ` for ${p.anchor.heading}` : ""}`}
       aria-current={active ? "true" : undefined}
       data-widget={widgetKey(p)}
       data-kind={p.node.kind}
+      data-scope={p.scope}
       data-active={active ? "true" : "false"}
+      data-open={open ? "true" : "false"}
     >
-      <header className="mb-1 flex min-h-7 items-center gap-1">
-        {collapsible && (
+      <header className="mp-aid__head">
+        {/* Accordion pattern: the heading holds the fold button. */}
+        <h3 className="flex min-w-0 shrink">
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="-ml-1 size-7 text-muted-foreground max-md:size-11"
+            size="sm"
+            className="mp-aid__toggle -ml-1.5 h-7 min-w-0 gap-1.5 px-1.5 text-[13px] font-semibold max-md:h-11"
             aria-expanded={open}
-            aria-label={open ? `Fold ${title}` : `Unfold ${title}`}
             onClick={() => setOpen(!open)}
           >
-            <ChevronRight className={cn("transition-transform", open && "rotate-90")} />
+            <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none", open && "rotate-90")} aria-hidden="true" />
+            <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+            <span className="truncate">{title}</span>
+            {where && <span className="truncate text-[12.5px] font-normal text-muted-foreground">{where}</span>}
           </Button>
-        )}
-        <SourceLink range={r} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
-        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-          {title}
-          {p.scope === "section" && !besideSection && <span className="font-normal text-muted-foreground"> in {p.anchor.heading}</span>}
         </h3>
+        <SourceLink range={r} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
+        <span className="flex-1" />
         <WhyPopover p={p} layout={layout} />
         <Button
           variant="ghost"
           size="icon-sm"
           className={cn("mp-note-action size-7 max-md:size-11", pinned ? "text-primary" : "text-muted-foreground")}
           aria-pressed={pinned}
-          aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
+          aria-label={pinned ? `Unpin ${title} from the top` : `Pin ${title} to the top`}
           onClick={() => togglePin(p)}
         >
           {pinned ? <PinOff /> : <Pin />}
@@ -146,11 +190,13 @@ export function WidgetNote({
         </Button>
       </header>
       {open && (
-        <PanelChrome.Provider value="bare">
-          <WidgetKeyCtx.Provider value={widgetKey(p)}>
-            <Render node={p.node} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
-          </WidgetKeyCtx.Provider>
-        </PanelChrome.Provider>
+        <div className="mp-aid__body">
+          <PanelChrome.Provider value="bare">
+            <WidgetKeyCtx.Provider value={widgetKey(p)}>
+              <Render node={p.node} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
+            </WidgetKeyCtx.Provider>
+          </PanelChrome.Provider>
+        </div>
       )}
     </section>
   );
@@ -162,11 +208,11 @@ export function HiddenWidgetsMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground max-md:h-11">
-          <Undo2 /> Hidden ({hidden.length})
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground max-md:h-11" data-testid="hidden-aids">
+          <Undo2 /> {hidden.length} hidden
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="start">
         <DropdownMenuLabel>Show a hidden reading aid</DropdownMenuLabel>
         {hidden.map((p) => (
           <DropdownMenuItem key={widgetKey(p)} onSelect={() => showWidget(widgetKey(p))}>
@@ -185,82 +231,32 @@ export function isActive(p: Placement, activeLine: number | null): boolean {
   return p.anchor.range.start_line <= activeLine && activeLine < p.anchor.range.end_line;
 }
 
-/** Empty / error / selecting messages shared by the Split pane and sheets. */
-function WidgetsMessage() {
+/**
+ * The strip above the text in Adaptive mode: a failed selection (with retry)
+ * and the way back to hidden aids. Renders nothing when there is nothing to say.
+ */
+export function AidsStrip() {
   const layout = useStore((s) => s.layout);
   const sel = useStore((s) => s.select);
   const err = useStore((s) => s.selectError);
+  const { hidden } = useVisiblePlacements();
   if (sel === "error" && err) {
     return (
-      <div role="alert" className="text-[13px] text-danger">
-        <p>
+      <div role="alert" className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-danger pl-3 text-[13px] text-danger" data-testid="aids-error">
+        <p className="min-w-0 flex-1">
           {err}
-          {layout ? " Showing the previous reading aids, which may be out of date." : ""}
+          {layout ? " The reading aids shown may be out of date." : ""}
         </p>
-        <Button variant="outline" size="sm" className="mt-2 max-md:h-11" onClick={() => fetchAdaptive("reselect")}>
+        <Button variant="outline" size="sm" className="max-md:h-11" onClick={() => fetchAdaptive("reselect")}>
           <RefreshCw /> Try again
         </Button>
       </div>
     );
   }
-  if (!layout) return <p className="text-[13px] text-muted-foreground">Choosing reading aids for this document…</p>;
-  if (layout.placements.length === 0)
-    return (
-      <p className="text-[13px] text-muted-foreground" data-testid="widgets-empty">
-        This document has no extra reading aids. The {layout.selector.provider} selector found nothing that would help beyond the text itself.
-      </p>
-    );
-  return null;
-}
-
-/** The Split-mode widget list (also used in the mobile sheet). */
-export function WidgetList() {
-  const { visible, pinned } = useVisiblePlacements();
-  const activeLine = useStore((s) => s.activeLine);
-  const layout = useStore((s) => s.layout);
-  const stale = useStore((s) => s.select === "error");
+  if (hidden.length === 0) return null;
   return (
-    <div className="flex flex-col gap-5">
-      <WidgetsMessage />
-      {layout && (
-        <div className={cn("flex flex-col gap-5 transition-opacity", stale && "opacity-55")} data-stale={stale ? "true" : undefined}>
-          {visible.map((p) => (
-            <WidgetNote key={widgetKey(p)} p={p} pinned={pinned.has(widgetKey(p))} active={isActive(p, activeLine)} />
-          ))}
-        </div>
-      )}
-      {layout && layout.placements.length > 0 && visible.length === 0 && (
-        <p className="text-[13px] text-muted-foreground">All reading aids are hidden. Use Hidden to bring one back.</p>
-      )}
-    </div>
-  );
-}
-
-/** Header row of the widget pane: doc type, re-select, hidden restore. */
-/** `className` lets a sheet reserve room for its own Close button. */
-export function WidgetPaneHeader({ className }: { className?: string } = {}) {
-  const layout = useStore((s) => s.layout);
-  const sel = useStore((s) => s.select);
-  return (
-    <div className={cn("flex min-h-11 items-center gap-2 border-b px-4", className)}>
-      <h2 className="shrink-0 whitespace-nowrap text-[13px] font-semibold">Reading aids</h2>
-      {layout && sel !== "error" && (
-        <span className="min-w-0 truncate text-[12px] text-muted-foreground" title="Document type">
-          {layout.doc_type.value} ({pct(layout.doc_type.confidence)}, {layout.doc_type.by})
-        </span>
-      )}
-      <span className="flex-1" />
+    <div className="mb-4 flex items-center gap-1 text-[12.5px] text-muted-foreground" data-testid="aids-strip">
       <HiddenWidgetsMenu />
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="size-7 text-muted-foreground max-md:size-11"
-        aria-label="Choose reading aids again"
-        disabled={sel === "selecting"}
-        onClick={() => fetchAdaptive("reselect")}
-      >
-        <RefreshCw className={sel === "selecting" ? "motion-safe:animate-spin" : ""} />
-      </Button>
     </div>
   );
 }

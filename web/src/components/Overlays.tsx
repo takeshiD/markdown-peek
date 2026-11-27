@@ -1,5 +1,5 @@
-// Overlays: command palette, keyboard shortcuts, Generated UI lens, guided
-// reading panel, and the mobile sheets.
+// Overlays: command palette, keyboard shortcuts, guided reading panel, and
+// the mobile Files / Outline sheet.
 import { useEffect, useRef, useState } from "react";
 import { EyeOff, FileText, Hash, Monitor, Moon, Pin, RefreshCw, Sun, Undo2 } from "lucide-react";
 import {
@@ -19,13 +19,11 @@ import { keepReadingPosition } from "../lib/nav";
 import { fetchAdaptive, hideWidget, selectFile, setMode, setTheme, showWidget, togglePin } from "../lib/actions";
 import { jumpToHeading } from "../lib/nav";
 import { kindLabel, widgetKey } from "../lib/types";
-import { RenderList } from "../registry";
 import { paletteFilter, STRICT } from "../lib/paletteFilter";
 import { enterScrolly, exitScrolly } from "../scrolly";
 import { MOD, MODES } from "./Topbar";
-import { Files, Outline, groupLabel } from "./Rail";
-import { useVisiblePlacements, WidgetList, WidgetPaneHeader } from "./Widgets";
-import type { UiNode } from "../ir";
+import { Files, Outline, repoLabel } from "./Rail";
+import { useVisiblePlacements } from "./Widgets";
 
 interface PaletteEntry {
   id: string;
@@ -43,7 +41,6 @@ interface PaletteEntry {
 export function CommandPalette() {
   const open = useStore((s) => s.paletteOpen);
   const tree = useStore((s) => s.tree);
-  const by = useStore((s) => s.prefs.groupBy);
   const headings = useStore((s) => s.headings);
   const layout = useStore((s) => s.layout);
   const { visible, hidden, pinned } = useVisiblePlacements();
@@ -82,9 +79,7 @@ export function CommandPalette() {
     { id: "t:dark", group: "View", label: "Dark theme", icon: <Moon />, action: () => setTheme("dark") },
     { id: "t:system", group: "View", label: "System theme", icon: <Monitor />, action: () => setTheme("system") },
     { id: "v:rail", group: "View", label: "Show or hide files and outline", shortcut: "[", action: () => keepReadingPosition(() => setPrefs({ railCollapsed: !getState().prefs.railCollapsed })) },
-    { id: "v:widgets", group: "View", label: "Show or hide the reading-aid pane", shortcut: "]", action: () => keepReadingPosition(() => setPrefs({ widgetsCollapsed: !getState().prefs.widgetsCollapsed })) },
     { id: "v:guided", group: "View", label: "Guided reading", shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
-    { id: "v:lens", group: "View", label: "Generated UI", action: () => setState({ lensOpen: true }) },
     { id: "v:follow", group: "View", label: "Follow live changes on or off", extras: ["autoscroll"], action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },
     { id: "w:reselect", group: "Reading aids", label: "Choose reading aids again", extras: ["reselect", "refresh"], icon: <RefreshCw />, action: () => void fetchAdaptive("reselect") },
   );
@@ -97,9 +92,9 @@ export function CommandPalette() {
     for (const p of hidden)
       entries.push({ id: `show:${widgetKey(p)}`, group: "Reading aids", label: `Show ${kindLabel(p.node.kind)}${where(p)}`, extras: ["hidden", "restore"], strict: true, icon: <Undo2 />, action: () => showWidget(widgetKey(p)) });
   }
-  for (const g of tree?.tree.groups.filter((x) => x.files.length) ?? [])
-    for (const f of g.files)
-      entries.push({ id: `f:${f.path}`, group: `Files in ${groupLabel(g, by)}`, label: f.rel, extras: [groupLabel(g, by), "open file"], icon: <FileText />, action: () => void selectFile(f.path) });
+  const repo = tree?.tree.groups[0];
+  for (const f of repo?.files ?? [])
+    entries.push({ id: `f:${f.path}`, group: `Files in ${repoLabel(repo!)}`, label: f.rel, extras: ["open file"], icon: <FileText />, action: () => void selectFile(f.path) });
 
   // While typing: one list ranked by how well the label matches (prefix >
   // word start > substring > extras > scattered letters). Empty: grouped.
@@ -148,11 +143,9 @@ export function CommandPalette() {
 
 const SHORTCUTS: [string[], string][] = [
   [[`${MOD}`, "K"], "Command palette"],
-  [["1"], "Read mode"],
-  [["2"], "Split mode"],
-  [["3"], "Adaptive mode"],
+  [["1"], "Read mode (the text alone)"],
+  [["2"], "Adaptive mode (reading aids in the text)"],
   [["["], "Show or hide files and outline"],
-  [["]"], "Show or hide the reading-aid pane"],
   [["/"], "Filter headings"],
   [["g"], "Guided reading"],
   [["t"], "Next theme (light, dark, system)"],
@@ -187,41 +180,6 @@ export function ShortcutsDialog() {
   );
 }
 
-/** Generated UI (`/api/gui` lens), unchanged backend, shown in a sheet. */
-export function LensSheet() {
-  const open = useStore((s) => s.lensOpen);
-  const path = useStore((s) => s.doc.path);
-  const [state, setLocal] = useState<{ status: "idle" | "loading" | "done" | "error"; nodes: UiNode[]; error?: string }>({ status: "idle", nodes: [] });
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setLocal({ status: "loading", nodes: [] });
-    fetch("/api/gui", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`server answered ${r.status}`))))
-      .then((d: { nodes: UiNode[] }) => !cancelled && setLocal({ status: "done", nodes: d.nodes ?? [] }))
-      .catch((e: Error) => !cancelled && setLocal({ status: "error", nodes: [], error: e.message }));
-    return () => {
-      cancelled = true;
-    };
-  }, [open, path]);
-  return (
-    <Sheet open={open} onOpenChange={(o) => setState({ lensOpen: o })}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-lg">
-        <SheetHeader className="border-b pr-15">
-          <SheetTitle>Generated UI</SheetTitle>
-          <SheetDescription>Components generated from this document by the configured generator.</SheetDescription>
-        </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4" data-testid="lens-body" aria-busy={state.status === "loading"}>
-          {state.status === "loading" && <p role="status">Generating components…</p>}
-          {state.status === "error" && <p role="alert" className="text-danger">Could not generate components ({state.error}).</p>}
-          {state.status === "done" && state.nodes.length === 0 && <p>No generated components for this document.</p>}
-          {state.status === "done" && <RenderList nodes={state.nodes} onJump={() => setState({ lensOpen: false })} />}
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 /** Guided reading: a non-modal panel (the reader keeps scrolling the text). */
 export function GuidedPanel({ mobile }: { mobile: boolean }) {
   const open = useStore((s) => s.guidedOpen);
@@ -247,7 +205,7 @@ export function GuidedPanel({ mobile }: { mobile: boolean }) {
   );
 }
 
-/** Mobile sheets for Files / Outline / Widgets (R4). */
+/** Mobile sheet for Files / Outline (R4). */
 export function MobileSheets() {
   const sheet = useStore((s) => s.sheet);
   const close = (o: boolean) => !o && setState({ sheet: null });
@@ -278,18 +236,6 @@ export function MobileSheets() {
             </div>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">{sheet === "files" ? <Files touch /> : <Outline touch />}</div>
-        </SheetContent>
-      </Sheet>
-      <Sheet open={sheet === "widgets"} onOpenChange={close}>
-        <SheetContent side="bottom" className="max-h-[85vh] gap-0 p-0">
-          <SheetHeader className="sr-only">
-            <SheetTitle>Reading aids</SheetTitle>
-            <SheetDescription>Widgets chosen for this document, each linked to its source lines.</SheetDescription>
-          </SheetHeader>
-          <WidgetPaneHeader className="min-h-15 pr-15" />
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            <WidgetList />
-          </div>
         </SheetContent>
       </Sheet>
     </>

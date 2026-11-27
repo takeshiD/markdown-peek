@@ -52,11 +52,9 @@ export interface AdaptiveLayout {
   timing_ms: { select: number; total: number };
 }
 
-export type Mode = "read" | "split" | "adaptive";
+/** `read`: the text alone. `adaptive`: reading aids inside the text. */
+export type Mode = "read" | "adaptive";
 export type ThemePref = "light" | "dark" | "system";
-export type DiffMode = "source" | "rendered";
-export type DiffLayout = "unified" | "split";
-export interface DiffState { a: string; b: string; mode: DiffMode; layout: DiffLayout }
 
 /** Selector status shown in the top bar. */
 export type SelectState = "idle" | "selecting" | "ready" | "error";
@@ -70,6 +68,7 @@ const KIND_LABEL: Record<string, string> = {
   StepNavigator: "Steps",
   Checklist: "Checklist",
   DataTable: "Table",
+  Chart: "Chart",
   ConfigViewer: "Commands and config",
   Timeline: "Timeline",
   Callout: "Callout",

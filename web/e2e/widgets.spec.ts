@@ -11,7 +11,7 @@ test.describe("with the fake selector", () => {
 
   test("R6: each widget shows its source lines; the chip scrolls to and highlights the block", async ({ page, server }) => {
     await openApp(page, server);
-    const pane = page.getByTestId("widgets-pane");
+    const pane = page.locator("article");
     const steps = pane.locator('[data-kind="StepNavigator"]');
     const chip = steps.locator("header .gui-srclink");
     await expect(chip).toHaveText("L21–26");
@@ -29,17 +29,17 @@ test.describe("with the fake selector", () => {
     await expect(ol).toBeInViewport();
   });
 
-  test("R6: scrolling the body marks the current section in Outline and in the widgets", async ({ page, server }) => {
+  test("R6: scrolling the body marks the current section in Outline and in the aids", async ({ page, server }) => {
     await openApp(page, server);
     await page.locator("article h2", { hasText: "手順" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
     const outline = page.getByRole("navigation", { name: "Outline" });
     await expect(outline.getByRole("link", { name: "手順", exact: true })).toHaveAttribute("aria-current", "location");
-    await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "true");
+    await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "true");
     await page.locator("article h2", { hasText: "コマンド" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
     await expect(outline.getByRole("link", { name: "コマンド" })).toHaveAttribute("aria-current", "location");
     await expect(outline.getByRole("link", { name: "手順", exact: true })).not.toHaveAttribute("aria-current", "location");
-    await expect(page.getByTestId("widgets-pane").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "false");
-    await expect(page.getByTestId("widgets-pane").locator('[data-kind="ConfigViewer"]')).toHaveAttribute("data-active", "true");
+    await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "false");
+    await expect(page.locator("article").locator('[data-kind="ConfigViewer"]')).toHaveAttribute("data-active", "true");
   });
 
   test("R7: why-this-widget shows provider, model, confidence, helps, alternatives and fallback", async ({ page, server }) => {
@@ -60,10 +60,13 @@ test.describe("with the fake selector", () => {
 
   test("R8: pin and hide survive reload per document; hidden widgets can be restored", async ({ page, server }) => {
     await openApp(page, server);
-    const pane = page.getByTestId("widgets-pane");
-    await pane.getByRole("button", { name: "Pin Steps" }).click();
-    await expect(pane.getByRole("button", { name: "Unpin Steps" })).toHaveAttribute("aria-pressed", "true");
+    const pane = page.locator("article");
+    await pane.getByRole("button", { name: "Pin Steps to the top" }).click();
+    await expect(pane.getByRole("button", { name: "Unpin Steps from the top" })).toHaveAttribute("aria-pressed", "true");
+    // Pinned: moved to the top of the text, under the title.
     await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
+    await expect(pane.locator('.mp-note-slot[data-place="top"] [data-kind="StepNavigator"]')).toBeVisible();
+    expect(await pane.evaluate((a) => (a.children[1] as HTMLElement).dataset.place)).toBe("top");
     await pane.getByRole("button", { name: "Hide Commands" }).click();
     await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(0);
     await expect(page.getByTestId("live-region")).toHaveText(/hidden/);
@@ -71,22 +74,19 @@ test.describe("with the fake selector", () => {
     await page.reload();
     await openApp(page, server);
     await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
-    await expect(pane.getByRole("button", { name: "Unpin Steps" })).toBeVisible();
+    await expect(pane.getByRole("button", { name: "Unpin Steps from the top" })).toBeVisible();
     await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(0);
-    // Adaptive mode honours the same choices.
-    await page.locator("body").press("3");
-    await expect(page.locator('article [data-kind="ConfigViewer"]')).toHaveCount(0);
-    await page.locator("body").press("2");
 
     // Another document has its own (empty) choices.
     await page.getByRole("tab", { name: "Files" }).click();
     await page.getByRole("button", { name: "deploy-guide-v2.md", exact: true }).click();
     await expect(page.getByTestId("breadcrumb-file")).toContainText("deploy-guide-v2.md");
     await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
-    await expect(pane.getByRole("button", { name: "Pin Steps" })).toBeVisible();
+    await expect(pane.getByRole("button", { name: "Pin Steps to the top" })).toBeVisible();
     await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
 
-    await pane.getByRole("button", { name: "Hidden (1)" }).click();
+    await page.getByTestId("hidden-aids").click();
+    await expect(page.getByTestId("hidden-aids")).toHaveText(/1 hidden/);
     await page.getByRole("menuitem", { name: /in コマンド/ }).click();
     await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
     await page.reload();
@@ -106,7 +106,7 @@ test.describe("selector states", () => {
       await status.click();
       await expect(page.getByTestId("selector-fallback")).toContainText(/Network use is off|No TYPESAFE_API_KEY/);
       await page.keyboard.press("Escape");
-      await page.getByTestId("widgets-pane").getByRole("button", { name: /^Why this reading aid/ }).first().click();
+      await page.locator("article").getByRole("button", { name: /^Why this reading aid/ }).first().click();
       await expect(page.getByTestId("why-fallback")).not.toHaveText("none");
     });
   });
@@ -121,10 +121,10 @@ test.describe("selector states", () => {
       await page.goto(server.url);
       const status = page.getByTestId("selector-status");
       await expect(status).toHaveAttribute("data-state", "error");
-      await expect(page.getByTestId("widgets-pane").getByRole("alert")).toContainText("Reading aids could not be loaded");
+      await expect(page.getByTestId("aids-error")).toContainText("Reading aids could not be loaded");
       await expect(page.locator("article h1")).toBeVisible();
       fail = false;
-      await page.getByTestId("widgets-pane").getByRole("button", { name: "Try again" }).click();
+      await page.getByTestId("aids-error").getByRole("button", { name: "Try again" }).click();
       await expect(status).toHaveAttribute("data-state", "ready");
     });
     });
@@ -133,6 +133,9 @@ test.describe("selector states", () => {
     await openApp(page, server);
     await page.getByRole("tab", { name: "Files" }).click();
     await page.getByRole("button", { name: "notes.md", exact: true }).click();
+    await expect(page.getByTestId("breadcrumb-file")).toContainText("notes.md");
+    await expect(page.locator("[data-widget]")).toHaveCount(0);
+    await page.getByTestId("selector-status").click();
     await expect(page.getByTestId("widgets-empty")).toBeVisible();
   });
 });

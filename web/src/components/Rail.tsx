@@ -1,14 +1,12 @@
-// Left rail: Files (worktree / branch explorer + compare) and Outline
+// Left rail: Files (the current working tree's Markdown) and Outline
 // (fuzzy filter + scrollspy).
 import { useMemo, useState } from "react";
-import { FileText, Folder, GitBranch, GitCompareArrows, Search } from "lucide-react";
+import { FileText, Folder, GitBranch, Search } from "lucide-react";
 import { cn } from "cn";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { setPrefs, useStore } from "../lib/store";
-import { compareWith, selectFile } from "../lib/actions";
+import { selectFile } from "../lib/actions";
 import { jumpToHeading } from "../lib/nav";
 
 export function fuzzyMatch(query: string, text: string): boolean {
@@ -20,8 +18,9 @@ export function fuzzyMatch(query: string, text: string): boolean {
   return i >= q.length;
 }
 
-export function groupLabel(g: { name: string; branch?: string | null }, by: "worktree" | "branch") {
-  return by === "branch" ? g.branch || g.name : g.name;
+/** "repo (branch)", or the directory name outside git / when detached. */
+export function repoLabel(g: { name: string; branch?: string | null }) {
+  return g.branch ? `${g.name} (${g.branch})` : g.name;
 }
 
 export function Rail({ touch }: { touch?: boolean }) {
@@ -113,87 +112,45 @@ export function Outline({ touch }: { touch?: boolean }) {
   );
 }
 
+/** Markdown files of the current working tree (the branch you are on). */
 export function Files({ touch }: { touch?: boolean }) {
   const tree = useStore((s) => s.tree);
-  const by = useStore((s) => s.prefs.groupBy);
   const current = useStore((s) => s.doc.path);
-  const compareA = useStore((s) => s.compareA);
-  const groups = tree?.tree.groups.filter((g) => g.files.length) ?? [];
+  const group = tree?.tree.groups[0];
+  const files = group?.files ?? [];
   return (
     <nav aria-label="Files" className="px-2 py-2">
-      <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="text-[12px] text-muted-foreground" id="groupby-label">
-          Group by
-        </span>
-        <ToggleGroup
-          type="single"
-          size="sm"
-          variant="outline"
-          value={by}
-          aria-labelledby="groupby-label"
-          onValueChange={(v) => v && setPrefs({ groupBy: v as "worktree" | "branch" })}
-        >
-          <ToggleGroupItem value="worktree" className={cn("h-7 text-[12px]", touch && "h-11")}>
-            <Folder /> Worktree
-          </ToggleGroupItem>
-          <ToggleGroupItem value="branch" className={cn("h-7 text-[12px]", touch && "h-11")}>
-            <GitBranch /> Branch
-          </ToggleGroupItem>
-        </ToggleGroup>
-      </div>
-      {compareA && (
-        <p className="mx-1 mb-2 rounded-sm bg-muted px-2 py-1 text-[12px]" role="status">
-          Comparing from {compareA.split("/").pop()}. Pick a second file.
+      {group && (
+        <p className="flex items-center gap-1.5 px-2 pb-2 text-[12px] text-muted-foreground" title={group.root}>
+          {group.branch ? <GitBranch className="size-3.5" aria-hidden="true" /> : <Folder className="size-3.5" aria-hidden="true" />}
+          <span className="truncate">{repoLabel(group)}</span>
         </p>
       )}
-      {groups.length === 0 && <p className="px-2 text-[13px] text-muted-foreground">No Markdown files found.</p>}
-      {groups.map((g) => (
-        <section key={g.root} className="mb-3" aria-label={groupLabel(g, by)}>
-          <h3 className="flex items-center gap-1.5 px-2 py-1 text-[12px] font-semibold text-muted-foreground" title={g.root}>
-            {by === "branch" ? <GitBranch className="size-3.5" aria-hidden="true" /> : <Folder className="size-3.5" aria-hidden="true" />}
-            <span className="truncate">{groupLabel(g, by)}</span>
-          </h3>
-          <ul>
-            {g.files.map((f) => {
-              const active = f.path === current;
-              const picked = compareA === f.path;
-              return (
-                <li key={f.path} className="group/file flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => selectFile(f.path)}
-                    aria-current={active ? "page" : undefined}
-                    title={f.path}
-                    data-path={f.path}
-                    className={cn(
-                      "flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1 text-left text-[13px] hover:bg-muted",
-                      active ? "bg-muted font-medium text-foreground" : "text-muted-foreground",
-                      touch && "min-h-11",
-                    )}
-                  >
-                    <FileText className="size-3.5 shrink-0" aria-hidden="true" />
-                    <span className="truncate">{f.rel}</span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className={cn(
-                      "size-7 shrink-0",
-                      picked ? "text-primary" : "text-muted-foreground opacity-60 group-hover/file:opacity-100 focus-visible:opacity-100",
-                      touch && "size-11 opacity-100",
-                    )}
-                    aria-pressed={picked}
-                    aria-label={compareA && !picked ? `Compare with ${f.rel}` : `Compare ${f.rel}`}
-                    onClick={() => compareWith(f.path)}
-                  >
-                    <GitCompareArrows />
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
+      {files.length === 0 && <p className="px-2 text-[13px] text-muted-foreground">No Markdown files found.</p>}
+      <ul>
+        {files.map((f) => {
+          const active = f.path === current;
+          return (
+            <li key={f.path}>
+              <button
+                type="button"
+                onClick={() => selectFile(f.path)}
+                aria-current={active ? "page" : undefined}
+                title={f.path}
+                data-path={f.path}
+                className={cn(
+                  "flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-left text-[13px] hover:bg-muted",
+                  active ? "bg-muted font-medium text-foreground" : "text-muted-foreground",
+                  touch && "min-h-11",
+                )}
+              >
+                <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{f.rel}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }

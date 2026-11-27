@@ -1,13 +1,10 @@
 // The document column: front matter, the GFM body (server HTML, patched in
-// place on live updates), adaptive margin notes, and the diff view.
+// place on live updates) and, in Adaptive mode, reading aids set into the
+// text next to the lines they come from.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftRight, Code, Columns2, Eye, Rows3, X } from "lucide-react";
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { getState, setState, useStore } from "../lib/store";
-import { closeDiff, requestDiff } from "../lib/actions";
 import {
   SLOT_CLASS,
   annotateLines,
@@ -15,12 +12,11 @@ import {
   collectHeadings,
   enhance,
   flash,
-  headingFor,
   patchArticle,
   prefersReducedMotion,
 } from "../lib/body";
 import { registerDocument } from "../lib/nav";
-import { isActive, useVisiblePlacements, WidgetNote } from "./Widgets";
+import { AidsStrip, isActive, useVisiblePlacements, WidgetNote } from "./Widgets";
 import type { Placement } from "../lib/types";
 import { widgetKey } from "../lib/types";
 
@@ -33,7 +29,6 @@ export function DocumentView() {
   // fonts (the UI chrome itself stays English).
   const lang = /[\u3040-\u30ff]/.test(doc.html) ? "ja" : undefined;
   const mode = useStore((s) => s.prefs.mode);
-  const diff = useStore((s) => s.diff);
   const scrollRef = useRef<HTMLElement>(null);
   const articleRef = useRef<HTMLElement>(null);
   const shown = useRef<{ html: string; path: string; el: HTMLElement } | null>(null);
@@ -85,7 +80,7 @@ export function DocumentView() {
         changed[0].scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "center" });
       }
     }
-  }, [docVersion, doc, diff]);
+  }, [docVersion, doc]);
 
   // Scrollspy: the section whose heading was last scrolled past.
   useEffect(() => {
@@ -120,7 +115,7 @@ export function DocumentView() {
       window.removeEventListener(BODY_EVENT, onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [diff]);
+  }, []);
 
   return (
     <main
@@ -130,25 +125,19 @@ export function DocumentView() {
       aria-label="Document"
       className="h-full overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:auto]"
     >
-      {diff ? (
-        <DiffView />
-      ) : (
-        <div className={cn("mp-doc px-5 pt-6 pb-[50vh] sm:px-10 sm:pt-10", mode === "adaptive" && "mp-adaptive")}>
-          <div
-            className="mx-auto text-[16px]"
-            style={{ maxWidth: mode === "adaptive" ? "calc(var(--measure) + var(--note-width) + var(--note-gap))" : "var(--measure)" }}
-          >
-            {doc.error && (
-              <p role="alert" className="mb-6 text-danger">
-                {doc.error}
-              </p>
-            )}
-            {doc.frontmatter && <FrontMatter text={doc.frontmatter} />}
-            <article ref={articleRef} className="markdown-body" lang={lang} aria-label={doc.title} />
-            {mode === "adaptive" && <AdaptiveSlots articleRef={articleRef} />}
-          </div>
+      <div className={cn("mp-doc px-5 pt-6 pb-[50vh] sm:px-10 sm:pt-10", mode === "adaptive" && "mp-adaptive")}>
+        <div className="mx-auto max-w-(--measure) text-[16px]">
+          {doc.error && (
+            <p role="alert" className="mb-6 text-danger">
+              {doc.error}
+            </p>
+          )}
+          {mode === "adaptive" && <AidsStrip />}
+          {doc.frontmatter && <FrontMatter text={doc.frontmatter} />}
+          <article ref={articleRef} className="markdown-body" lang={lang} aria-label={doc.title} />
+          {mode === "adaptive" && <InlineAids articleRef={articleRef} />}
         </div>
-      )}
+      </div>
     </main>
   );
 }
@@ -162,29 +151,27 @@ function FrontMatter({ text }: { text: string }) {
   );
 }
 
-interface Slot { side: HTMLDivElement; inline: HTMLDivElement }
-
 /**
- * Adaptive mode: each widget gets two slots inside the article — one floated
- * into the right margin next to its section heading (wide columns), one right
- * after its section (narrow columns). CSS container queries show one of them.
+ * Adaptive mode: every reading aid gets one slot inside the article, placed
+ * right after the blocks it was built from (a chart under its table, steps
+ * under their list). Whole-document aids sit after the opening section;
+ * pinned aids sit at the top, under the title.
  */
-function AdaptiveSlots({ articleRef }: { articleRef: React.RefObject<HTMLElement | null> }) {
+function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | null> }) {
   const { visible, pinned } = useVisiblePlacements();
   const activeLine = useStore((s) => s.activeLine);
-  const slots = useRef(new Map<string, Slot>());
+  const slots = useRef(new Map<string, HTMLDivElement>());
   const [, force] = useState(0);
-  const keys = visible.map(widgetKey).join("|");
+  const keys = visible.map((p) => `${widgetKey(p)}${pinned.has(widgetKey(p)) ? "^" : ""}`).join("|");
 
   useLayoutEffect(() => {
     const article = articleRef.current;
     if (!article) return;
     const map = slots.current;
     const wanted = new Set(visible.map(widgetKey));
-    for (const [k, s] of map) {
+    for (const [k, el] of map) {
       if (!wanted.has(k)) {
-        s.side.remove();
-        s.inline.remove();
+        el.remove();
         map.delete(k);
       }
     }
@@ -192,18 +179,14 @@ function AdaptiveSlots({ articleRef }: { articleRef: React.RefObject<HTMLElement
     for (const p of visible) {
       const k = widgetKey(p);
       if (!map.has(k)) {
-        const mk = (place: string) => {
-          const d = document.createElement("div");
-          d.className = SLOT_CLASS;
-          d.dataset.place = place;
-          d.dataset.slot = k;
-          return d;
-        };
-        map.set(k, { side: mk("side"), inline: mk("inline") });
+        const d = document.createElement("div");
+        d.className = SLOT_CLASS;
+        d.dataset.slot = k;
+        map.set(k, d);
         created = true;
       }
     }
-    const place = () => placeSlots(article, visible, map);
+    const place = () => placeSlots(article, visible, pinned, map);
     place();
     window.addEventListener(BODY_EVENT, place);
     if (created) force((n) => n + 1);
@@ -213,10 +196,7 @@ function AdaptiveSlots({ articleRef }: { articleRef: React.RefObject<HTMLElement
 
   useEffect(
     () => () => {
-      for (const s of slots.current.values()) {
-        s.side.remove();
-        s.inline.remove();
-      }
+      for (const el of slots.current.values()) el.remove();
       slots.current.clear();
     },
     [],
@@ -225,180 +205,51 @@ function AdaptiveSlots({ articleRef }: { articleRef: React.RefObject<HTMLElement
   return (
     <>
       {visible.map((p) => {
-        const s = slots.current.get(widgetKey(p));
-        if (!s) return null;
+        const el = slots.current.get(widgetKey(p));
+        if (!el) return null;
         const pin = pinned.has(widgetKey(p));
-        const act = isActive(p, activeLine);
-        return (
-          <PortalPair key={widgetKey(p)} slot={s}>
-            {(where) => <WidgetNote p={p} pinned={pin} active={act} compact={where === "inline"} collapsible={p.scope === "document" || where === "inline"} besideSection />}
-          </PortalPair>
-        );
+        return createPortal(<WidgetNote p={p} pinned={pin} active={isActive(p, activeLine)} atTop={pin} />, el, widgetKey(p));
       })}
     </>
   );
 }
 
-function PortalPair({ slot, children }: { slot: Slot; children: (where: "side" | "inline") => React.ReactNode }) {
-  return (
-    <>
-      {createPortal(children("side"), slot.side)}
-      {createPortal(children("inline"), slot.inline)}
-    </>
-  );
+/** Where each slot goes; slots aimed at the same spot keep their order. */
+function placeSlots(article: HTMLElement, visible: Placement[], pinned: Set<string>, map: Map<string, HTMLDivElement>) {
+  const blocks = bodyBlocks(article);
+  const title = blocks[0] && /^H1$/.test(blocks[0].tagName) ? blocks[0] : null;
+  const top = title ? nextBlock(title) : (blocks[0] ?? null);
+  const secondHeading = blocks.find((b, i) => i > 0 && /^H[1-6]$/.test(b.tagName)) ?? null;
+  for (const p of visible) {
+    const el = map.get(widgetKey(p));
+    if (!el) continue;
+    el.dataset.place = pinned.has(widgetKey(p)) ? "top" : p.scope;
+    let before: Element | null;
+    if (pinned.has(widgetKey(p))) before = top;
+    else if (p.scope === "document" || blocks.length === 0) before = secondHeading;
+    else before = afterSource(blocks, p);
+    article.insertBefore(el, before);
+  }
 }
 
-function placeSlots(article: HTMLElement, visible: Placement[], map: Map<string, Slot>) {
-  const blocks = bodyBlocks(article);
-  for (const p of visible) {
-    const s = map.get(widgetKey(p));
-    if (!s) continue;
-    if (p.scope === "document" || blocks.length === 0) {
-      // Whole-document aids: beside the title in the margin; inline (narrow)
-      // after the opening section so the text still comes first.
-      const now = bodyBlocks(article);
-      article.insertBefore(s.side, now[0] ?? null);
-      const second = now.findIndex((b, i) => i > 0 && /^H[1-6]$/.test(b.tagName));
-      article.insertBefore(s.inline, second > 0 ? now[second] : null);
-      continue;
-    }
-    const r = p.anchor.range;
-    const heading = headingFor(article, r.start_line, p.anchor.heading);
-    // Side: right after the section heading (so the note starts level with it).
-    const afterHeading = heading ? nextBlock(heading) : firstBlockAtOrAfter(blocks, r.start_line);
-    article.insertBefore(s.side, afterHeading);
-    // Inline: right after the last block of the section.
-    const endLine = r.end_column === 1 ? r.end_line : r.end_line + 1;
-    article.insertBefore(s.inline, firstBlockAtOrAfter(blocks, endLine));
+/** The block after the last one inside the aid's source lines (its section as a fallback). */
+function afterSource(blocks: HTMLElement[], p: Placement): Element | null {
+  const sec = p.anchor.range;
+  const r = p.node.sourceRange ?? sec;
+  const lastLine = (x: typeof r) => (x.end_column === 1 && x.end_line > x.start_line ? x.end_line - 1 : x.end_line);
+  const end = Math.min(lastLine(r), lastLine(sec));
+  let last: HTMLElement | null = null;
+  for (const b of blocks) {
+    const l = Number(b.dataset.lineStart);
+    if (!Number.isFinite(l)) continue;
+    if (l >= sec.start_line && l <= end) last = b;
   }
+  if (last) return nextBlock(last);
+  return blocks.find((b) => Number(b.dataset.lineStart) > lastLine(sec)) ?? null;
 }
 
 function nextBlock(el: Element): Element | null {
   let n = el.nextElementSibling;
   while (n && n.classList.contains(SLOT_CLASS)) n = n.nextElementSibling;
   return n;
-}
-
-function firstBlockAtOrAfter(blocks: HTMLElement[], line: number): HTMLElement | null {
-  return blocks.find((b) => Number(b.dataset.lineStart) >= line) ?? null;
-}
-
-// ---- diff view (#15) -------------------------------------------------------
-
-function diffUnits(root: Element): Element[] {
-  return Array.from(root.querySelectorAll("table.mdpeek-diff > tbody > tr, .mdpeek-rdiff > .mdpeek-rdiff-block"));
-}
-
-function changedUnits(oldHtml: string, newHtml: string): number[] {
-  const parse = (h: string) => {
-    const d = document.createElement("div");
-    d.innerHTML = h;
-    return diffUnits(d).map((e) => e.outerHTML);
-  };
-  const o = parse(oldHtml);
-  const n = parse(newHtml);
-  let a = 0;
-  while (a < o.length && a < n.length && o[a] === n[a]) a++;
-  let bo = o.length - 1;
-  let bn = n.length - 1;
-  while (bo >= a && bn >= a && o[bo] === n[bn]) {
-    bo--;
-    bn--;
-  }
-  const out: number[] = [];
-  for (let i = a; i <= bn; i++) out.push(i);
-  return out;
-}
-
-function fileLabel(path: string): { scope: string; rel: string } {
-  const tree = getState().tree?.tree;
-  let best: { name: string; branch?: string | null; root: string; files: { path: string; rel: string }[] } | null = null;
-  for (const g of tree?.groups ?? []) {
-    if (path === g.root || path.startsWith(g.root + "/")) if (!best || g.root.length > best.root.length) best = g;
-  }
-  const rel = best?.files.find((f) => f.path === path)?.rel ?? path.split("/").pop() ?? path;
-  return { scope: best ? (best.branch ? `${best.name} (${best.branch})` : best.name) : "", rel };
-}
-
-function DiffView() {
-  const diff = useStore((s) => s.diff)!;
-  const html = useStore((s) => s.diffHtml);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const last = useRef<{ html: string; key: string } | null>(null);
-  const key = `${diff.a}|${diff.b}|${diff.mode}|${diff.layout}`;
-
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    const prev = last.current;
-    const idx = prev && prev.key === key && prev.html ? changedUnits(prev.html, html) : [];
-    el.innerHTML = html;
-    last.current = { html, key };
-    if (diff.mode === "rendered") enhance([el]);
-    if (idx.length) {
-      const units = diffUnits(el);
-      flash(idx.map((i) => units[i]).filter(Boolean), "mp-changed", 2600);
-    }
-  }, [html, key, diff.mode]);
-
-  const a = fileLabel(diff.a);
-  const b = fileLabel(diff.b);
-  return (
-    <section aria-label="Comparison" className="flex min-h-full flex-col">
-      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-2 border-b bg-background/95 px-4 py-2 backdrop-blur">
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
-          <span className="min-w-0 truncate" data-testid="diff-a" title={diff.a}>
-            <span className="text-danger">−</span> {a.scope && <span className="text-muted-foreground">{a.scope} </span>}
-            {a.rel}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Swap left and right"
-            onClick={() => requestDiff({ ...diff, a: diff.b, b: diff.a })}
-          >
-            <ArrowLeftRight />
-          </Button>
-          <span className="min-w-0 truncate" data-testid="diff-b" title={diff.b}>
-            <span className="text-ok">+</span> {b.scope && <span className="text-muted-foreground">{b.scope} </span>}
-            {b.rel}
-          </span>
-        </div>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          value={diff.mode}
-          onValueChange={(v) => v && requestDiff({ ...diff, mode: v as "source" | "rendered" })}
-          aria-label="Compare"
-        >
-          <ToggleGroupItem value="source" aria-label="Source">
-            <Code /> Source
-          </ToggleGroupItem>
-          <ToggleGroupItem value="rendered" aria-label="Rendered">
-            <Eye /> Rendered
-          </ToggleGroupItem>
-        </ToggleGroup>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          value={diff.layout}
-          onValueChange={(v) => v && requestDiff({ ...diff, layout: v as "unified" | "split" })}
-          aria-label="Layout"
-        >
-          <ToggleGroupItem value="unified" aria-label="Unified">
-            <Rows3 /> Unified
-          </ToggleGroupItem>
-          <ToggleGroupItem value="split" aria-label="Side by side">
-            <Columns2 /> Side by side
-          </ToggleGroupItem>
-        </ToggleGroup>
-        <Button variant="ghost" size="sm" onClick={closeDiff}>
-          <X /> Close comparison
-        </Button>
-      </div>
-      <div ref={bodyRef} className="flex-1 overflow-x-auto px-4 py-3" data-testid="diff-body" />
-    </section>
-  );
 }

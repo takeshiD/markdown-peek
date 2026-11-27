@@ -16,6 +16,8 @@ import type {
   Severity,
 } from "../ir";
 
+export { Chart } from "./Chart";
+
 /** Emitted when a node (or item) wants to scroll the Content pane to a range. */
 export type OnJump = (range: SourceRange) => void;
 
@@ -25,7 +27,7 @@ interface NodeProps<T> {
 }
 
 /**
- * "bare": the widget is shown inside a margin note that already has its own
+ * "bare": the widget is shown inside a reading aid that already has its own
  * header (title, source chip, why, pin/hide), so Panel drops its title row.
  */
 export const PanelChrome = createContext<"full" | "bare">("full");
