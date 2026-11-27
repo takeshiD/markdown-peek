@@ -249,6 +249,8 @@ pub enum SelectError {
     Unauthorized,
     #[error("the endpoint or model was not found (HTTP 404); check base_url and model")]
     NotFound,
+    #[error("the account has no credit or plan for this model (HTTP 402)")]
+    PaymentRequired,
     #[error("rate limited by the API (HTTP 429)")]
     RateLimited,
     #[error("the API is overloaded (HTTP 529)")]
@@ -283,6 +285,7 @@ impl SelectError {
             SelectError::Timeout => "timeout".into(),
             SelectError::Unauthorized => "unauthorized".into(),
             SelectError::NotFound => "not_found".into(),
+            SelectError::PaymentRequired => "payment_required".into(),
             SelectError::RateLimited => "rate_limited".into(),
             SelectError::Overloaded => "overloaded".into(),
             SelectError::Server(_) => "server_error".into(),
@@ -306,6 +309,7 @@ impl SelectError {
                 | SelectError::NotBuilt
                 | SelectError::Unauthorized
                 | SelectError::NotFound
+                | SelectError::PaymentRequired
                 | SelectError::CliMissing
                 | SelectError::FakeScript
         )

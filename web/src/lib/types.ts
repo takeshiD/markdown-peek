@@ -108,7 +108,7 @@ export function kindLabel(kind: string): string {
 }
 
 /** Error codes that mean "the settings are wrong", not "try again later". */
-export const CONFIG_ERRORS = new Set(["config_invalid", "missing_key", "unauthorized", "not_found", "not_built", "cli_missing", "fake_script_error"]);
+export const CONFIG_ERRORS = new Set(["config_invalid", "missing_key", "unauthorized", "payment_required", "not_found", "not_built", "cli_missing", "fake_script_error"]);
 
 /** A few words for the status chip (the popover has the full sentence). */
 const ERROR_SHORT: Record<string, string> = {
@@ -116,6 +116,7 @@ const ERROR_SHORT: Record<string, string> = {
   missing_key: "no key",
   unauthorized: "key rejected",
   not_found: "not found",
+  payment_required: "no credit",
   timeout: "timed out",
   offline: "offline",
   rate_limited: "rate limited",

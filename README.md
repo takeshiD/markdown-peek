@@ -258,7 +258,7 @@ api_key_env = "OPENCODE_API_KEY"
 
 [models.gemini]
 api = "systemone"
-model = "gemini-decision-1"
+model = "gemini-decision-1"      # OpenCode also has the free "jev-1.13-free"
 base_url = "https://opencode.ai/inference/systemone"
 api_key_env = "OPENCODE_API_KEY"
 
@@ -311,7 +311,7 @@ where it stopped. Only option ids and numbers are written to disk (file names ar
 SHA-256 digests) — no document text, heading or key. `[cache] enabled = false`
 keeps decisions in memory only.
 
-**Failures.** A model that cannot be used (bad entry, unset key, 401/404, CLI
+**Failures.** A model that cannot be used (bad entry, unset key, 401/402/404, CLI
 missing) shows no aids, and the UI notifies you with the reason and the config
 file. Timeouts, 429/529 (retried once, honouring `retry-after`), 5xx, malformed
 answers and no network end the run with an error you can retry.

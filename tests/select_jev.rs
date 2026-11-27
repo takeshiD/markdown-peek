@@ -300,6 +300,12 @@ fn fallback_unauthorized() {
 }
 
 #[test]
+fn payment_required_is_explained() {
+    let (r, _) = expect_fallback(vec![Reply::raw(402, "{}")], "", Some(TEST_KEY), "payment_required", 1);
+    assert!(r.json["selector"]["message"].as_str().unwrap().contains("credit"));
+}
+
+#[test]
 fn fallback_server_error() {
     expect_fallback(
         vec![Reply::raw(503, "oops")],

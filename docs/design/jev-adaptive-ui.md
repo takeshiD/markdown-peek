@@ -439,7 +439,7 @@ Read / Adaptive のモードをやめ、読書補助のオン / オフを 1 つ�
 - **UI**: トグル(実行中はスピナー)、モデルメニュー(このセッションだけ切り替え。問題のあるモデルは理由付きで選べない)、デフォルト以外を使っているときだけ出る **Make default**(`toml_edit` で `[model] use` だけを書き換え、コメントは残す)、状態チップ、Stop / Resume。設定の誤りは通知(toast)で、問題と設定ファイルの場所を示す。同じ問題は 1 回だけ通知する。
 - **出現アニメーション**: run の push で新しく入った補助だけ、`cubic-bezier(0.34, 1.56, 0.64, 1)` の 560ms で下から少し行き過ぎて入り、枠の光が 1.6 秒で消える。同じバッチの補助は 70ms ずつずらす。キャッシュから再利用した補助、HTTP で取得した layout(再読み込み・ファイル切り替え)は動かさない。reduced motion では枠の光だけ。
 - **編集中の表示**: run が実行中の間、まだ答えていないセクションは前の補助を出したままにする(クライアント側で前の layout から引き継ぐ)。
-- **検証**: Rust のテストに、モデル定義の検証、ディスクキャッシュ(再起動後も残る、本文が書かれない、サイズ上限)、バッチ分割、中止 / 再開、Microsoft の `api-key` ヘッダー、Anthropic / OpenAI 互換の LLM(モック)、設定の書き戻しを追加した。E2E に、スピナーと中止 / 再開、モデル切り替えと Make default、設定エラーの通知、`auto_generate = false`、出現アニメーションを追加した。実サービスでは、TypeSafe の Jev で無害な fixture(architecture.md、deploy-guide.md)を確認した(1 セクションずつ 4 リクエスト、runbook 0.99)。OpenCode 経由のモデルは、トークン受領後に確認する。
+- **検証**: Rust のテストに、モデル定義の検証、ディスクキャッシュ(再起動後も残る、本文が書かれない、サイズ上限)、バッチ分割、中止 / 再開、Microsoft の `api-key` ヘッダー、Anthropic / OpenAI 互換の LLM(モック)、設定の書き戻しを追加した。E2E に、スピナーと中止 / 再開、モデル切り替えと Make default、設定エラーの通知、`auto_generate = false`、出現アニメーションを追加した。実サービスでは、TypeSafe の Jev で無害な fixture(architecture.md、deploy-guide.md)を確認した(1 セクションずつ 4 リクエスト、runbook 0.99)。OpenCode 経由では、無料の `jev-1.13-free` が architecture.md で design_doc(0.9)、NodeGraph(1.00 / 0.81)、Comparison(0.74 / 0.77)を返した(System One の形が OpenCode でも同じことを確認)。有料モデル(`jev-1.14`、`gpt-6-luna-decision`、`gemini-decision-1`、`claude-haiku-5-5`、`gpt-6-luna`、`glm-5.3`、`deepseek-v4-pro`)は、どれも HTTP 402(アカウントに残高がない)だった。401 / 404 ではないので、URL・パス・認証ヘッダーは受け付けられている。402 は `payment_required` として設定の問題と同じく通知するようにした。
 
 ## 12. ベンチマーク(実測, 2026-11-27)
 

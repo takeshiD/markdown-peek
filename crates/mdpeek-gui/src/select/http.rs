@@ -86,6 +86,7 @@ async fn post_async(p: &Post<'_>) -> Result<(u16, u32, Value), SelectError> {
                 return Ok((status, attempt, v));
             }
             401 | 403 => return Err(SelectError::Unauthorized),
+            402 => return Err(SelectError::PaymentRequired),
             404 => return Err(SelectError::NotFound),
             429 | 529 => {
                 let err = if status == 429 {
