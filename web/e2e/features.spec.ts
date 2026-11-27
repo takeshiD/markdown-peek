@@ -212,6 +212,8 @@ test.describe("node graph and comparison cards", () => {
       await page.emulateMedia({ colorScheme: scheme });
       await openApp(page, server);
       await expect(page.getByTestId("comparison")).toBeVisible();
+      // Contrast is measured on the final colours, after aids finish fading in.
+      await expect(page.locator("[data-enter]")).toHaveCount(0);
       const r = await new AxeBuilder({ page }).include("article").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
       const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
       expect(bad.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`), scheme).toEqual([]);

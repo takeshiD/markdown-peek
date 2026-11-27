@@ -21,12 +21,22 @@ for (const theme of ["light", "dark"] as const) {
   test.describe(`${theme}`, () => {
     test.use({ colorScheme: theme, serverOptions: { fake: FAKE } });
 
-    test(`desktop modes (${theme})`, async ({ page, server }) => {
+    test(`desktop aids on / off, model menu (${theme})`, async ({ page, server }) => {
       await openApp(page, server);
       await expect(page.locator('article [data-kind="StepNavigator"]').first()).toBeVisible();
       await page.locator("article h2", { hasText: "前提条件" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
       await shot(page, `${theme}-desktop-adaptive`);
-      await page.locator("body").press("1");
+      // Another model for this session: "Make default" appears.
+      await page.getByTestId("model-menu").click();
+      await page.getByRole("menuitemradio", { name: /^fake-alt / }).click();
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      await expect(page.getByTestId("make-default")).toBeVisible();
+      await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");
+      await page.getByTestId("model-menu").click();
+      await expect(page.getByRole("menuitemradio", { name: /^jev / })).toBeVisible();
+      await shot(page, `${theme}-desktop-model-menu`);
+      await page.keyboard.press("Escape");
+      await page.locator("body").press("a");
       await shot(page, `${theme}-desktop-read`);
     });
 
@@ -36,7 +46,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.locator("article h2", { hasText: "手順" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
       await shot(page, `${theme}-mobile-adaptive`);
       await page.getByRole("button", { name: "More" }).click();
-      await page.getByRole("menuitemradio", { name: "Read" }).click();
+      await page.getByRole("menuitem", { name: "Turn reading aids off" }).click();
       await page.locator("article h1").evaluate((h) => h.scrollIntoView({ block: "start" }));
       await shot(page, `${theme}-mobile-read`);
     });
@@ -93,11 +103,12 @@ for (const theme of ["light", "dark"] as const) {
       await page.keyboard.press("Escape");
 
       // Error: /api/adaptive fails; the text stays readable.
-      await page.route("**/api/adaptive", (r) => r.fulfill({ status: 500, body: "{}" }));
       await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
-      await page.getByTestId("selector-status").click();
-      await page.getByRole("button", { name: "Choose again" }).click();
-      await page.keyboard.press("Escape");
+      await expect(page.locator('article [data-kind="StepNavigator"]')).toBeVisible();
+      await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");
+      await page.waitForTimeout(400); // let the switch's own run finish pushing
+      await page.route("**/api/adaptive", (r) => r.fulfill({ status: 500, body: "{}" }));
+      await page.reload();
       await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "error");
       await shot(page, `${theme}-state-error`);
       await page.unroute("**/api/adaptive");
@@ -112,6 +123,7 @@ for (const theme of ["light", "dark"] as const) {
         await editFile(server, "deploy-guide.md", (s) => s.replace("5. マージの凍結を解除する。", "5. マージの凍結を解除する。\n6. リリースノートを公開する。"));
         await expect(page.locator("article > ol").first()).toHaveClass(/mp-changed/);
         await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "selecting");
+        await expect(page.getByTestId("aids-stop")).toBeVisible();
         await shot(page, `${theme}-state-live-update-selecting`);
         await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready", { timeout: 10_000 });
         await shot(page, `${theme}-state-live-update-done`);
@@ -120,15 +132,26 @@ for (const theme of ["light", "dark"] as const) {
       }
     });
 
-    test(`fallback (${theme})`, async ({ page }) => {
+    test(`invalid model and stop / resume (${theme})`, async ({ page }) => {
       const server = await startServer({ provider: "jev" });
       try {
         await openApp(page, server);
-        await page.getByTestId("selector-status").click();
-        await expect(page.getByTestId("selector-fallback")).toBeVisible();
-        await shot(page, `${theme}-state-fallback`);
+        await expect(page.getByTestId("toast")).toBeVisible();
+        await shot(page, `${theme}-state-model-invalid`);
       } finally {
         await server.stop();
+      }
+      const slow = await startServer({ fake: { ...FAKE, delay_ms: 1200 }, extraConfig: "", debounceMs: 150 });
+      try {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(slow.url);
+        await expect(page.getByTestId("aids-stop")).toBeVisible();
+        await page.getByTestId("aids-stop").click();
+        await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "stopped");
+        await expect(page.getByTestId("aids-resume")).toBeVisible();
+        await shot(page, `${theme}-state-stopped`);
+      } finally {
+        await slow.stop();
       }
     });
   });

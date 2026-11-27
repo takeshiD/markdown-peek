@@ -1,4 +1,4 @@
-// R1 (shell, body first), R2 (modes), R3 (resizable / collapsible panes).
+// R1 (shell, body first), R2 (reading-aid toggle), R3 (resizable / collapsible panes).
 import { test, expect, openApp } from "./server";
 
 test.describe("R1 shell", () => {
@@ -19,9 +19,9 @@ test.describe("R1 shell", () => {
 
     const banner = page.getByRole("banner");
     await expect(banner.getByRole("navigation", { name: "Breadcrumb" })).toContainText("deploy-guide.md");
-    await expect(banner.getByRole("radio", { name: "Read mode" })).toBeVisible();
-    await expect(banner.getByRole("radio", { name: "Split mode" })).toHaveCount(0);
-    await expect(banner.getByRole("radio", { name: "Adaptive mode" })).toBeVisible();
+    // One toggle for reading aids (no Read / Adaptive modes).
+    await expect(banner.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(banner.getByRole("radio", { name: /mode$/ })).toHaveCount(0);
     await expect(banner.getByRole("button", { name: /Commands/ })).toBeVisible();
     await expect(banner.getByRole("button", { name: /^Theme:/ })).toBeVisible();
     // Files on the left, the outline on the right.
@@ -60,34 +60,42 @@ test.describe("R1 shell", () => {
   });
 });
 
-test.describe("R2 modes", () => {
-  test("keys 1/2 switch Read / Adaptive, the rail stays, and the mode survives reload", async ({ page, server }) => {
+test.describe("R2 reading-aid toggle", () => {
+  test("A turns reading aids off and on, the rail stays, and the choice survives reload", async ({ page, server }) => {
     await openApp(page, server);
-    // Adaptive (default): aids inside the article, the rail beside it.
+    const toggle = page.getByTestId("aids-toggle");
     const steps = page.locator('article .mp-note-slot [data-kind="StepNavigator"]');
     await expect(steps).toBeVisible();
     await expect(page.getByTestId("rail")).toBeVisible();
 
-    await page.locator("body").press("1");
+    await page.locator("body").press("a");
     await expect(page.locator("[data-widget]")).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("rail")).toBeVisible();
-    await expect(page.getByRole("radio", { name: "Read mode" })).toHaveAttribute("aria-checked", "true");
     await page.reload();
-    await expect(page.getByRole("radio", { name: "Read mode" })).toHaveAttribute("aria-checked", "true");
     await expect(page.locator("article h1")).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator("[data-widget]")).toHaveCount(0);
 
-    await page.locator("body").press("2");
+    await toggle.click();
     await expect(steps).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(steps).toBeVisible();
   });
 
-  test("a stored Split mode from an older version opens as Adaptive", async ({ page, server }) => {
-    await page.addInitScript(() => localStorage.setItem("mdpeek.ui.v1", JSON.stringify({ mode: "split", widgetsSize: 400, groupBy: "branch" })));
-    await openApp(page, server);
-    await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
+  test("a stored Read mode from an older version opens with aids off; Split opens with aids on", async ({ page, server }) => {
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem("seeded")) {
+        sessionStorage.setItem("seeded", "1");
+        localStorage.setItem("mdpeek.ui.v1", JSON.stringify({ mode: "read", widgetsSize: 400, groupBy: "branch" }));
+      }
+    });
+    await page.goto(server.url);
+    await expect(page.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "false");
+    await page.evaluate(() => localStorage.setItem("mdpeek.ui.v1", JSON.stringify({ mode: "split" })));
+    await page.reload();
+    await expect(page.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator('article [data-kind="StepNavigator"]')).toBeVisible();
   });
 
@@ -216,13 +224,13 @@ test.describe("R3 outline on the right", () => {
   });
 });
 
-test("switching modes and panes keeps the reading position", async ({ page, server }) => {
+test("toggling aids and panes keeps the reading position", async ({ page, server }) => {
   await openApp(page, server);
   const heading = page.locator("article h2", { hasText: "ロールバック" });
   await heading.evaluate((h) => h.scrollIntoView({ block: "start" }));
   const topOf = () => heading.evaluate((h) => Math.round(h.getBoundingClientRect().top));
   const start = await topOf();
-  for (const key of ["1", "2", "[", "[", "]", "]"]) {
+  for (const key of ["a", "a", "[", "[", "]", "]"]) {
     await page.keyboard.press(key);
     await expect.poll(topOf, { timeout: 2000 }).toBeGreaterThan(start - 12);
     await expect.poll(topOf, { timeout: 2000 }).toBeLessThan(start + 12);

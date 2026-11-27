@@ -5,14 +5,15 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { getState, setPrefs, setState, useStore, type Prefs } from "../lib/store";
+import { aidsOn, getState, setPrefs, setState, useStore, type Prefs } from "../lib/store";
 import { keepReadingPosition } from "../lib/nav";
-import { applyTheme, setMode, setTheme } from "../lib/actions";
+import { applyTheme, setTheme, toggleAids } from "../lib/actions";
 import { Topbar } from "./Topbar";
 import { Rail } from "./Rail";
 import { DocumentView } from "./DocumentView";
 import { DockedOutline, FloatingOutline, toggleOutline } from "./OutlinePane";
 import { CommandPalette, GuidedPanel, MobileSheets, ShortcutsDialog } from "./Overlays";
+import { Toaster } from "./Toaster";
 
 const MOBILE_QUERY = "(max-width: 767px)";
 function useMobile(): boolean {
@@ -46,11 +47,8 @@ function useShortcuts(mobile: boolean) {
       // Leave keys alone inside open menus / popovers (Radix handles them).
       if ((e.target as HTMLElement | null)?.closest?.("[role=menu],[role=dialog],[role=listbox],[data-radix-popper-content-wrapper]")) return;
       switch (e.key) {
-        case "1":
-          setMode("read");
-          break;
-        case "2":
-          setMode("adaptive");
+        case "a":
+          toggleAids();
           break;
         case "[":
           keepReadingPosition(() => setPrefs({ railCollapsed: !s.prefs.railCollapsed }));
@@ -123,7 +121,7 @@ function useCollapse(ref: React.RefObject<PanelImperativeHandle | null>, collaps
 }
 
 function DesktopPanes() {
-  const mode = useStore((s) => s.prefs.mode);
+  const mode = useStore((s) => (aidsOn(s) ? "aids" : "plain"));
   const prefs = useStore((s) => s.prefs);
   // Initial sizes are read once per mount: changing defaultSize mid-drag
   // would fight the user's pointer.
@@ -223,7 +221,7 @@ export function App() {
   useShortcuts(mobile);
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex h-full flex-col" data-mode={useStore((s) => s.prefs.mode)}>
+      <div className="flex h-full flex-col" data-aids={useStore(aidsOn) ? "on" : "off"}>
         <a
           href="#main"
           className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
@@ -247,6 +245,7 @@ export function App() {
         <ShortcutsDialog />
         <GuidedPanel mobile={mobile} />
         <LiveRegion />
+        <Toaster />
       </div>
     </TooltipProvider>
   );

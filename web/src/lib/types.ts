@@ -18,9 +18,10 @@ export interface FileEntry { path: string; rel: string }
 export interface Group { name: string; branch?: string | null; root: string; files: FileEntry[] }
 export interface TreeResponse { tree: { groups: Group[]; git: boolean }; active: string }
 
-/** AdaptiveLayout v1 (design §3.6, crates/mdpeek-gui/src/select). */
+/** AdaptiveLayout v2 (design §3.6, crates/mdpeek-gui/src/select). */
 export interface Anchor { block_id: string; heading: string; range: SourceRange }
 export interface Why {
+  /** Model entry name. */
   by: string;
   candidate: string;
   confidence: number;
@@ -37,14 +38,25 @@ export interface Skipped {
   by: string;
   helps?: number;
   confidence?: number;
-  fallback?: string;
 }
-export interface Selector { provider: string; requested: string; model: string; fallback: string | null; requests: number }
+export type ModelKind = "decision" | "llm";
+export interface Selector {
+  /** `[models.<name>]` entry that answers. */
+  name: string;
+  kind: ModelKind;
+  model: string;
+  error: string | null;
+  message: string | null;
+  requests: number;
+}
+export type JobState = "idle" | "running" | "stopped" | "done" | "error";
+export interface Progress { state: JobState; done: number; total: number }
 export interface AdaptiveLayout {
   version: number;
   revision: number;
   doc_hash: string;
   selector: Selector;
+  progress: Progress;
   doc_type: { value: string; confidence: number; by: string };
   placements: Placement[];
   skipped: Skipped[];
@@ -52,11 +64,21 @@ export interface AdaptiveLayout {
   timing_ms: { select: number; total: number };
 }
 
-/** `read`: the text alone. `adaptive`: reading aids inside the text. */
-export type Mode = "read" | "adaptive";
+/** `GET /api/models` and the WS `models` message. */
+export interface ModelInfo { name: string; kind: ModelKind; api: string; model: string; problem: string | null }
+export interface ModelsInfo {
+  default: string;
+  active: string;
+  models: ModelInfo[];
+  configErrors: string[];
+  configPath: string | null;
+  aids: { defaultOn: boolean; autoGenerate: boolean };
+  cacheDir: string | null;
+}
+
 export type ThemePref = "light" | "dark" | "system";
 
-/** Selector status shown in the top bar. */
+/** Request state of `GET /api/adaptive` (the run itself is `layout.progress`). */
 export type SelectState = "idle" | "selecting" | "ready" | "error";
 
 /** Stable identity of a widget within one document (survives edits). */
@@ -85,38 +107,23 @@ export function kindLabel(kind: string): string {
   return KIND_LABEL[kind] ?? kind.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
-const FALLBACK_TEXT: Record<string, string> = {
-  pending: "Still choosing; the rules choice is shown until the answer arrives",
-  timeout: "The selector did not answer in time",
-  offline: "The selector could not be reached",
-  rate_limited: "The selector rate limit was reached",
-  overloaded: "The selector service is overloaded",
-  unauthorized: "The API key was rejected",
-  server_error: "The selector service returned an error",
-  http_error: "The selector rejected the request",
-  invalid_response: "The selector sent a response that could not be read",
-  invalid_answer: "The selector returned an answer that could not be used",
-  disabled: "Network use is off (allow_network = false)",
-  missing_key: "No TYPESAFE_API_KEY was set",
-  insecure_base_url: "base_url must use https",
-  not_built: "This build has no Jev support",
-  fake_script_error: "The fake selector script could not be read",
-};
+/** Error codes that mean "the settings are wrong", not "try again later". */
+export const CONFIG_ERRORS = new Set(["config_invalid", "missing_key", "unauthorized", "not_found", "not_built", "cli_missing", "fake_script_error"]);
 
-/** A few words for the top bar (the popover has the full sentence). */
-const FALLBACK_SHORT: Record<string, string> = {
-  disabled: "network off",
+/** A few words for the status chip (the popover has the full sentence). */
+const ERROR_SHORT: Record<string, string> = {
+  config_invalid: "settings invalid",
   missing_key: "no key",
+  unauthorized: "key rejected",
+  not_found: "not found",
   timeout: "timed out",
   offline: "offline",
   rate_limited: "rate limited",
   overloaded: "overloaded",
-  unauthorized: "key rejected",
-  not_built: "not built",
+  server_error: "server error",
+  invalid_response: "bad answer",
+  cli_missing: "CLI missing",
 };
-export function fallbackShort(code: string): string {
-  return FALLBACK_SHORT[code] ?? "fallback";
-}
-export function fallbackText(code: string): string {
-  return FALLBACK_TEXT[code] ?? code.replace(/_/g, " ");
+export function errorShort(code: string): string {
+  return ERROR_SHORT[code] ?? code.replace(/_/g, " ");
 }

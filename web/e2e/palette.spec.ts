@@ -1,4 +1,4 @@
-// R5: Ctrl+K command palette — files, headings, modes, theme, re-select.
+// R5: Ctrl+K command palette — files, headings, aids toggle, models, theme.
 import { test, expect, openApp } from "./server";
 import type { Page } from "@playwright/test";
 
@@ -12,24 +12,25 @@ async function run(page: Page, query: string, item: RegExp | string) {
   await expect(dialog).toHaveCount(0);
 }
 
-test("Ctrl+K filters and runs file, heading, mode, theme and re-select commands", async ({ page, server }) => {
-  let adaptiveCalls = 0;
-  page.on("request", (r) => r.url().endsWith("/api/adaptive") && adaptiveCalls++);
+test("Ctrl+K filters and runs file, heading, aids, model, theme commands", async ({ page, server }) => {
   await openApp(page, server);
 
   await run(page, "ロールバック", "ロールバック");
   await expect(page.locator("article h2", { hasText: "ロールバック" })).toBeInViewport();
 
-  await run(page, "adaptive mode", "Adaptive mode");
-  await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
+  await run(page, "aids off", "Turn reading aids off");
+  await expect(page.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "false");
+  await run(page, "aids on", "Turn reading aids on");
+  await expect(page.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "true");
 
   await run(page, "dark theme", "Dark theme");
   await expect(page.locator("html")).toHaveClass(/dark/);
 
-  const before = adaptiveCalls;
-  await run(page, "choose reading aids", "Choose reading aids again");
-  await expect.poll(() => adaptiveCalls).toBeGreaterThan(before);
+  await run(page, "use model", "Use model fake-alt");
+  await expect(page.getByTestId("model-menu")).toContainText("fake-alt");
   await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");
+  await run(page, "default model", "Make fake-alt the default model");
+  await expect(page.getByTestId("make-default")).toHaveCount(0);
 
   await run(page, "notes.md", "notes.md");
   await expect(page.getByTestId("breadcrumb-file")).toContainText("notes.md");
@@ -37,25 +38,23 @@ test("Ctrl+K filters and runs file, heading, mode, theme and re-select commands"
 
   // Esc closes without running; focus returns to the page.
   await page.keyboard.press("Control+k");
-  await page.getByTestId("palette-input").fill("split");
+  await page.getByTestId("palette-input").fill("aids");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("the top-bar button opens the same palette; arrow keys pick an item", async ({ page, server }) => {
   await openApp(page, server);
-  await page.locator("body").press("1");
+  await page.locator("body").press("a");
   await page.getByTestId("open-palette").click();
-  await page.getByTestId("palette-input").fill("mode");
-  await page.keyboard.press("ArrowDown"); // Read → Adaptive
+  await page.getByTestId("palette-input").fill("theme");
+  await page.keyboard.press("ArrowDown"); // Light → Dark
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("html")).toHaveClass(/dark/);
 });
 
 test("partial queries run the intended command and never pin or hide by accident", async ({ page, server }) => {
-  let adaptiveCalls = 0;
-  page.on("request", (r) => r.url().endsWith("/api/adaptive") && adaptiveCalls++);
   await openApp(page, server);
   const docPrefs = () =>
     page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem("mdpeek.ui.v1") ?? "{}").docs ?? {}));
@@ -65,12 +64,11 @@ test("partial queries run the intended command and never pin or hide by accident
     return page.getByRole("dialog", { name: "Command palette" }).locator('[cmdk-item][data-selected="true"]');
   };
 
-  // "again" → Choose reading aids again.
-  let sel = await top("again");
-  await expect(sel).toHaveText(/Choose reading aids again/);
-  const before = adaptiveCalls;
+  // "alt" → Use model fake-alt.
+  let sel = await top("alt");
+  await expect(sel).toHaveText(/Use model fake-alt/);
   await page.keyboard.press("Enter");
-  await expect.poll(() => adaptiveCalls).toBeGreaterThan(before);
+  await expect(page.getByTestId("selector-status")).toHaveAttribute("data-provider", "fake-alt");
   await expect(page.locator("article [data-widget]").first()).toBeVisible();
 
   // A partial heading.

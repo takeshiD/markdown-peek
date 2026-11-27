@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "cn";
-import { getState, setState, useStore } from "../lib/store";
+import { aidsOn, getState, setState, useStore } from "../lib/store";
 import {
   SLOT_CLASS,
   annotateLines,
@@ -28,7 +28,7 @@ export function DocumentView() {
   // Kana means Japanese: lets the browser apply Japanese line breaking and
   // fonts (the UI chrome itself stays English).
   const lang = /[\u3040-\u30ff]/.test(doc.html) ? "ja" : undefined;
-  const mode = useStore((s) => s.prefs.mode);
+  const aids = useStore(aidsOn);
   const scrollRef = useRef<HTMLElement>(null);
   const articleRef = useRef<HTMLElement>(null);
   const shown = useRef<{ html: string; path: string; el: HTMLElement } | null>(null);
@@ -125,17 +125,17 @@ export function DocumentView() {
       aria-label="Document"
       className="h-full overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:auto]"
     >
-      <div className={cn("mp-doc px-5 pt-6 pb-[50vh] sm:px-10 sm:pt-10", mode === "adaptive" && "mp-adaptive")}>
+      <div className={cn("mp-doc px-5 pt-6 pb-[50vh] sm:px-10 sm:pt-10", aids && "mp-adaptive")}>
         <div className="mx-auto max-w-(--measure) text-[16px]">
           {doc.error && (
             <p role="alert" className="mb-6 text-danger">
               {doc.error}
             </p>
           )}
-          {mode === "adaptive" && <AidsStrip />}
+          {aids && <AidsStrip />}
           {doc.frontmatter && <FrontMatter text={doc.frontmatter} />}
           <article ref={articleRef} className="markdown-body" lang={lang} aria-label={doc.title} />
-          {mode === "adaptive" && <InlineAids articleRef={articleRef} />}
+          {aids && <InlineAids articleRef={articleRef} />}
         </div>
       </div>
     </main>
@@ -163,6 +163,7 @@ function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | 
   const slots = useRef(new Map<string, HTMLDivElement>());
   const [, force] = useState(0);
   const keys = visible.map((p) => `${widgetKey(p)}${pinned.has(widgetKey(p)) ? "^" : ""}`).join("|");
+  const entering = useEntering(visible, (k) => slots.current.has(k));
 
   useLayoutEffect(() => {
     const article = articleRef.current;
@@ -208,10 +209,43 @@ function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | 
         const el = slots.current.get(widgetKey(p));
         if (!el) return null;
         const pin = pinned.has(widgetKey(p));
-        return createPortal(<WidgetNote p={p} pinned={pin} active={isActive(p, activeLine)} atTop={pin} />, el, widgetKey(p));
+        return createPortal(
+          <WidgetNote p={p} pinned={pin} active={isActive(p, activeLine)} atTop={pin} enter={entering.get(widgetKey(p))} />,
+          el,
+          widgetKey(p),
+        );
       })}
     </>
   );
+}
+
+/**
+ * Aids that just arrived from the model animate in (a short overshoot, staggered
+ * within one batch), so the reader sees what was added. Aids already known when
+ * the document opened, or reused from the cache, appear without motion.
+ * Returns the stagger index of each entering aid.
+ */
+function useEntering(visible: Placement[], mounted: (key: string) => boolean): Map<string, number> {
+  const docPath = useStore((s) => s.doc.path);
+  // A layout fetched over HTTP is what was already there (page load, file
+  // switch); only pushes from a run bring new aids.
+  const pushed = useStore((s) => s.layoutFrom === "ws");
+  const seen = useRef<{ path: string; keys: Set<string> }>({ path: docPath, keys: new Set() });
+  if (seen.current.path !== docPath) seen.current = { path: docPath, keys: new Set() };
+  const out = new Map<string, number>();
+  let i = 0;
+  if (pushed)
+    for (const p of visible) {
+      const k = widgetKey(p);
+      if (!seen.current.keys.has(k) && !p.why.cached) out.set(k, i++);
+    }
+  // Seen once actually rendered: a new aid's slot is created after the render
+  // that first lists it, so only keys that had a slot during this render count.
+  const rendered = visible.map(widgetKey).filter(mounted);
+  useEffect(() => {
+    for (const k of rendered) seen.current.keys.add(k);
+  });
+  return out;
 }
 
 /** Where each slot goes; slots aimed at the same spot keep their order. */

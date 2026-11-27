@@ -63,8 +63,9 @@ test("a layout for an older revision is ignored", async ({ page, server }) => {
     type: "adaptive",
     revision: 0,
     layout: {
-      version: 1, revision: 0, doc_hash: "x",
-      selector: { provider: "fake", requested: "fake", model: "STALE-MODEL", fallback: null, requests: 0 },
+      version: 2, revision: 0, doc_hash: "x",
+      selector: { name: "fake", kind: "decision", model: "STALE-MODEL", error: null, message: null, requests: 0 },
+      progress: { state: "done", done: 0, total: 0 },
       doc_type: { value: "readme", confidence: 1, by: "fake" },
       placements: [], skipped: [], timing_ms: { select: 0, total: 0 },
     },

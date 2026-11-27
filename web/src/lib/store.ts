@@ -8,7 +8,7 @@ import type { HeadingInfo } from "./body";
 import type {
   AdaptiveLayout,
   DocPayload,
-  Mode,
+  ModelsInfo,
   SelectState,
   ThemePref,
   TreeResponse,
@@ -26,7 +26,8 @@ export interface DocPrefs {
   steps?: Record<string, number>;
 }
 export interface Prefs {
-  mode: Mode;
+  /** Reading aids on or off; `null` follows `[aids] default` in the config. */
+  aids: boolean | null;
   theme: ThemePref;
   railSize: number;
   railCollapsed: boolean;
@@ -41,7 +42,7 @@ export interface Prefs {
 }
 
 export const DEFAULT_PREFS: Prefs = {
-  mode: "adaptive",
+  aids: null,
   theme: "system",
   railSize: 256,
   railCollapsed: false,
@@ -63,11 +64,12 @@ function loadPrefs(): Prefs {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_PREFS, theme: defaultTheme() };
     const p = JSON.parse(raw) as Partial<Prefs> & Record<string, unknown>;
-    // Settings of removed features (side pane, worktree grouping) are dropped.
-    for (const k of ["widgetsSize", "widgetsCollapsed", "groupBy", "railTab"]) delete p[k];
+    // The Read / Adaptive switch became the reading-aids toggle.
+    if (p.aids === undefined && typeof p.mode === "string") p.aids = p.mode === "read" ? false : null;
+    // Settings of removed features (side pane, worktree grouping, modes) are dropped.
+    for (const k of ["widgetsSize", "widgetsCollapsed", "groupBy", "railTab", "mode"]) delete p[k];
     const out = { ...DEFAULT_PREFS, theme: defaultTheme(), ...p };
-    // "split" (aids in a side pane) was folded into adaptive (aids in the text).
-    if (!["read", "adaptive"].includes(out.mode)) out.mode = "adaptive";
+    if (out.aids !== null && typeof out.aids !== "boolean") out.aids = null;
     if (!["light", "dark", "system"].includes(out.theme)) out.theme = "system";
     if (typeof out.docs !== "object" || !out.docs) out.docs = {};
     const fp = out.outlineFloatPos as { right?: unknown; top?: unknown } | undefined;
@@ -94,10 +96,15 @@ export interface State {
   /** Indices (into the new body) of blocks changed by the last live update. */
   changed: number[];
   layout: AdaptiveLayout | null;
+  /** How the current layout arrived: fetched (`http`) or pushed by a run (`ws`). */
+  layoutFrom: "http" | "ws";
   /** Highest revision the server announced for the current body. */
   expectedRevision: number;
   select: SelectState;
   selectError: string | null;
+  /** Models from the config and the one in use (`GET /api/models`). */
+  models: ModelsInfo | null;
+  toasts: Toast[];
   tree: TreeResponse | null;
   headings: HeadingInfo[];
   /** Source line of the heading of the section currently in view. */
@@ -111,6 +118,15 @@ export interface State {
   connected: boolean;
 }
 
+export interface Toast {
+  id: string;
+  kind: "error" | "info";
+  title: string;
+  /** Lines of detail (config problems, the model's error). */
+  body: string[];
+  action?: { label: string; run: () => void };
+}
+
 type Listener = () => void;
 const listeners = new Set<Listener>();
 let state: State;
@@ -122,9 +138,12 @@ export function initStore(doc: DocPayload) {
     docVersion: 1,
     changed: [],
     layout: null,
+    layoutFrom: "http",
     expectedRevision: doc.revision,
     select: "selecting",
     selectError: null,
+    models: null,
+    toasts: [],
     tree: null,
     activeLine: null,
     headings: [],
@@ -177,4 +196,9 @@ export function announce(text: string) {
   // Reset first so repeating the same message is still announced.
   setState({ announce: "" });
   setTimeout(() => setState({ announce: text }), 30);
+}
+
+/** Reading aids on? The reader's choice, else `[aids] default`. */
+export function aidsOn(s: State): boolean {
+  return s.prefs.aids ?? s.models?.aids.defaultOn ?? true;
 }

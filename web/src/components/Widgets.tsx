@@ -16,9 +16,11 @@ import {
   ListTree,
   type LucideIcon,
   MessageCircleQuestion,
+  Loader2,
   Pin,
   PinOff,
   RefreshCw,
+  Square,
   Scale,
   Sparkles,
   SquareTerminal,
@@ -41,11 +43,11 @@ import { cn } from "cn";
 import { PanelChrome, SourceLink } from "./index";
 import { Render } from "../registry";
 import { docPrefs, useStore } from "../lib/store";
-import { fetchAdaptive, hideWidget, showWidget, togglePin } from "../lib/actions";
+import { bootAids, hideWidget, showWidget, stopAids, togglePin } from "../lib/actions";
 import { jumpToRange } from "../lib/nav";
 import { WidgetKeyCtx } from "../lib/progress";
 import type { AdaptiveLayout, Placement } from "../lib/types";
-import { fallbackText, kindLabel, widgetKey } from "../lib/types";
+import { kindLabel, widgetKey } from "../lib/types";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
@@ -103,7 +105,7 @@ export function WhyPopover({ p, layout }: { p: Placement; layout: AdaptiveLayout
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
           <dt className="text-muted-foreground">Chosen by</dt>
           <dd data-testid="why-provider">
-            {p.why.by === "jev" || p.why.by === "fake" ? `${sel.provider}, model ${sel.model}` : p.why.by === "rules" ? `rules (${sel.model})` : p.why.by}
+            {p.why.by === sel.name ? `${sel.name}, model ${sel.model}` : p.why.by}
           </dd>
           <dt className="text-muted-foreground">Confidence</dt>
           <dd data-testid="why-confidence">{pct(p.why.confidence)}</dd>
@@ -115,8 +117,6 @@ export function WhyPopover({ p, layout }: { p: Placement; layout: AdaptiveLayout
           <dd data-testid="why-alternatives">
             {alts.length === 0 ? "none" : alts.map(([k, v]) => `${kindLabel(k.split(":")[0])} ${pct(v)}`).join(", ")}
           </dd>
-          <dt className="text-muted-foreground">Fallback</dt>
-          <dd data-testid="why-fallback">{sel.fallback ? fallbackText(sel.fallback) : "none"}</dd>
           <dt className="text-muted-foreground">Source</dt>
           <dd>{p.scope === "document" ? "whole document" : `section “${p.anchor.heading}”`}</dd>
         </dl>
@@ -134,12 +134,15 @@ export function WidgetNote({
   pinned,
   active,
   atTop,
+  enter,
 }: {
   p: Placement;
   pinned: boolean;
   active: boolean;
   /** Shown in the pinned strip at the top, away from its section. */
   atTop?: boolean;
+  /** Just chosen by the model: animate in (value = stagger index). */
+  enter?: number;
 }) {
   const layout = useStore((s) => s.layout)!;
   const [open, setOpen] = useState(p.scope !== "document");
@@ -159,6 +162,11 @@ export function WidgetNote({
       data-scope={p.scope}
       data-active={active ? "true" : "false"}
       data-open={open ? "true" : "false"}
+      data-enter={enter != null ? "true" : undefined}
+      style={enter != null ? ({ "--enter-delay": `${Math.min(enter, 6) * 70}ms` } as React.CSSProperties) : undefined}
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget && e.animationName === "mp-aid-glow") e.currentTarget.removeAttribute("data-enter");
+      }}
     >
       <header className="mp-aid__head">
         {/* Accordion pattern: the heading holds the fold button. */}
@@ -236,8 +244,9 @@ export function isActive(p: Placement, activeLine: number | null): boolean {
 }
 
 /**
- * The strip above the text in Adaptive mode: a failed selection (with retry)
- * and the way back to hidden aids. Renders nothing when there is nothing to say.
+ * The strip above the text while aids are on: a spinner (with stop) while the
+ * model is choosing, a failed fetch (with retry), and the way back to hidden
+ * aids. Renders nothing when there is nothing to say.
  */
 export function AidsStrip() {
   const layout = useStore((s) => s.layout);
@@ -251,15 +260,27 @@ export function AidsStrip() {
           {err}
           {layout ? " The reading aids shown may be out of date." : ""}
         </p>
-        <Button variant="outline" size="sm" className="max-md:h-11" onClick={() => fetchAdaptive("reselect")}>
+        <Button variant="outline" size="sm" className="max-md:h-11" onClick={() => void bootAids()}>
           <RefreshCw /> Try again
         </Button>
       </div>
     );
   }
-  if (hidden.length === 0) return null;
+  const running = layout?.progress.state === "running";
+  if (!running && hidden.length === 0) return null;
   return (
-    <div className="mb-4 flex items-center gap-1 text-[12.5px] text-muted-foreground" data-testid="aids-strip">
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-muted-foreground" data-testid="aids-strip">
+      {running && (
+        <span className="flex items-center gap-2" data-testid="aids-progress">
+          <Loader2 className="size-3.5 text-primary motion-safe:animate-spin" aria-hidden="true" />
+          <span className="tabular-nums">
+            Choosing reading aids with {layout!.selector.name}… {layout!.progress.done} of {layout!.progress.total}
+          </span>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 max-md:h-11" onClick={() => void stopAids()}>
+            <Square className="size-3 fill-current" aria-hidden="true" /> Stop
+          </Button>
+        </span>
+      )}
       <HiddenWidgetsMenu />
     </div>
   );

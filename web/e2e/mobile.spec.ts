@@ -26,7 +26,7 @@ async function tapTargets(page: Page, scope: string) {
     const name = (el: Element) => `${el.tagName} "${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 30)}"`;
     const ctrls: { el: HTMLElement; r: DOMRect }[] = [];
     for (const root of Array.from(document.querySelectorAll(sel))) {
-      for (const el of Array.from(root.querySelectorAll<HTMLElement>("button, a[href], input, [role=tab], [role=menuitemradio], [role=menuitem], summary"))) {
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>("button, a[href], input, [role=tab], [role=menuitemradio]:not([data-disabled]), [role=menuitem], summary"))) {
         const r = el.getBoundingClientRect();
         const style = getComputedStyle(el);
         if (r.width === 0 || r.height === 0 || style.visibility === "hidden") continue;
@@ -55,15 +55,15 @@ async function tapTargets(page: Page, scope: string) {
   expect(problems, `tap target problems in ${scope}`).toEqual([]);
 }
 
-test("single pane without horizontal scroll in every mode", async ({ page, server }) => {
+test("single pane without horizontal scroll, aids off and on", async ({ page, server }) => {
   await openApp(page, server);
   await expect(page.getByTestId("rail")).toHaveCount(0);
   await expect(page.locator("article h1")).toBeInViewport();
   await noHorizontalScroll(page);
   await tapTargets(page, "header");
-  for (const mode of ["Read", "Adaptive"]) {
+  for (const item of ["Turn reading aids off", "Turn reading aids on"]) {
     await page.getByRole("button", { name: "More" }).tap();
-    await page.getByRole("menuitemradio", { name: mode }).tap();
+    await page.getByRole("menuitem", { name: item }).tap();
     await expect(page.getByRole("menu")).toHaveCount(0);
     await noHorizontalScroll(page);
   }
@@ -74,7 +74,7 @@ test("single pane without horizontal scroll in every mode", async ({ page, serve
   await tapTargets(page, "article .mp-note-slot");
 });
 
-test("files and outline open in a sheet; re-selecting works from the status popover", async ({ page, server }) => {
+test("files and outline open in a sheet; the model can be switched from the menu", async ({ page, server }) => {
   await openApp(page, server);
   await page.getByRole("button", { name: "Files and outline" }).tap();
   const sheet = page.getByRole("dialog", { name: "Outline" });
@@ -95,18 +95,22 @@ test("files and outline open in a sheet; re-selecting works from the status popo
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator("article h2", { hasText: "ロールバック" })).toBeInViewport();
 
-  let adaptiveCalls = 0;
-  page.on("request", (r) => r.url().endsWith("/api/adaptive") && adaptiveCalls++);
   // No reading-aid sheet on a phone either: the aids are in the text.
   await expect(page.getByTestId("open-widgets")).toHaveCount(0);
   await page.getByTestId("selector-status").tap();
-  const pop = page.getByRole("dialog", { name: "Reading-aid selector" });
+  const pop = page.getByRole("dialog", { name: "Reading aids" });
   await expect(pop).toBeVisible();
-  const before = adaptiveCalls;
-  await pop.getByRole("button", { name: "Choose again" }).tap();
-  await expect.poll(() => adaptiveCalls).toBeGreaterThan(before);
-  await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");
+  await expect(pop.getByTestId("why-provider")).toContainText("fake");
   await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "More" }).tap();
+  await tapTargets(page, "[role=menu]");
+  await page.getByRole("menuitemradio", { name: /^fake-alt / }).tap();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(page.getByTestId("selector-status")).toHaveAttribute("data-provider", "fake-alt");
+  await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");
+  await page.getByRole("button", { name: "More" }).tap();
+  await page.getByRole("menuitem", { name: /Make “fake-alt” the default/ }).tap();
+  await expect(page.getByTestId("toast").filter({ hasText: "is now the default model" })).toBeVisible();
   await expect(page.locator('article [data-kind="StepNavigator"]')).toBeAttached();
   await noHorizontalScroll(page);
 });

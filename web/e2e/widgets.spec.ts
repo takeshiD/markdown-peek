@@ -42,7 +42,7 @@ test.describe("with the fake selector", () => {
     await expect(page.locator("article").locator('[data-kind="ConfigViewer"]')).toHaveAttribute("data-active", "true");
   });
 
-  test("R7: why-this-widget shows provider, model, confidence, helps, alternatives and fallback", async ({ page, server }) => {
+  test("R7: why-this-widget shows the model, confidence, helps and alternatives", async ({ page, server }) => {
     await openApp(page, server);
     const status = page.getByTestId("selector-status");
     await expect(status).toHaveAttribute("data-provider", "fake");
@@ -53,7 +53,6 @@ test.describe("with the fake selector", () => {
     await expect(pop.getByTestId("why-confidence")).toHaveText("88%");
     await expect(pop.getByTestId("why-helps")).toHaveText("77%");
     await expect(pop.getByTestId("why-alternatives")).not.toBeEmpty();
-    await expect(pop.getByTestId("why-fallback")).toHaveText("none");
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
   });
@@ -95,18 +94,28 @@ test.describe("with the fake selector", () => {
 });
 
 test.describe("selector states", () => {
-  test.describe("jev without network permission", () => {
+  test.describe("a model whose key is not set", () => {
     test.use({ serverOptions: { provider: "jev" } });
-    test("R7: fallback is shown with its reason and widgets still come from rules", async ({ page, server }) => {
+    test("R7: says the settings are invalid, shows no aids, and another model works", async ({ page, server }) => {
       await openApp(page, server);
       const status = page.getByTestId("selector-status");
-      await expect(status).toHaveAttribute("data-state", "fallback");
-      await expect(status).toContainText("fallback");
+      await expect(status).toHaveAttribute("data-state", "error");
+      const toast = page.getByTestId("toast").filter({ hasText: "cannot be used" });
+      await expect(toast).toBeVisible();
+      await expect(toast).toContainText("environment variable MDPEEK_E2E_UNSET_KEY is not set");
+      await expect(toast).toContainText(server.config);
+      await expect(page.locator("[data-widget]")).toHaveCount(0);
       await status.click();
-      await expect(page.getByTestId("selector-fallback")).toContainText(/Network use is off|No TYPESAFE_API_KEY/);
+      await expect(page.getByTestId("selector-fallback")).toContainText("MDPEEK_E2E_UNSET_KEY");
       await page.keyboard.press("Escape");
-      await page.locator("article").getByRole("button", { name: /^Why this reading aid/ }).first().click();
-      await expect(page.getByTestId("why-fallback")).not.toHaveText("none");
+      // The model menu marks it, and switching to a working model fills the text.
+      await page.getByTestId("model-menu").click();
+      await expect(page.getByTestId("model-problem-jev")).toBeVisible();
+      await page.getByRole("menuitemradio", { name: /^fake \(/ }).click();
+      await expect(status).toHaveAttribute("data-state", "ready");
+      await expect(page.locator('article [data-kind="StepNavigator"]')).toBeVisible();
+      await toast.getByRole("button", { name: "Dismiss notification" }).click();
+      await expect(toast).toHaveCount(0);
     });
   });
 

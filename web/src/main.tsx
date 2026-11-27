@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
 import "./app.css";
 import { App } from "./components/App";
 import { initStore } from "./lib/store";
-import { connectSocket, fetchAdaptive, fetchTree } from "./lib/actions";
+import { bootAids, connectSocket, fetchTree } from "./lib/actions";
 import type { DocPayload } from "./lib/types";
 
 function readBoot(): DocPayload {
@@ -24,4 +24,4 @@ initStore(readBoot());
 createRoot(document.getElementById("root")!).render(<App />);
 connectSocket();
 void fetchTree();
-void fetchAdaptive("initial");
+void bootAids();

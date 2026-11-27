@@ -1,7 +1,7 @@
 // Overlays: command palette, keyboard shortcuts, guided reading panel, and
 // the mobile Files / Outline sheet.
 import { useEffect, useRef, useState } from "react";
-import { EyeOff, FileText, Hash, Monitor, Moon, Pin, RefreshCw, Sun, Undo2 } from "lucide-react";
+import { Bot, EyeOff, FileText, Hash, Monitor, Moon, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -14,14 +14,14 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Kbd } from "@/components/ui/kbd";
-import { getState, setPrefs, setState, useStore } from "../lib/store";
+import { aidsOn, getState, setPrefs, setState, useStore } from "../lib/store";
 import { keepReadingPosition } from "../lib/nav";
-import { fetchAdaptive, hideWidget, selectFile, setMode, setTheme, showWidget, togglePin } from "../lib/actions";
+import { hideWidget, makeDefaultModel, runAids, selectFile, setActiveModel, setTheme, showWidget, stopAids, toggleAids, togglePin } from "../lib/actions";
 import { jumpToHeading } from "../lib/nav";
 import { kindLabel, widgetKey } from "../lib/types";
 import { paletteFilter, STRICT } from "../lib/paletteFilter";
 import { enterScrolly, exitScrolly } from "../scrolly";
-import { MOD, MODES } from "./Topbar";
+import { MOD } from "./Topbar";
 import { Files, Outline, repoLabel } from "./Rail";
 import { useVisiblePlacements } from "./Widgets";
 import { setOutlineFloating, toggleOutline } from "./OutlinePane";
@@ -44,6 +44,8 @@ export function CommandPalette() {
   const tree = useStore((s) => s.tree);
   const headings = useStore((s) => s.headings);
   const layout = useStore((s) => s.layout);
+  const models = useStore((s) => s.models);
+  const aids = useStore(aidsOn);
   const { visible, hidden, pinned } = useVisiblePlacements();
   const [query, setQuery] = useState("");
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -73,8 +75,16 @@ export function CommandPalette() {
   const entries: PaletteEntry[] = [];
   for (const h of headings)
     entries.push({ id: `h:${h.id}`, group: "Headings", label: h.text, extras: ["heading", "go to"], icon: <Hash />, action: () => jumpToHeading(h.id) });
-  for (const m of MODES)
-    entries.push({ id: `m:${m.value}`, group: "View", label: `${m.label} mode`, extras: [m.hint], icon: <m.icon />, shortcut: m.key, action: () => setMode(m.value) });
+  entries.push({ id: "a:toggle", group: "Reading aids", label: aids ? "Turn reading aids off" : "Turn reading aids on", extras: ["aids", "generate", "adaptive", "read"], icon: <Sparkles />, shortcut: "a", action: toggleAids });
+  const st = layout?.progress.state;
+  if (aids && st === "running") entries.push({ id: "a:stop", group: "Reading aids", label: "Stop choosing reading aids", extras: ["cancel"], icon: <Square />, action: () => void stopAids() });
+  if (aids && (st === "stopped" || st === "idle" || st === "error"))
+    entries.push({ id: "a:run", group: "Reading aids", label: st === "stopped" ? "Resume choosing reading aids" : "Choose reading aids", extras: ["resume", "retry", "generate"], icon: <Play />, action: () => void runAids() });
+  for (const m of models?.models ?? [])
+    if (m.name !== models!.active && !m.problem)
+      entries.push({ id: `model:${m.name}`, group: "Reading aids", label: `Use model ${m.name}`, extras: [m.model, "switch model"], icon: <Bot />, action: () => void setActiveModel(m.name) });
+  if (models && models.active !== models.default)
+    entries.push({ id: "model:default", group: "Reading aids", label: `Make ${models.active} the default model`, extras: ["save", "config"], icon: <Star />, action: () => void makeDefaultModel() });
   entries.push(
     { id: "t:light", group: "View", label: "Light theme", icon: <Sun />, action: () => setTheme("light") },
     { id: "t:dark", group: "View", label: "Dark theme", icon: <Moon />, action: () => setTheme("dark") },
@@ -84,7 +94,6 @@ export function CommandPalette() {
     { id: "v:float", group: "View", label: "Float or dock the outline", extras: ["floating", "pin outline", "picture in picture"], action: () => setOutlineFloating(!getState().prefs.outlineFloating) },
     { id: "v:guided", group: "View", label: "Guided reading", shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
     { id: "v:follow", group: "View", label: "Follow live changes on or off", extras: ["autoscroll"], action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },
-    { id: "w:reselect", group: "Reading aids", label: "Choose reading aids again", extras: ["reselect", "refresh"], icon: <RefreshCw />, action: () => void fetchAdaptive("reselect") },
   );
   if (layout) {
     const where = (p: (typeof visible)[number]) => (p.scope === "section" ? ` in ${p.anchor.heading}` : "");
@@ -146,8 +155,7 @@ export function CommandPalette() {
 
 const SHORTCUTS: [string[], string][] = [
   [[`${MOD}`, "K"], "Command palette"],
-  [["1"], "Read mode (the text alone)"],
-  [["2"], "Adaptive mode (reading aids in the text)"],
+  [["a"], "Reading aids on or off"],
   [["["], "Show or hide files"],
   [["]"], "Show or hide the outline (dock or float it from its header)"],
   [["/"], "Filter headings"],

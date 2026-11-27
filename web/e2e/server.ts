@@ -12,10 +12,17 @@ const DOCS = path.join(repoRoot, "web/e2e/docs");
 export interface ServerOptions {
   /** File to open (relative to the workspace). */
   file?: string;
-  /** `[select]` overrides (provider, fake script fields…). */
-  provider?: "fake" | "rules" | "jev";
+  /** Default model: the scripted fake (default) or Jev without a key (always fails). */
+  provider?: "fake" | "jev";
   fake?: Record<string, unknown>;
   debounceMs?: number;
+  /** `[aids]` settings. */
+  aidsDefault?: "on" | "off";
+  autoGenerate?: boolean;
+  /** `[model] batch_sections` (sections per request). */
+  batchSections?: number;
+  /** Extra TOML appended to the config (more `[models.*]`, `[cache]`…). */
+  extraConfig?: string;
   /** Make the workspace a git repo with a second worktree (explorer tests). */
   git?: boolean;
 }
@@ -23,6 +30,8 @@ export interface ServerOptions {
 export interface Server {
   url: string;
   dir: string;
+  /** The config file the server was started with. */
+  config: string;
   /** Workspace directory that holds the documents. */
   ws: string;
   proc: ChildProcess;
@@ -56,14 +65,40 @@ export async function startServer(opts: ServerOptions = {}): Promise<Server> {
   const fake = { model: "fake-e2e", delay_ms: 0, doc_type: { value: "runbook", confidence: 0.95 }, default: "rules", ...(opts.fake ?? {}) };
   writeFileSync(path.join(dir, "fake.json"), JSON.stringify(fake));
   const provider = opts.provider ?? "fake";
+  // Two fake models (to switch between) and a Jev entry whose key is never set.
   writeFileSync(
     path.join(dir, "config.toml"),
-    `[select]\nprovider = "${provider}"\nfake_script = "${path.join(dir, "fake.json")}"\ndebounce_ms = ${opts.debounceMs ?? 150}\n`,
+    [
+      `[aids]`,
+      `default = "${opts.aidsDefault ?? "on"}"`,
+      `auto_generate = ${opts.autoGenerate ?? true}`,
+      ``,
+      `[model]`,
+      `use = "${provider}"`,
+      `debounce_ms = ${opts.debounceMs ?? 150}`,
+      ...(opts.batchSections ? [`batch_sections = ${opts.batchSections}`] : []),
+      ``,
+      `[models.fake]`,
+      `api = "fake"`,
+      `model = "fake-e2e"`,
+      `script = "${path.join(dir, "fake.json")}"`,
+      ``,
+      `[models.fake-alt]`,
+      `api = "fake"`,
+      `model = "fake-alt"`,
+      ``,
+      `[models.jev]`,
+      `api = "systemone"`,
+      `model = "jev-1.14.0"`,
+      `api_key_env = "MDPEEK_E2E_UNSET_KEY"`,
+      ``,
+      opts.extraConfig ?? "",
+    ].join("\n"),
   );
   const bin = process.env.MDPEEK_BIN ? path.resolve(process.env.MDPEEK_BIN) : path.join(repoRoot, "target/debug/mdpeek");
   const proc = spawn(bin, ["-c", path.join(dir, "config.toml"), "serve", opts.file ?? "deploy-guide.md", "--port", "0", "--host", "127.0.0.1"], {
     cwd: ws,
-    env: { PATH: process.env.PATH ?? "", HOME: home, XDG_CONFIG_HOME: path.join(home, ".config"), RUST_LOG: "info" },
+    env: { PATH: process.env.PATH ?? "", HOME: home, XDG_CONFIG_HOME: path.join(home, ".config"), XDG_CACHE_HOME: path.join(home, ".cache"), RUST_LOG: "info" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let out = "";
@@ -85,6 +120,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<Server> {
   return {
     url,
     dir,
+    config: path.join(dir, "config.toml"),
     ws,
     proc,
     log: () => out,
@@ -114,7 +150,7 @@ export async function openApp(page: Page, server: Server, opts: { waitLayout?: b
   await page.goto(server.url);
   await expect(page.locator("article.markdown-body h1")).toBeVisible();
   if (opts.waitLayout !== false) {
-    await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", /ready|fallback/);
+    await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", /ready|error|off/);
   }
 }
 

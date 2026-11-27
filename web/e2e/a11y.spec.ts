@@ -7,6 +7,7 @@ import type { Page } from "@playwright/test";
 async function axe(page: Page, label: string) {
   // Let enter animations (popover / dialog fade-in) finish before measuring contrast.
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
+  await expect(page.locator("[data-enter]")).toHaveCount(0);
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "best-practice"]).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   expect(
@@ -64,18 +65,22 @@ test("skip link, landmarks and visible focus", async ({ page, server }) => {
   }
 });
 
-test("every control is reachable by keyboard: modes, panes, widgets, why, pin", async ({ page, server }) => {
+test("every control is reachable by keyboard: aids toggle, model, panes, widgets, why, pin", async ({ page, server }) => {
   await openApp(page, server);
-  // Mode switch: arrow keys inside the radio group.
-  await page.getByRole("radio", { name: "Adaptive mode" }).focus();
-  await page.keyboard.press("ArrowLeft");
-  await expect(page.getByRole("radio", { name: "Read mode" })).toBeFocused();
+  // The aids toggle and the model menu.
+  const toggle = page.getByTestId("aids-toggle");
+  await toggle.focus();
   await page.keyboard.press("Space");
-  await expect(page.getByRole("radio", { name: "Read mode" })).toHaveAttribute("aria-checked", "true");
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("radio", { name: "Adaptive mode" })).toBeFocused();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await page.keyboard.press("Space");
-  await expect(page.getByRole("radio", { name: "Adaptive mode" })).toHaveAttribute("aria-checked", "true");
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("model-menu")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitemradio", { name: /^fake-alt / })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("model-menu")).toBeFocused();
+  await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");
   // A widget's buttons by Tab from its source chip.
   const steps = page.locator("article").locator('[data-kind="StepNavigator"]');
   await steps.locator("header .gui-srclink").focus();
@@ -91,7 +96,7 @@ test("every control is reachable by keyboard: modes, panes, widgets, why, pin", 
   await expect(page.locator('article [data-kind="StepNavigator"]').getByRole("button", { name: "Unpin Steps from the top" })).toHaveAttribute("aria-pressed", "true");
   // Shortcuts help lists the keys.
   await page.locator("body").press("?");
-  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Adaptive mode");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Reading aids on or off");
   await page.keyboard.press("Escape");
 });
 
@@ -99,12 +104,13 @@ test("state changes are announced to screen readers", async ({ page, server }) =
   await openApp(page, server);
   const live = page.getByTestId("live-region");
   await expect(live).toHaveAttribute("aria-live", "polite");
-  await page.locator("body").press("1");
-  await expect(live).toHaveText("Read mode");
-  await page.locator("body").press("2");
-  await page.getByTestId("selector-status").click();
-  await page.getByRole("button", { name: "Choose again" }).click();
-  await expect(live).toHaveText(/Reading aids updated: \d+ aids? chosen by fake/);
+  await page.locator("body").press("a");
+  await expect(live).toHaveText("Reading aids off");
+  await page.locator("body").press("a");
+  await expect(live).toHaveText("Reading aids on");
+  await page.getByTestId("model-menu").click();
+  await page.getByRole("menuitemradio", { name: /^fake-alt / }).click();
+  await expect(live).toHaveText(/Reading aids updated: \d+ aids? chosen by fake-alt/);
 });
 
 test("prefers-reduced-motion stops animations and transitions", async ({ page, server }) => {

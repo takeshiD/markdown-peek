@@ -1,5 +1,5 @@
-// Top bar: breadcrumb (repository / file), mode switch, selector status,
-// command palette, theme, and view toggles.
+// Top bar: breadcrumb (repository / file), reading-aid controls (toggle,
+// model, stop / resume, status), command palette, theme, and view toggles.
 import {
   BookOpenText,
   ChevronDown,
@@ -16,13 +16,14 @@ import {
   Moon,
   MoreHorizontal,
   PanelLeft,
+  Play,
   Sparkles,
+  Square,
+  Star,
   Sun,
-  TextQuote,
 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Kbd } from "@/components/ui/kbd";
 import {
@@ -37,21 +38,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getState, setPrefs, setState, useStore } from "../lib/store";
+import { aidsOn, getState, setPrefs, setState, useStore } from "../lib/store";
 import { keepReadingPosition } from "../lib/nav";
-import { selectFile, setMode, setTheme } from "../lib/actions";
-import type { Mode, ThemePref } from "../lib/types";
-import { SelectorStatus } from "./SelectorStatus";
+import { makeDefaultModel, runAids, selectFile, setTheme, stopAids, toggleAids } from "../lib/actions";
+import { CONFIG_ERRORS, type ThemePref } from "../lib/types";
+import { AidsControls, AidsStatus, AidsToggle, ModelRadioItems, useAidsView } from "./AidsControls";
 import { toggleOutline } from "./OutlinePane";
 import { repoLabel } from "./Rail";
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? "⌘" : "Ctrl";
-
-export const MODES: { value: Mode; label: string; key: string; icon: typeof TextQuote; hint: string }[] = [
-  { value: "read", label: "Read", key: "1", icon: TextQuote, hint: "The text alone" },
-  { value: "adaptive", label: "Adaptive", key: "2", icon: Sparkles, hint: "Reading aids and charts inside the text" },
-];
 
 function Breadcrumb({ touch }: { touch?: boolean }) {
   const tree = useStore((s) => s.tree);
@@ -98,34 +94,6 @@ function Breadcrumb({ touch }: { touch?: boolean }) {
         </DropdownMenuContent>
       </DropdownMenu>
     </nav>
-  );
-}
-
-export function ModeSwitch() {
-  const mode = useStore((s) => s.prefs.mode);
-  return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      size="sm"
-      value={mode}
-      onValueChange={(v) => v && setMode(v as Mode)}
-      aria-label="View mode"
-      data-testid="mode-switch"
-    >
-      {MODES.map((m) => (
-        <Tooltip key={m.value}>
-          <TooltipTrigger asChild>
-            <ToggleGroupItem value={m.value} aria-label={`${m.label} mode`} className="h-8 px-2.5 text-[13px]">
-              <m.icon aria-hidden="true" /> <span className="max-lg:sr-only">{m.label}</span>
-            </ToggleGroupItem>
-          </TooltipTrigger>
-          <TooltipContent>
-            {m.hint} <Kbd>{m.key}</Kbd>
-          </TooltipContent>
-        </Tooltip>
-      ))}
-    </ToggleGroup>
   );
 }
 
@@ -199,7 +167,10 @@ function ViewMenu({ autoscroll, guided }: { autoscroll: boolean; guided: boolean
 }
 
 export function Topbar({ mobile }: { mobile: boolean }) {
-  const mode = useStore((s) => s.prefs.mode);
+  const aids = useStore(aidsOn);
+  const models = useStore((s) => s.models);
+  const view = useAidsView();
+  const layoutError = useStore((s) => s.layout?.selector.error ?? "");
   const railCollapsed = useStore((s) => s.prefs.railCollapsed);
   const outlineCollapsed = useStore((s) => s.prefs.outlineCollapsed);
   const autoscroll = useStore((s) => s.prefs.autoscroll);
@@ -215,7 +186,8 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         <div className="min-w-0 flex-1">
           <Breadcrumb touch />
         </div>
-        <SelectorStatus compact />
+        <AidsToggle compact />
+        <AidsStatus compact />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="size-11" aria-label="More">
@@ -223,14 +195,31 @@ export function Topbar({ mobile }: { mobile: boolean }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuLabel>View mode</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as Mode)}>
-              {MODES.map((m) => (
-                <DropdownMenuRadioItem key={m.value} value={m.value} className="min-h-11">
-                  {m.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+            <DropdownMenuItem className="min-h-11" onSelect={toggleAids}>
+              <Sparkles /> {aids ? "Turn reading aids off" : "Turn reading aids on"}
+            </DropdownMenuItem>
+            {view === "running" && (
+              <DropdownMenuItem className="min-h-11" onSelect={() => void stopAids()}>
+                <Square /> Stop choosing aids
+              </DropdownMenuItem>
+            )}
+            {(view === "stopped" || view === "idle" || (view === "error" && !CONFIG_ERRORS.has(layoutError))) && (
+              <DropdownMenuItem className="min-h-11" onSelect={() => void runAids()}>
+                <Play /> {view === "stopped" ? "Resume choosing aids" : view === "error" ? "Retry" : "Choose aids"}
+              </DropdownMenuItem>
+            )}
+            {models && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Model for this session</DropdownMenuLabel>
+                <ModelRadioItems touch />
+                {models.active !== models.default && (
+                  <DropdownMenuItem className="min-h-11" onSelect={() => void makeDefaultModel()}>
+                    <Star /> Make “{models.active}” the default
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Theme</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as ThemePref)}>
@@ -264,8 +253,7 @@ export function Topbar({ mobile }: { mobile: boolean }) {
         shortcut="["
       />
       <Breadcrumb />
-      <SelectorStatus />
-      <ModeSwitch />
+      <AidsControls />
       <IconToggle
         label={outlineCollapsed ? "Show outline" : "Hide outline"}
         pressed={!outlineCollapsed}

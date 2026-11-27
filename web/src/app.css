@@ -320,6 +320,35 @@
   .mp-aid__head .gui-srclink { margin-left: 2px; }
   .mp-aid__body { padding-top: 4px; }
   @media (prefers-reduced-motion: reduce) { .mp-aid { transition: none; } }
+
+  /* An aid the model just chose: rises in with a small overshoot (a "back"
+     ease), then a brief ring fades, so the reader sees what was added. Aids
+     arriving together are staggered (--enter-delay). Reduced motion keeps
+     only the fading ring, which does not move. */
+  .mp-aid[data-enter] {
+    transform-origin: 50% 0;
+    animation:
+      mp-aid-in 560ms cubic-bezier(0.34, 1.56, 0.64, 1) var(--enter-delay, 0ms) both,
+      mp-aid-glow 1600ms ease-out calc(var(--enter-delay, 0ms) + 120ms) both;
+  }
+  @keyframes mp-aid-in {
+    from { opacity: 0; transform: translateY(14px) scale(0.965); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes mp-aid-glow {
+    from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 38%, transparent); border-color: color-mix(in srgb, var(--primary) 60%, var(--border)); }
+    to { box-shadow: 0 0 0 3px transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mp-aid[data-enter] { animation: mp-aid-glow 1600ms ease-out var(--enter-delay, 0ms) both; }
+  }
+
+  .mp-toast { animation: mp-toast-in 260ms cubic-bezier(0.34, 1.4, 0.64, 1) both; }
+  @keyframes mp-toast-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .mp-toast { animation: none; } }
 }
 
 
