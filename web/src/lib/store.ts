@@ -30,7 +30,12 @@ export interface Prefs {
   theme: ThemePref;
   railSize: number;
   railCollapsed: boolean;
-  railTab: "files" | "outline";
+  /** Outline sidebar on the right: hidden, and docked vs floating over the text. */
+  outlineCollapsed: boolean;
+  outlineSize: number;
+  outlineFloating: boolean;
+  /** Floating outline offset from the document column's top-right corner. */
+  outlineFloatPos: { right: number; top: number };
   autoscroll: boolean;
   docs: Record<string, DocPrefs>;
 }
@@ -40,7 +45,10 @@ export const DEFAULT_PREFS: Prefs = {
   theme: "system",
   railSize: 256,
   railCollapsed: false,
-  railTab: "outline",
+  outlineCollapsed: false,
+  outlineSize: 248,
+  outlineFloating: false,
+  outlineFloatPos: { right: 16, top: 16 },
   autoscroll: false,
   docs: {},
 };
@@ -56,12 +64,14 @@ function loadPrefs(): Prefs {
     if (!raw) return { ...DEFAULT_PREFS, theme: defaultTheme() };
     const p = JSON.parse(raw) as Partial<Prefs> & Record<string, unknown>;
     // Settings of removed features (side pane, worktree grouping) are dropped.
-    for (const k of ["widgetsSize", "widgetsCollapsed", "groupBy"]) delete p[k];
+    for (const k of ["widgetsSize", "widgetsCollapsed", "groupBy", "railTab"]) delete p[k];
     const out = { ...DEFAULT_PREFS, theme: defaultTheme(), ...p };
     // "split" (aids in a side pane) was folded into adaptive (aids in the text).
     if (!["read", "adaptive"].includes(out.mode)) out.mode = "adaptive";
     if (!["light", "dark", "system"].includes(out.theme)) out.theme = "system";
     if (typeof out.docs !== "object" || !out.docs) out.docs = {};
+    const fp = out.outlineFloatPos as { right?: unknown; top?: unknown } | undefined;
+    if (!fp || typeof fp.right !== "number" || typeof fp.top !== "number") out.outlineFloatPos = { ...DEFAULT_PREFS.outlineFloatPos };
     return out;
   } catch {
     return { ...DEFAULT_PREFS };

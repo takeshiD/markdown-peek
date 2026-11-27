@@ -92,7 +92,6 @@ test("partial queries run the intended command and never pin or hide by accident
   expect(await docPrefs()).not.toMatch(/"(pinned|hidden)":\["/);
 
   // Scattered letters alone never select a pin / hide / show action.
-  await page.getByRole("tab", { name: "Files" }).click();
   await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
   await expect(page.locator('article [data-kind="StepNavigator"]')).toBeVisible();
   sel = await top("nts");

@@ -78,7 +78,6 @@ test.describe("with the fake selector", () => {
     await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(0);
 
     // Another document has its own (empty) choices.
-    await page.getByRole("tab", { name: "Files" }).click();
     await page.getByRole("button", { name: "deploy-guide-v2.md", exact: true }).click();
     await expect(page.getByTestId("breadcrumb-file")).toContainText("deploy-guide-v2.md");
     await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
@@ -131,7 +130,6 @@ test.describe("selector states", () => {
 
   test("a document with nothing to add says so", async ({ page, server }) => {
     await openApp(page, server);
-    await page.getByRole("tab", { name: "Files" }).click();
     await page.getByRole("button", { name: "notes.md", exact: true }).click();
     await expect(page.getByTestId("breadcrumb-file")).toContainText("notes.md");
     await expect(page.locator("[data-widget]")).toHaveCount(0);

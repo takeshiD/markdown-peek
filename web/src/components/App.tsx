@@ -1,6 +1,6 @@
-// App shell: skip link, landmarks, top bar, resizable rail + document pane
-// (desktop) or a single pane with sheets (mobile). Reading aids live inside
-// the document itself (DocumentView), not in a side pane.
+// App shell: skip link, landmarks, top bar, resizable Files rail | document |
+// Outline sidebar (desktop; the outline can also float over the document), or
+// a single pane with sheets (mobile). Reading aids live inside the document.
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -11,6 +11,7 @@ import { applyTheme, setMode, setTheme } from "../lib/actions";
 import { Topbar } from "./Topbar";
 import { Rail } from "./Rail";
 import { DocumentView } from "./DocumentView";
+import { DockedOutline, FloatingOutline, toggleOutline } from "./OutlinePane";
 import { CommandPalette, GuidedPanel, MobileSheets, ShortcutsDialog } from "./Overlays";
 
 const MOBILE_QUERY = "(max-width: 767px)";
@@ -54,6 +55,9 @@ function useShortcuts(mobile: boolean) {
         case "[":
           keepReadingPosition(() => setPrefs({ railCollapsed: !s.prefs.railCollapsed }));
           break;
+        case "]":
+          toggleOutline();
+          break;
         case "g":
           setState({ guidedOpen: !s.guidedOpen });
           break;
@@ -69,7 +73,7 @@ function useShortcuts(mobile: boolean) {
           if (mobile) {
             setState({ sheet: "outline" });
           } else {
-            setPrefs({ railTab: "outline", railCollapsed: false });
+            keepReadingPosition(() => setPrefs({ outlineCollapsed: false }));
           }
           window.setTimeout(() => document.querySelector<HTMLInputElement>("[data-testid=outline-filter]")?.focus(), 60);
           break;
@@ -125,8 +129,12 @@ function DesktopPanes() {
   // would fight the user's pointer.
   const initial = useRef<Prefs>(prefs);
   const rail = useRef<PanelImperativeHandle | null>(null);
+  const outline = useRef<PanelImperativeHandle | null>(null);
+  const floating = prefs.outlineFloating;
 
   useCollapse(rail, prefs.railCollapsed, () => getState().prefs.railSize, mode);
+  // Floating: the docked panel folds away and the outline sits over the text.
+  useCollapse(outline, prefs.outlineCollapsed || floating, () => getState().prefs.outlineSize, mode);
 
   // Persist sizes from the layout the group reports (percentages of the
   // group width). defaultSize is fixed per mount, so re-rendering during a
@@ -144,6 +152,13 @@ function DesktopPanes() {
     const r = px("rail-panel");
     patch.railCollapsed = r < 20;
     if (r >= 20) patch.railSize = r;
+    const o = px("outline-panel");
+    if (o >= 20) {
+      patch.outlineSize = o;
+      patch.outlineCollapsed = false;
+      // Dragging the docked panel open while floating docks it again.
+      patch.outlineFloating = false;
+    } else if (!getState().prefs.outlineFloating) patch.outlineCollapsed = true;
     const cur = getState().prefs;
     if (Object.entries(patch).some(([k, v]) => cur[k as keyof Prefs] !== v)) setPrefs(patch);
   };
@@ -165,13 +180,29 @@ function DesktopPanes() {
         collapsedSize={0}
         groupResizeBehavior="preserve-pixel-size"
       >
-        <aside aria-label="Files and outline" className="h-full min-w-0 overflow-hidden" data-testid="rail">
+        <aside aria-label="Files" className="h-full min-w-0 overflow-hidden" data-testid="rail">
           <Rail />
         </aside>
       </ResizablePanel>
-      <ResizableHandle aria-label="Resize files and outline" data-testid="rail-handle" className="w-px hover:bg-primary/50 focus-visible:bg-primary" />
+      <ResizableHandle aria-label="Resize files" data-testid="rail-handle" className="w-px hover:bg-primary/50 focus-visible:bg-primary" />
       <ResizablePanel id="doc-panel" minSize={320}>
-        <DocumentView />
+        <div className="relative h-full">
+          <DocumentView />
+          {floating && !prefs.outlineCollapsed && <FloatingOutline />}
+        </div>
+      </ResizablePanel>
+      <ResizableHandle aria-label="Resize outline" data-testid="outline-handle" className="w-px hover:bg-primary/50 focus-visible:bg-primary" />
+      <ResizablePanel
+        id="outline-panel"
+        panelRef={outline}
+        defaultSize={initial.current.outlineCollapsed || initial.current.outlineFloating ? 0 : initial.current.outlineSize}
+        minSize={180}
+        maxSize={420}
+        collapsible
+        collapsedSize={0}
+        groupResizeBehavior="preserve-pixel-size"
+      >
+        <DockedOutline />
       </ResizablePanel>
     </ResizablePanelGroup>
   );

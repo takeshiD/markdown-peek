@@ -24,9 +24,12 @@ test.describe("R1 shell", () => {
     await expect(banner.getByRole("radio", { name: "Adaptive mode" })).toBeVisible();
     await expect(banner.getByRole("button", { name: /Commands/ })).toBeVisible();
     await expect(banner.getByRole("button", { name: /^Theme:/ })).toBeVisible();
-    const rail = page.getByRole("complementary", { name: "Files and outline" });
-    await expect(rail.getByRole("tab", { name: "Files" })).toBeVisible();
-    await expect(rail.getByRole("tab", { name: "Outline" })).toBeVisible();
+    // Files on the left, the outline on the right.
+    const rail = page.getByRole("complementary", { name: "Files" });
+    await expect(rail.getByRole("navigation", { name: "Files" })).toBeVisible();
+    const outline = page.getByRole("complementary", { name: "Document outline" });
+    await expect(outline.getByRole("navigation", { name: "Outline" })).toBeVisible();
+    expect((await outline.boundingBox())!.x).toBeGreaterThan((await page.locator("article").boundingBox())!.x + 400);
     // No side pane: reading aids live inside the document.
     await expect(page.getByRole("complementary", { name: "Reading aids" })).toHaveCount(0);
 
@@ -145,8 +148,71 @@ test.describe("R3 panes", () => {
     await page.reload();
     await expect(page.locator("article h1")).toBeVisible();
     await expect.poll(async () => (await page.getByTestId("rail").boundingBox())?.width ?? 0).toBeLessThan(2);
-    await page.getByRole("button", { name: "Show files and outline" }).click();
+    await page.getByRole("button", { name: "Show files" }).click();
     await expect.poll(async () => (await page.getByTestId("rail").boundingBox())!.width).toBeGreaterThan(150);
+  });
+});
+
+test.describe("R3 outline on the right", () => {
+  test("] hides and shows it; it resizes and the size persists", async ({ page, server }) => {
+    await openApp(page, server);
+    const pane = page.getByTestId("outline-pane");
+    await expect.poll(async () => (await pane.boundingBox())?.width ?? 0).toBeGreaterThan(180);
+    await page.locator("body").press("]");
+    await expect.poll(async () => (await pane.boundingBox())?.width ?? 0).toBeLessThan(2);
+    await expect(page.getByRole("button", { name: "Show outline" })).toHaveAttribute("aria-pressed", "false");
+    await page.reload();
+    await expect(page.locator("article h1")).toBeVisible();
+    await expect.poll(async () => (await page.getByTestId("outline-pane").boundingBox())?.width ?? 0).toBeLessThan(2);
+    await page.getByRole("button", { name: "Show outline" }).click();
+    await expect.poll(async () => (await pane.boundingBox())?.width ?? 0).toBeGreaterThan(180);
+    // Keyboard resize on its divider.
+    const w0 = (await pane.boundingBox())!.width;
+    await page.getByTestId("outline-handle").focus();
+    for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(w0 + 10);
+    const w1 = (await pane.boundingBox())!.width;
+    await page.reload();
+    await expect.poll(async () => Math.abs((await page.getByTestId("outline-pane").boundingBox())!.width - w1)).toBeLessThan(3);
+  });
+
+  test("floats over the document, can be dragged or moved by keys, keeps its place and docks back", async ({ page, server }) => {
+    await openApp(page, server);
+    await page.getByRole("button", { name: "Float the outline over the document" }).click();
+    const float = page.getByTestId("outline-float");
+    await expect(float).toBeVisible();
+    await expect.poll(async () => (await page.getByTestId("outline-pane").boundingBox())?.width ?? 0).toBeLessThan(2);
+    // Over the document column, and it stays put while the text scrolls.
+    const doc = (await page.locator("#main").boundingBox())!;
+    let b = (await float.boundingBox())!;
+    expect(b.x + b.width).toBeLessThanOrEqual(doc.x + doc.width + 1);
+    await page.locator("article h2", { hasText: "ロールバック" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
+    expect((await float.boundingBox())!.y).toBeCloseTo(b.y, 0);
+    // Scrollspy works in the floating outline too.
+    await expect(float.getByRole("link", { name: "ロールバック" })).toHaveAttribute("aria-current", "location");
+    // Drag by the header.
+    const h = (await page.getByTestId("outline-float-handle").boundingBox())!;
+    await page.mouse.move(h.x + 150, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h.x + 50, h.y + 160, { steps: 8 });
+    await page.mouse.up();
+    const moved = (await float.boundingBox())!;
+    expect(moved.x).toBeLessThan(b.x - 80);
+    expect(moved.y).toBeGreaterThan(b.y + 120);
+    // Arrow keys on the grip.
+    await float.getByRole("button", { name: "Move the outline (arrow keys)" }).focus();
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(async () => (await float.boundingBox())!.y).toBeLessThan(moved.y - 20);
+    b = (await float.boundingBox())!;
+    await page.reload();
+    await expect(page.getByTestId("outline-float")).toBeVisible();
+    const after = (await page.getByTestId("outline-float").boundingBox())!;
+    expect(Math.abs(after.x - b.x)).toBeLessThan(2);
+    expect(Math.abs(after.y - b.y)).toBeLessThan(2);
+    // Dock it back.
+    await page.getByRole("button", { name: "Dock the outline on the right" }).click();
+    await expect(page.getByTestId("outline-float")).toHaveCount(0);
+    await expect.poll(async () => (await page.getByTestId("outline-pane").boundingBox())?.width ?? 0).toBeGreaterThan(180);
   });
 });
 
@@ -156,7 +222,7 @@ test("switching modes and panes keeps the reading position", async ({ page, serv
   await heading.evaluate((h) => h.scrollIntoView({ block: "start" }));
   const topOf = () => heading.evaluate((h) => Math.round(h.getBoundingClientRect().top));
   const start = await topOf();
-  for (const key of ["1", "2", "[", "["]) {
+  for (const key of ["1", "2", "[", "[", "]", "]"]) {
     await page.keyboard.press(key);
     await expect.poll(topOf, { timeout: 2000 }).toBeGreaterThan(start - 12);
     await expect.poll(topOf, { timeout: 2000 }).toBeLessThan(start + 12);

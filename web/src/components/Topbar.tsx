@@ -9,6 +9,7 @@ import {
   Folder,
   GitBranch,
   Keyboard,
+  ListTree,
   LocateFixed,
   Menu,
   Monitor,
@@ -41,6 +42,7 @@ import { keepReadingPosition } from "../lib/nav";
 import { selectFile, setMode, setTheme } from "../lib/actions";
 import type { Mode, ThemePref } from "../lib/types";
 import { SelectorStatus } from "./SelectorStatus";
+import { toggleOutline } from "./OutlinePane";
 import { repoLabel } from "./Rail";
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -199,6 +201,7 @@ function ViewMenu({ autoscroll, guided }: { autoscroll: boolean; guided: boolean
 export function Topbar({ mobile }: { mobile: boolean }) {
   const mode = useStore((s) => s.prefs.mode);
   const railCollapsed = useStore((s) => s.prefs.railCollapsed);
+  const outlineCollapsed = useStore((s) => s.prefs.outlineCollapsed);
   const autoscroll = useStore((s) => s.prefs.autoscroll);
   const guided = useStore((s) => s.guidedOpen);
   const theme = useStore((s) => s.prefs.theme);
@@ -254,7 +257,7 @@ export function Topbar({ mobile }: { mobile: boolean }) {
   return (
     <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
       <IconToggle
-        label={railCollapsed ? "Show files and outline" : "Hide files and outline"}
+        label={railCollapsed ? "Show files" : "Hide files"}
         pressed={!railCollapsed}
         onClick={() => keepReadingPosition(() => setPrefs({ railCollapsed: !railCollapsed }))}
         icon={PanelLeft}
@@ -263,6 +266,13 @@ export function Topbar({ mobile }: { mobile: boolean }) {
       <Breadcrumb />
       <SelectorStatus />
       <ModeSwitch />
+      <IconToggle
+        label={outlineCollapsed ? "Show outline" : "Hide outline"}
+        pressed={!outlineCollapsed}
+        onClick={toggleOutline}
+        icon={ListTree}
+        shortcut="]"
+      />
       <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
       <ViewMenu autoscroll={autoscroll} guided={guided} />
       <Button

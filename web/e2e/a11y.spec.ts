@@ -45,7 +45,8 @@ test("skip link, landmarks and visible focus", async ({ page, server }) => {
 
   await expect(page.getByRole("banner")).toHaveCount(1);
   await expect(page.getByRole("main")).toHaveCount(1);
-  await expect(page.getByRole("complementary", { name: "Files and outline" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Files" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Document outline" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
 
   // Tab through the first 25 stops: every focused element shows a ring/outline.
@@ -122,7 +123,7 @@ test("prefers-reduced-motion stops animations and transitions", async ({ page, s
   expect(t.smooth).toBe("auto");
 });
 
-test("tabbing from page load: every stop shows a focus indicator (top bar, rail incl. tab panel, document, aids; Outline and Files)", async ({ page, server }) => {
+test("tabbing from page load: every stop shows a focus indicator (top bar, files, document, aids, outline; docked and floating)", async ({ page, server }) => {
   const visibleFocus = () =>
     page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null;
@@ -131,15 +132,14 @@ test("tabbing from page load: every stop shows a focus indicator (top bar, rail 
       const outline = s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0;
       const ring = s.boxShadow !== "none";
       const label = `${el.tagName}[${el.getAttribute("role") ?? ""}] ${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 30)}`;
-      const where = el.closest("header") ? "topbar" : el.closest("[data-testid=rail]") ? "rail" : el.closest("[data-widget]") ? "aids" : el.closest("main") ? "document" : "other";
+      const where = el.closest("header") ? "topbar" : el.closest("[data-testid=rail]") ? "rail" : el.closest("[data-testid=outline-pane], [data-testid=outline-float]") ? "outline" : el.closest("[data-widget]") ? "aids" : el.closest("main") ? "document" : "other";
       return { ok: outline || ring, label, role: el.getAttribute("role") ?? "", where };
     });
-  for (const tab of ["Outline", "Files"]) {
+  for (const tab of ["docked", "floating"]) {
     await openApp(page, server);
-    if (tab === "Files") {
-      await page.getByRole("tab", { name: "Files" }).click();
-      await page.reload();
-      await openApp(page, server);
+    if (tab === "floating") {
+      await page.getByRole("button", { name: "Float the outline over the document" }).click();
+      await expect(page.getByTestId("outline-float")).toBeVisible();
     }
     // Start from the very top of the page, exactly like a fresh keyboard user.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -154,11 +154,6 @@ test("tabbing from page load: every stop shows a focus indicator (top bar, rail 
       if (!f.ok) missing.push(f.label);
     }
     expect(missing, `${tab}: tab stops without a visible outline/ring`).toEqual([]);
-    // The pass really went through the rail's tab panel.
-    expect(seen.has("tabpanel"), `${tab}: reached the rail tab panel`).toBe(true);
-    for (const a of ["topbar", "rail", "document", "aids"]) expect(areas.has(a), `${tab}: reached ${a}`).toBe(true);
+    for (const a of ["topbar", "rail", "document", "aids", "outline"]) expect(areas.has(a), `${tab}: reached ${a}`).toBe(true);
   }
-  // The tab panel's indicator is actually painted (a ring), not just a computed value.
-  await page.getByRole("tabpanel").focus();
-  await expect(page.getByRole("tabpanel")).toHaveCSS("box-shadow", /rgb|oklch|color/);
 });

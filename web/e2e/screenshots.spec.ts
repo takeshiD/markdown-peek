@@ -70,6 +70,9 @@ for (const theme of ["light", "dark"] as const) {
         await shot(page, `${theme}-desktop-node-graph`);
         await page.getByTestId("comparison").evaluate((h) => h.closest(".mp-note-slot")!.scrollIntoView({ block: "start" }));
         await shot(page, `${theme}-desktop-comparison`);
+        await page.getByRole("button", { name: "Float the outline over the document" }).click();
+        await expect(page.getByTestId("outline-float")).toBeVisible();
+        await shot(page, `${theme}-desktop-outline-floating`);
         await page.setViewportSize({ width: 390, height: 844 });
         await page.getByTestId("node-graph").evaluate((h) => h.scrollIntoView({ block: "start" }));
         await shot(page, `${theme}-mobile-node-graph`);
@@ -83,7 +86,6 @@ for (const theme of ["light", "dark"] as const) {
     test(`states (${theme})`, async ({ page, server }) => {
       // Empty: a document with nothing to add.
       await openApp(page, server);
-      await page.getByRole("tab", { name: "Files" }).click();
       await page.getByRole("button", { name: "notes.md", exact: true }).click();
       await page.getByTestId("selector-status").click();
       await expect(page.getByTestId("widgets-empty")).toBeVisible();

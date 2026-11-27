@@ -1,11 +1,10 @@
-// Left rail: Files (the current working tree's Markdown) and Outline
-// (fuzzy filter + scrollspy).
+// Files (the current working tree's Markdown, left rail) and Outline (fuzzy
+// filter + scrollspy; shown on the right by OutlinePane, and in the mobile sheet).
 import { useMemo, useState } from "react";
 import { FileText, Folder, GitBranch, Search } from "lucide-react";
 import { cn } from "cn";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { setPrefs, useStore } from "../lib/store";
+import { useStore } from "../lib/store";
 import { selectFile } from "../lib/actions";
 import { jumpToHeading } from "../lib/nav";
 
@@ -23,31 +22,17 @@ export function repoLabel(g: { name: string; branch?: string | null }) {
   return g.branch ? `${g.name} (${g.branch})` : g.name;
 }
 
-export function Rail({ touch }: { touch?: boolean }) {
-  const tab = useStore((s) => s.prefs.railTab);
+/** Left rail (desktop): the current branch's Markdown files. */
+export function Rail() {
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(v) => setPrefs({ railTab: v as "files" | "outline" })}
-      className="flex h-full min-h-0 flex-col gap-0"
-    >
-      <div className="flex min-h-11 items-center border-b px-3">
-        <TabsList className="h-8 bg-transparent p-0" aria-label="Rail">
-          <TabsTrigger value="outline" className={cn("px-3 text-muted-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:shadow-none", touch && "min-h-11")}>
-            Outline
-          </TabsTrigger>
-          <TabsTrigger value="files" className={cn("px-3 text-muted-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:shadow-none", touch && "min-h-11")}>
-            Files
-          </TabsTrigger>
-        </TabsList>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-11 items-center border-b px-4">
+        <h2 className="text-[13px] font-semibold">Files</h2>
       </div>
-      <TabsContent value="outline" className="min-h-0 flex-1 overflow-y-auto">
-        <Outline touch={touch} />
-      </TabsContent>
-      <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
-        <Files touch={touch} />
-      </TabsContent>
-    </Tabs>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Files />
+      </div>
+    </div>
   );
 }
 

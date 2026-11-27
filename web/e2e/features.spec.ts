@@ -6,7 +6,6 @@ test.describe("explorer: the current branch only", () => {
 
   test("Files lists this working tree only; other worktrees/branches and the compare feature are gone", async ({ page, server }) => {
     await openApp(page, server);
-    await page.getByRole("tab", { name: "Files" }).click();
     const files = page.getByRole("navigation", { name: "Files" });
     await expect(files).toContainText("repo (main)");
     await expect(files.getByRole("button", { name: "notes.md", exact: true })).toBeVisible();

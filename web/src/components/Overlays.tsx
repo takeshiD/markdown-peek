@@ -24,6 +24,7 @@ import { enterScrolly, exitScrolly } from "../scrolly";
 import { MOD, MODES } from "./Topbar";
 import { Files, Outline, repoLabel } from "./Rail";
 import { useVisiblePlacements } from "./Widgets";
+import { setOutlineFloating, toggleOutline } from "./OutlinePane";
 
 interface PaletteEntry {
   id: string;
@@ -78,7 +79,9 @@ export function CommandPalette() {
     { id: "t:light", group: "View", label: "Light theme", icon: <Sun />, action: () => setTheme("light") },
     { id: "t:dark", group: "View", label: "Dark theme", icon: <Moon />, action: () => setTheme("dark") },
     { id: "t:system", group: "View", label: "System theme", icon: <Monitor />, action: () => setTheme("system") },
-    { id: "v:rail", group: "View", label: "Show or hide files and outline", shortcut: "[", action: () => keepReadingPosition(() => setPrefs({ railCollapsed: !getState().prefs.railCollapsed })) },
+    { id: "v:rail", group: "View", label: "Show or hide files", shortcut: "[", action: () => keepReadingPosition(() => setPrefs({ railCollapsed: !getState().prefs.railCollapsed })) },
+    { id: "v:outline", group: "View", label: "Show or hide the outline", shortcut: "]", action: toggleOutline },
+    { id: "v:float", group: "View", label: "Float or dock the outline", extras: ["floating", "pin outline", "picture in picture"], action: () => setOutlineFloating(!getState().prefs.outlineFloating) },
     { id: "v:guided", group: "View", label: "Guided reading", shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
     { id: "v:follow", group: "View", label: "Follow live changes on or off", extras: ["autoscroll"], action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },
     { id: "w:reselect", group: "Reading aids", label: "Choose reading aids again", extras: ["reselect", "refresh"], icon: <RefreshCw />, action: () => void fetchAdaptive("reselect") },
@@ -145,7 +148,8 @@ const SHORTCUTS: [string[], string][] = [
   [[`${MOD}`, "K"], "Command palette"],
   [["1"], "Read mode (the text alone)"],
   [["2"], "Adaptive mode (reading aids in the text)"],
-  [["["], "Show or hide files and outline"],
+  [["["], "Show or hide files"],
+  [["]"], "Show or hide the outline (dock or float it from its header)"],
   [["/"], "Filter headings"],
   [["g"], "Guided reading"],
   [["t"], "Next theme (light, dark, system)"],
