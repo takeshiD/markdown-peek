@@ -1,4 +1,7 @@
 # Markdown Peek
+
+English | [日本語](README.ja.md)
+
 Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watches your markdown and renders it live — either in your browser or in an interactive terminal viewer.
 
 - [Features](#features)
