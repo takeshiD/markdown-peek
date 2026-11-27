@@ -186,6 +186,12 @@ pub fn allowed_roots(start: &Path) -> Vec<PathBuf> {
     root.canonicalize().ok().into_iter().collect()
 }
 
+/// The root confining files next to a document opened outside the discovered
+/// roots: its git working tree, or the directory itself outside git.
+pub fn doc_root(dir: &Path) -> PathBuf {
+    git_toplevel(dir).unwrap_or_else(|| dir.to_path_buf())
+}
+
 /// Resolve a client-supplied path: it must canonicalize to an existing markdown
 /// file located under one of `roots`. Returns `None` (reject) otherwise.
 pub fn resolve_within(roots: &[PathBuf], requested: &str) -> Option<PathBuf> {

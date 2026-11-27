@@ -2,6 +2,8 @@ use pulldown_cmark::{Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, 
 use std::collections::HashMap;
 use tracing::{debug, error};
 
+pub mod assets;
+
 enum TableState {
     Head,
     Body,
@@ -45,6 +47,12 @@ pub struct HtmlEmitter<I> {
     table_cell_index: usize,
     numbers: HashMap<String, usize>,
     heading_state: Option<HeadingState>,
+    /// When set, document-relative image URLs are rewritten to
+    /// `{asset_prefix}{percent-encoded path}` (see [`assets`]).
+    asset_prefix: Option<String>,
+    /// Raw HTML of the HTML block being collected (so tags spanning several
+    /// lines can be rewritten as a whole).
+    html_block: Option<String>,
 }
 
 impl<'a, I> HtmlEmitter<I>
@@ -61,6 +69,22 @@ where
             table_cell_index: 0,
             numbers: HashMap::new(),
             heading_state: None,
+            asset_prefix: None,
+            html_block: None,
+        }
+    }
+    /// Rewrite document-relative image sources (`![](img/a.png)`,
+    /// `<img src="img/a.png">`) to `{prefix}{percent-encoded path}`, e.g.
+    /// `/asset?path=`, so a server can resolve them against the document's
+    /// directory. External URLs and data URIs are left untouched.
+    pub fn with_asset_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.asset_prefix = Some(prefix.into());
+        self
+    }
+    fn rewrite_raw_html(&self, html: &str) -> String {
+        match &self.asset_prefix {
+            Some(prefix) => assets::rewrite_img_srcs(html, prefix),
+            None => html.to_string(),
         }
     }
     pub fn run(&mut self) -> String {
@@ -124,9 +148,10 @@ where
                         html_body.push_str(&span);
                     }
                 }
-                Event::Html(html) | Event::InlineHtml(html) => {
-                    html_body.push_str(&html);
-                }
+                Event::Html(html) | Event::InlineHtml(html) => match self.html_block.as_mut() {
+                    Some(block) => block.push_str(&html),
+                    None => html_body.push_str(&self.rewrite_raw_html(&html)),
+                },
                 Event::SoftBreak => {
                     // Setext headings can span multiple source lines.
                     if let Some(heading_state) = self.heading_state.as_mut() {
@@ -178,7 +203,7 @@ where
     }
     fn start_tag(&mut self, buf: &mut String, tag: Tag) {
         match tag {
-            Tag::HtmlBlock => (),
+            Tag::HtmlBlock => self.html_block = Some(String::new()),
             Tag::Paragraph => {
                 if self.end_newline {
                     buf.push_str("<p>")
@@ -406,7 +431,15 @@ where
             } => {
                 let mut tmp = String::new();
                 tmp.push_str("<img src=\"");
-                escape_href(&mut tmp, &dest_url);
+                match self
+                    .asset_prefix
+                    .as_deref()
+                    .and_then(|p| assets::local_asset_url(p, &dest_url))
+                {
+                    // Already percent-encoded: only unreserved chars, '/', '%', '?', '='.
+                    Some(url) => escape_html(&mut tmp, &url),
+                    None => escape_href(&mut tmp, &dest_url),
+                }
                 tmp.push_str("\" alt=\"");
                 self.raw_text(&mut tmp);
                 if !title.is_empty() {
@@ -440,7 +473,11 @@ where
     }
     fn end_tag(&mut self, buf: &mut String, tag: pulldown_cmark::TagEnd) {
         match tag {
-            TagEnd::HtmlBlock => {}
+            TagEnd::HtmlBlock => {
+                if let Some(block) = self.html_block.take() {
+                    buf.push_str(&self.rewrite_raw_html(&block));
+                }
+            }
             TagEnd::Paragraph => {
                 buf.push_str("</p>\n");
             }
@@ -831,6 +868,55 @@ mod tests {
 
     fn render(md: &str) -> String {
         HtmlEmitter::new(Parser::new(md)).run()
+    }
+
+    fn render_assets(md: &str) -> String {
+        HtmlEmitter::new(Parser::new(md))
+            .with_asset_prefix("/asset?path=")
+            .run()
+    }
+
+    #[test]
+    fn local_markdown_image_is_rewritten_to_asset_route() {
+        let out = render_assets("![md](img/a.png \"t\") ![up](../b.png)");
+        assert!(
+            out.contains(r#"<img src="/asset?path=img/a.png" alt="md" title="t" />"#),
+            "{out}"
+        );
+        assert!(out.contains(r#"src="/asset?path=../b.png""#), "{out}");
+    }
+
+    #[test]
+    fn external_and_data_images_are_untouched() {
+        let out = render_assets("![e](https://example.com/x.png) ![d](data:image/png;base64,AA)");
+        assert!(out.contains(r#"src="https://example.com/x.png""#), "{out}");
+        assert!(out.contains(r#"src="data:image/png;base64,AA""#), "{out}");
+    }
+
+    #[test]
+    fn raw_html_img_is_rewritten_inline_and_in_blocks() {
+        // #56: `<img src="path/to/img" />` (HTML block, multi-line, and inline).
+        let out = render_assets(
+            "<img src=\"path/to/img\" />\n\n<p align=\"center\">\n  <img\n    src=\"docs/x.svg\">\n</p>\n\ntext <img src='i.gif'> end\n",
+        );
+        assert!(
+            out.contains(r#"<img src="/asset?path=path/to/img" />"#),
+            "{out}"
+        );
+        assert!(out.contains(r#"src="/asset?path=docs/x.svg""#), "{out}");
+        assert!(out.contains(r#"<img src="/asset?path=i.gif">"#), "{out}");
+        assert!(
+            out.contains("<p align=\"center\">"),
+            "block HTML kept: {out}"
+        );
+    }
+
+    #[test]
+    fn without_asset_prefix_images_render_as_before() {
+        let md = "![a](img/a.png)\n\n<img src=\"path/to/img\" />\n";
+        let out = render(md);
+        assert!(out.contains(r#"<img src="img/a.png" alt="a" />"#), "{out}");
+        assert!(out.contains(r#"<img src="path/to/img" />"#), "{out}");
     }
 
     #[test]

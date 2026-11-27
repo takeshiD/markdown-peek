@@ -1,4 +1,5 @@
 mod adaptive;
+mod assets;
 pub use adaptive::{AdaptiveSetup, write_default_model};
 mod explorer;
 mod scrolly;
@@ -204,6 +205,7 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/scrolly", get(scrolly_handler))
         .route("/api/scrolly/ask", post(scrolly_ask_handler))
         .route("/static/{*path}", get(static_handler))
+        .route("/asset", get(asset_handler))
         .with_state(state);
     let listener = match TcpListener::bind(format!("{host}:{port}")).await {
         Ok(listner) => listner,
@@ -460,7 +462,7 @@ async fn scrolly_ask_handler(
 fn render_markdown(content: &str) -> (String, Option<String>) {
     let parser = Parser::new_ext(content, mdpeek_gfm::parser_options());
     let parser = mdpeek_gfm::transform(parser);
-    let mut emitter = HtmlEmitter::new(parser);
+    let mut emitter = HtmlEmitter::new(parser).with_asset_prefix(assets::ASSET_PREFIX);
     let body = emitter.run();
     let frontmatter = mdpeek_parser::BlockTree::parse(content)
         .frontmatter()
@@ -656,6 +658,58 @@ async fn static_handler(AxumPath(path): AxumPath<String>) -> Response {
     }
 }
 
+#[derive(Deserialize)]
+struct AssetQuery {
+    path: String,
+}
+
+/// `GET /asset?path=<rel>` — a local image referenced by the active document
+/// (#55, #56), resolved relative to the document's directory. Anything that is
+/// not an existing image under the allowed roots is a 404.
+async fn asset_handler(State(state): State<AppState>, Query(query): Query<AssetQuery>) -> Response {
+    let doc = { state.file_path.read().unwrap().to_path_buf() };
+    serve_asset(Arc::clone(&state.roots), doc, query.path).await
+}
+
+async fn serve_asset(roots: Arc<Vec<PathBuf>>, doc: PathBuf, rel: String) -> Response {
+    let resolved = tokio::task::spawn_blocking(move || {
+        assets::resolve(&roots, &doc, &rel, explorer::doc_root).ok_or(rel)
+    })
+    .await;
+    let (path, content_type) = match resolved {
+        Ok(Ok(found)) => found,
+        Ok(Err(rel)) => {
+            debug!("asset: rejected '{rel}'");
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => {
+            let mut res = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, content_type)
+                .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+                // Images may be edited while previewing; always revalidate.
+                .header(header::CACHE_CONTROL, "no-cache");
+            if content_type == "image/svg+xml" {
+                // Scripts in an SVG never run inside <img>, but the URL can
+                // also be opened directly: sandbox it.
+                res = res.header(
+                    header::CONTENT_SECURITY_POLICY,
+                    "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+                );
+            }
+            res.body(Body::from(bytes))
+                .expect("asset response should be valid")
+        }
+        Err(e) => {
+            debug!("asset: cannot read '{}': {e}", path.display());
+            StatusCode::NOT_FOUND.into_response()
+        }
+    }
+}
+
 async fn websocket_handler(
     ws_upgrade: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -791,6 +845,44 @@ mod tests {
         let (body, fm) = render_markdown("---\ntitle: Hi\n---\n\n# Heading\n\ntext\n");
         assert!(body.contains("<h1"), "body should contain rendered heading");
         assert_eq!(fm.as_deref(), Some("title: Hi"));
+    }
+
+    #[test]
+    fn render_markdown_routes_local_images_through_asset() {
+        let (body, _) = super::render_markdown(
+            "![a](img/a.png)\n\n<img src=\"path/to/img\" />\n\n![e](https://example.com/e.png)\n",
+        );
+        assert!(body.contains(r#"src="/asset?path=img/a.png""#), "{body}");
+        assert!(body.contains(r#"src="/asset?path=path/to/img""#), "{body}");
+        assert!(
+            body.contains(r#"src="https://example.com/e.png""#),
+            "{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn serve_asset_serves_images_and_rejects_escapes() {
+        use axum::http::{StatusCode, header};
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().canonicalize().unwrap();
+        let root = base.join("repo");
+        std::fs::create_dir_all(root.join("img")).unwrap();
+        std::fs::write(root.join("doc.md"), "![](img/a.svg)").unwrap();
+        std::fs::write(root.join("img/a.svg"), "<svg/>").unwrap();
+        std::fs::write(base.join("out.png"), b"x").unwrap();
+        let roots = std::sync::Arc::new(vec![root.clone()]);
+        let doc = root.join("doc.md");
+
+        let ok = super::serve_asset(roots.clone(), doc.clone(), "img/a.svg".into()).await;
+        assert_eq!(ok.status(), StatusCode::OK);
+        assert_eq!(ok.headers()[header::CONTENT_TYPE], "image/svg+xml");
+        assert_eq!(ok.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert!(ok.headers().contains_key(header::CONTENT_SECURITY_POLICY));
+
+        for rel in ["../out.png", "/etc/passwd", "doc.md", "img/none.png"] {
+            let res = super::serve_asset(roots.clone(), doc.clone(), rel.into()).await;
+            assert_eq!(res.status(), StatusCode::NOT_FOUND, "{rel}");
+        }
     }
 
     #[test]
