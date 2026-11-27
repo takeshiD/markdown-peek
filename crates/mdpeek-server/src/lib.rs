@@ -40,7 +40,7 @@ struct AppState {
     roots: Arc<Vec<PathBuf>>,
     /// Directory discovery starts from when (re)building the explorer tree.
     scan_root: Arc<PathBuf>,
-    /// Tells the watch loop to re-point at a newly selected file or diff pair.
+    /// Tells the watch loop to re-point at a newly selected file.
     rewatch: StdSender<WatchTarget>,
     /// Layer 3 Generative-UI backend for `/api/gui`. `None` = rules-only
     /// (offline default); `Some` = the LLM backend resolved from `[llm]` config.
@@ -49,35 +49,9 @@ struct AppState {
     adaptive: Arc<adaptive::Adaptive>,
 }
 
-/// What the server watches and re-renders on change: a single file (normal
-/// preview) or a pair being diffed (#15).
+/// What the server watches and re-renders on change: the active file.
 enum WatchTarget {
     Single(PathBuf),
-    Pair(PathBuf, PathBuf, DiffOptions),
-}
-
-/// Whether the diff compares raw markdown source or the rendered HTML (#15).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum DiffMode {
-    #[default]
-    Source,
-    Rendered,
-}
-
-/// One-column (unified) vs. two-column (split) diff layout (#15).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum DiffLayout {
-    #[default]
-    Unified,
-    Split,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct DiffOptions {
-    mode: DiffMode,
-    layout: DiffLayout,
 }
 
 /// Browser colour theme selected for the served page. The caller (the `mdpeek`
@@ -131,10 +105,9 @@ pub fn serve(
     };
     let server = std::thread::spawn(move || run_server(state, host, port));
 
-    // Watch loop: follow the active file (or a diff pair), re-pointing when a
-    // selection arrives. On each change (or selection) re-render and broadcast an
-    // update (#16 in-place patch, or #15 re-diff) so the client updates without a
-    // full reload.
+    // Watch loop: follow the active file, re-pointing when a selection arrives.
+    // On each change (or selection) re-render and broadcast an in-place update
+    // (#16) so the client updates without a full reload.
     let (mut handle, rx) = watch_channel();
     let mut watched: Vec<PathBuf> = Vec::new();
     let mut target = WatchTarget::Single(active);
@@ -160,7 +133,7 @@ pub fn serve(
     let _ = server.join();
 }
 
-/// Re-select the adaptive layout for a single-file target (not in diff mode).
+/// Re-select the adaptive layout for the watched file.
 /// Returns the revision the pending selection belongs to, so the body update
 /// broadcast right after can tell the client which layout revision to expect.
 fn schedule_adaptive(
@@ -168,17 +141,13 @@ fn schedule_adaptive(
     adaptive: &Arc<adaptive::Adaptive>,
     tx: &broadcast::Sender<Message>,
 ) -> u64 {
-    match target {
-        WatchTarget::Single(p) => adaptive.schedule(p.clone(), tx.clone()),
-        WatchTarget::Pair(..) => adaptive.current_revision(),
-    }
+    let WatchTarget::Single(p) = target;
+    adaptive.schedule(p.clone(), tx.clone())
 }
 
 fn target_paths(target: &WatchTarget) -> Vec<PathBuf> {
-    match target {
-        WatchTarget::Single(p) => vec![p.clone()],
-        WatchTarget::Pair(a, b, _) => vec![a.clone(), b.clone()],
-    }
+    let WatchTarget::Single(p) = target;
+    vec![p.clone()]
 }
 
 /// Re-point the watcher: drop the previously watched paths and watch the new set.
@@ -198,15 +167,8 @@ fn watch_target(
 
 /// Broadcast the appropriate update for the current watch target.
 fn broadcast_for(target: &WatchTarget, tx: &broadcast::Sender<Message>, revision: u64) {
-    match target {
-        WatchTarget::Single(p) => broadcast_update(p, tx, revision),
-        WatchTarget::Pair(a, b, opts) => {
-            let msg =
-                serde_json::json!({ "type": "diff-update", "html": render_diff(a, b, *opts) })
-                    .to_string();
-            let _ = tx.send(Message::text(msg));
-        }
-    }
+    let WatchTarget::Single(p) = target;
+    broadcast_update(p, tx, revision)
 }
 
 /// Re-render `path` and broadcast an in-place update to connected clients (#16).
@@ -234,7 +196,6 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/tree", get(tree_handler))
         .route("/api/doc", get(doc_handler))
         .route("/api/select", post(select_handler))
-        .route("/api/diff", post(diff_handler))
         .route("/api/gui", get(gui_handler))
         .route("/api/adaptive", get(adaptive_handler))
         .route("/api/scrolly", get(scrolly_handler))
@@ -669,8 +630,7 @@ async fn select_handler(
     match explorer::resolve_within(&state.roots, &req.path) {
         Some(abs) => {
             *state.file_path.write().unwrap() = abs.clone();
-            // Re-point the watcher (also exits any active diff mode); it
-            // re-renders and broadcasts the new file.
+            // Re-point the watcher; it re-renders and broadcasts the new file.
             if state.rewatch.send(WatchTarget::Single(abs)).is_err() {
                 error!("watch loop is gone; cannot switch file");
                 return StatusCode::INTERNAL_SERVER_ERROR;
@@ -681,276 +641,6 @@ async fn select_handler(
             warn!("Rejected select for '{}' (outside roots)", req.path);
             StatusCode::FORBIDDEN
         }
-    }
-}
-
-#[derive(Deserialize)]
-struct DiffRequest {
-    a: String,
-    b: String,
-    #[serde(default)]
-    mode: DiffMode,
-    #[serde(default)]
-    layout: DiffLayout,
-}
-
-/// `POST /api/diff {a, b, mode?, layout?}` — start diffing two markdown files
-/// (#15). Both paths are validated against the discovered roots; the watcher
-/// then follows both and re-broadcasts the diff (in the chosen mode/layout) on
-/// any change. Returns the initial diff HTML fragment.
-async fn diff_handler(
-    State(state): State<AppState>,
-    Json(req): Json<DiffRequest>,
-) -> impl IntoResponse {
-    let a = explorer::resolve_within(&state.roots, &req.a);
-    let b = explorer::resolve_within(&state.roots, &req.b);
-    let opts = DiffOptions {
-        mode: req.mode,
-        layout: req.layout,
-    };
-    match (a, b) {
-        (Some(a), Some(b)) => {
-            let html = render_diff(&a, &b, opts);
-            if state.rewatch.send(WatchTarget::Pair(a, b, opts)).is_err() {
-                error!("watch loop is gone; cannot start diff");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({})),
-                )
-                    .into_response();
-            }
-            Json(serde_json::json!({ "html": html })).into_response()
-        }
-        _ => {
-            warn!(
-                "Rejected diff for '{}' / '{}' (outside roots)",
-                req.a, req.b
-            );
-            StatusCode::FORBIDDEN.into_response()
-        }
-    }
-}
-
-/// Render a diff of two markdown files (#15) in the requested mode/layout:
-/// source (raw line diff) or rendered (block-level HTML diff), laid out unified
-/// (one column) or split (two columns). The file labels/header are drawn by the
-/// client (which knows the worktree/branch of each side).
-fn render_diff(a: &Path, b: &Path, opts: DiffOptions) -> String {
-    let ta = std::fs::read_to_string(a).unwrap_or_default();
-    let tb = std::fs::read_to_string(b).unwrap_or_default();
-    match (opts.mode, opts.layout) {
-        (DiffMode::Source, DiffLayout::Unified) => source_unified(&ta, &tb),
-        (DiffMode::Source, DiffLayout::Split) => source_split(&ta, &tb),
-        (DiffMode::Rendered, DiffLayout::Unified) => rendered_unified(&ta, &tb),
-        (DiffMode::Rendered, DiffLayout::Split) => rendered_split(&ta, &tb),
-    }
-}
-
-/// CSS class for a change tag.
-fn tag_class(tag: similar::ChangeTag) -> &'static str {
-    match tag {
-        similar::ChangeTag::Delete => "mdpeek-diff-del",
-        similar::ChangeTag::Insert => "mdpeek-diff-add",
-        similar::ChangeTag::Equal => "mdpeek-diff-ctx",
-    }
-}
-
-/// Source line diff, one column (the original phase-1 layout).
-fn source_unified(ta: &str, tb: &str) -> String {
-    use similar::{ChangeTag, TextDiff};
-    let diff = TextDiff::from_lines(ta, tb);
-    let mut out = String::from("<table class=\"mdpeek-diff\"><tbody>");
-    for change in diff.iter_all_changes() {
-        let cls = tag_class(change.tag());
-        let sign = match change.tag() {
-            ChangeTag::Delete => "-",
-            ChangeTag::Insert => "+",
-            ChangeTag::Equal => " ",
-        };
-        let line = escape_html_min(change.value().trim_end_matches(['\n', '\r']));
-        out.push_str(&format!(
-            "<tr class=\"{cls}\"><td class=\"mdpeek-diff-sign\">{sign}</td><td class=\"mdpeek-diff-line\">{line}</td></tr>"
-        ));
-    }
-    out.push_str("</tbody></table>");
-    out
-}
-
-/// Split source diff: deletes on the left, inserts on the right, aligned.
-fn source_split(ta: &str, tb: &str) -> String {
-    use similar::TextDiff;
-    let diff = TextDiff::from_lines(ta, tb);
-    let changes: Vec<(similar::ChangeTag, String)> = diff
-        .iter_all_changes()
-        .map(|c| {
-            (
-                c.tag(),
-                escape_html_min(c.value().trim_end_matches(['\n', '\r'])),
-            )
-        })
-        .collect();
-    let rows = pair_changes(changes);
-    let mut out = String::from("<table class=\"mdpeek-diff mdpeek-diff-split\"><tbody>");
-    for row in rows {
-        let (lcls, rcls) = split_row_classes(row.changed);
-        out.push_str("<tr>");
-        cell(&mut out, &row.left, lcls);
-        cell(&mut out, &row.right, rcls);
-        out.push_str("</tr>");
-    }
-    out.push_str("</tbody></table>");
-    out
-}
-
-/// Rendered block diff, one column: each block rendered to HTML, add/del/context
-/// highlighted.
-fn rendered_unified(ta: &str, tb: &str) -> String {
-    use similar::TextDiff;
-    let a_blocks = split_blocks(ta);
-    let b_blocks = split_blocks(tb);
-    let a_refs: Vec<&str> = a_blocks.iter().map(String::as_str).collect();
-    let b_refs: Vec<&str> = b_blocks.iter().map(String::as_str).collect();
-    let diff = TextDiff::from_slices(&a_refs, &b_refs);
-    let mut out = String::from("<div class=\"mdpeek-rdiff markdown-body\">");
-    for change in diff.iter_all_changes() {
-        let cls = tag_class(change.tag());
-        let html = render_markdown(change.value()).0;
-        out.push_str(&format!(
-            "<div class=\"mdpeek-rdiff-block {cls}\">{html}</div>"
-        ));
-    }
-    out.push_str("</div>");
-    out
-}
-
-/// Rendered block diff, two columns: file A rendered on the left, file B on the
-/// right, changed blocks aligned and highlighted.
-fn rendered_split(ta: &str, tb: &str) -> String {
-    use similar::TextDiff;
-    let a_blocks = split_blocks(ta);
-    let b_blocks = split_blocks(tb);
-    let a_refs: Vec<&str> = a_blocks.iter().map(String::as_str).collect();
-    let b_refs: Vec<&str> = b_blocks.iter().map(String::as_str).collect();
-    let diff = TextDiff::from_slices(&a_refs, &b_refs);
-    let changes: Vec<(similar::ChangeTag, String)> = diff
-        .iter_all_changes()
-        .map(|c| (c.tag(), render_markdown(c.value()).0))
-        .collect();
-    let rows = pair_changes(changes);
-    let mut out =
-        String::from("<table class=\"mdpeek-diff mdpeek-diff-split mdpeek-rdiff-split\"><tbody>");
-    for row in rows {
-        let (lcls, rcls) = split_row_classes(row.changed);
-        out.push_str("<tr>");
-        rendered_cell(&mut out, &row.left, lcls);
-        rendered_cell(&mut out, &row.right, rcls);
-        out.push_str("</tr>");
-    }
-    out.push_str("</tbody></table>");
-    out
-}
-
-/// Split markdown source into blank-line-separated blocks, keeping the trailing
-/// newline off. Blank runs are dropped; each returned block is non-empty.
-fn split_blocks(src: &str) -> Vec<String> {
-    let mut blocks = Vec::new();
-    let mut cur = String::new();
-    for line in src.lines() {
-        if line.trim().is_empty() {
-            if !cur.is_empty() {
-                blocks.push(std::mem::take(&mut cur));
-            }
-        } else {
-            if !cur.is_empty() {
-                cur.push('\n');
-            }
-            cur.push_str(line);
-        }
-    }
-    if !cur.is_empty() {
-        blocks.push(cur);
-    }
-    blocks
-}
-
-struct SplitRow {
-    left: Option<String>,
-    right: Option<String>,
-    /// True for add/delete rows; false for unchanged (context) rows so they are
-    /// not coloured as a diff.
-    changed: bool,
-}
-
-/// Turn a flat change list into aligned two-column rows: a run of deletes is
-/// paired positionally with the following run of inserts; equals occupy both
-/// columns as unchanged context.
-fn pair_changes(changes: Vec<(similar::ChangeTag, String)>) -> Vec<SplitRow> {
-    use similar::ChangeTag;
-    let mut rows = Vec::new();
-    let mut i = 0;
-    while i < changes.len() {
-        match changes[i].0 {
-            ChangeTag::Equal => {
-                rows.push(SplitRow {
-                    left: Some(changes[i].1.clone()),
-                    right: Some(changes[i].1.clone()),
-                    changed: false,
-                });
-                i += 1;
-            }
-            _ => {
-                // Gather the run of deletes then the run of inserts and zip them.
-                let mut dels = Vec::new();
-                while i < changes.len() && changes[i].0 == ChangeTag::Delete {
-                    dels.push(changes[i].1.clone());
-                    i += 1;
-                }
-                let mut adds = Vec::new();
-                while i < changes.len() && changes[i].0 == ChangeTag::Insert {
-                    adds.push(changes[i].1.clone());
-                    i += 1;
-                }
-                let n = dels.len().max(adds.len());
-                for j in 0..n {
-                    rows.push(SplitRow {
-                        left: dels.get(j).cloned(),
-                        right: adds.get(j).cloned(),
-                        changed: true,
-                    });
-                }
-            }
-        }
-    }
-    rows
-}
-
-/// Left/right cell classes for a split row: red/green for changed rows, neutral
-/// context otherwise (so unchanged lines aren't coloured as a diff).
-fn split_row_classes(changed: bool) -> (&'static str, &'static str) {
-    if changed {
-        ("mdpeek-diff-del", "mdpeek-diff-add")
-    } else {
-        ("mdpeek-diff-ctx", "mdpeek-diff-ctx")
-    }
-}
-
-/// Emit one source-diff `<td>` (monospace, pre-escaped line).
-fn cell(out: &mut String, content: &Option<String>, change_cls: &str) {
-    match content {
-        Some(c) => out.push_str(&format!(
-            "<td class=\"mdpeek-diff-line {change_cls}\">{c}</td>"
-        )),
-        None => out.push_str("<td class=\"mdpeek-diff-empty\"></td>"),
-    }
-}
-
-/// Emit one rendered-diff `<td>` (already-rendered HTML block).
-fn rendered_cell(out: &mut String, content: &Option<String>, change_cls: &str) {
-    match content {
-        Some(c) => out.push_str(&format!(
-            "<td class=\"mdpeek-rdiff-cell markdown-body {change_cls}\">{c}</td>"
-        )),
-        None => out.push_str("<td class=\"mdpeek-diff-empty\"></td>"),
     }
 }
 
@@ -1134,65 +824,5 @@ mod tests {
         let (body, fm) = render_markdown("# Only heading\n");
         assert!(body.contains("Only heading"));
         assert!(fm.is_none());
-    }
-
-    #[test]
-    fn render_diff_marks_added_and_removed_lines() {
-        use super::render_diff;
-        let dir = std::env::temp_dir();
-        let pid = std::process::id();
-        let a = dir.join(format!("mdpeek_diff_a_{pid}.md"));
-        let b = dir.join(format!("mdpeek_diff_b_{pid}.md"));
-        std::fs::write(&a, "line one\nshared\n").unwrap();
-        std::fs::write(&b, "line ONE\nshared\n").unwrap();
-
-        let html = render_diff(&a, &b, super::DiffOptions::default());
-        assert!(
-            html.contains("mdpeek-diff-del"),
-            "should mark the removed line"
-        );
-        assert!(
-            html.contains("mdpeek-diff-add"),
-            "should mark the added line"
-        );
-        assert!(html.contains("line one") && html.contains("line ONE"));
-        // The unchanged line is context, not add/del.
-        assert!(html.contains("mdpeek-diff-ctx"));
-
-        // Rendered + split mode still marks add/del and emits a split table.
-        let rendered = render_diff(
-            &a,
-            &b,
-            super::DiffOptions {
-                mode: super::DiffMode::Rendered,
-                layout: super::DiffLayout::Split,
-            },
-        );
-        assert!(rendered.contains("mdpeek-diff-split"));
-        assert!(rendered.contains("mdpeek-diff-del") && rendered.contains("mdpeek-diff-add"));
-
-        // Split must not colour the unchanged "shared" line as a diff: it stays
-        // context, and only the changed line is coloured.
-        let split = render_diff(
-            &a,
-            &b,
-            super::DiffOptions {
-                mode: super::DiffMode::Source,
-                layout: super::DiffLayout::Split,
-            },
-        );
-        assert!(
-            split.contains("mdpeek-diff-ctx"),
-            "unchanged rows should be context"
-        );
-        assert_eq!(
-            split.matches("mdpeek-diff-del").count(),
-            1,
-            "only the one changed line is a deletion"
-        );
-        assert_eq!(split.matches("mdpeek-diff-add").count(), 1);
-
-        let _ = std::fs::remove_file(&a);
-        let _ = std::fs::remove_file(&b);
     }
 }

@@ -1,10 +1,10 @@
-//! Repository + worktree markdown discovery for the explorer sidebar (#14).
+//! Markdown discovery for the explorer sidebar (#14).
 //!
 //! Shells out to `git` (assumed present at runtime) to find the enclosing
-//! repository and its linked worktrees, scans each for markdown, and validates
-//! client-supplied paths against the discovered roots to prevent directory
-//! traversal. Outside a git repository it gracefully degrades to scanning the
-//! start directory.
+//! working tree — the current branch's checkout only; other worktrees are not
+//! listed — scans it for markdown, and validates client-supplied paths against
+//! that root to prevent directory traversal. Outside a git repository it
+//! gracefully degrades to scanning the start directory.
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -18,12 +18,12 @@ pub struct FileEntry {
     pub rel: String,
 }
 
-/// One worktree's markdown files.
+/// The current working tree's markdown files.
 #[derive(Debug, Clone, Serialize)]
 pub struct Group {
-    /// Directory name of the worktree root (used as the worktree-view label).
+    /// Directory name of the working-tree root.
     pub name: String,
-    /// Checked-out branch, when known (used as the branch-view label).
+    /// Checked-out branch, when known (shown in the breadcrumb).
     pub branch: Option<String>,
     pub root: String,
     pub files: Vec<FileEntry>,
@@ -35,11 +35,6 @@ pub struct Tree {
     pub groups: Vec<Group>,
     /// True when discovery came from git; false for the CWD fallback.
     pub git: bool,
-}
-
-struct Worktree {
-    root: PathBuf,
-    branch: Option<String>,
 }
 
 fn markdown_ext(path: &Path) -> bool {
@@ -64,8 +59,24 @@ fn git_toplevel(start: &Path) -> Option<PathBuf> {
     (!path.as_os_str().is_empty()).then_some(path)
 }
 
-/// Parse `git worktree list --porcelain` into the main + linked worktrees.
-fn worktrees(toplevel: &Path) -> Vec<Worktree> {
+/// The branch checked out in `toplevel` (`None` when detached or unknown).
+fn current_branch(toplevel: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(toplevel)
+        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let b = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!b.is_empty()).then_some(b)
+}
+
+/// Linked worktrees nested inside `toplevel` (e.g. `.worktrees/x`), so their
+/// files are not listed as if they belonged to the current branch.
+fn nested_worktrees(toplevel: &Path) -> Vec<PathBuf> {
     let out = match Command::new("git")
         .arg("-C")
         .arg(toplevel)
@@ -75,37 +86,18 @@ fn worktrees(toplevel: &Path) -> Vec<Worktree> {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
     };
-    let text = String::from_utf8_lossy(&out.stdout);
-
-    let mut result = Vec::new();
-    let mut cur_path: Option<PathBuf> = None;
-    let mut cur_branch: Option<String> = None;
-    let mut flush = |path: &mut Option<PathBuf>, branch: &mut Option<String>| {
-        if let Some(root) = path.take() {
-            result.push(Worktree {
-                root,
-                branch: branch.take(),
-            });
-        }
-    };
-    for line in text.lines() {
-        if let Some(p) = line.strip_prefix("worktree ") {
-            flush(&mut cur_path, &mut cur_branch);
-            cur_path = Some(PathBuf::from(p));
-        } else if let Some(b) = line.strip_prefix("branch ") {
-            cur_branch = Some(b.trim_start_matches("refs/heads/").to_string());
-        } else if line.is_empty() {
-            flush(&mut cur_path, &mut cur_branch);
-        }
-    }
-    flush(&mut cur_path, &mut cur_branch);
-    result
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .map(PathBuf::from)
+        .filter(|p| p != toplevel && p.starts_with(toplevel))
+        .collect()
 }
 
 /// Scan `root` for markdown files, honouring `.gitignore` / git excludes (so
 /// `node_modules`, build output etc. never reach the explorer or the palette),
 /// skipping `.git` and any nested directory that is itself another worktree
-/// root (so a worktree's files aren't double-listed under an enclosing root).
+/// root (another branch's checkout).
 /// Dot-directories such as `.github` are kept.
 fn scan_markdown(root: &Path, exclude: &[PathBuf]) -> Vec<PathBuf> {
     let exclude: Vec<PathBuf> = exclude.to_vec();
@@ -150,41 +142,33 @@ fn to_entries(files: Vec<PathBuf>, root: &Path) -> Vec<FileEntry> {
     entries
 }
 
-/// Build the markdown tree for the explorer sidebar, discovering from `start`.
+fn dir_name(p: &Path, fallback: &str) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+/// Build the markdown tree for the explorer sidebar, discovering from `start`:
+/// the current working tree (one group), never other worktrees.
 pub fn build_tree(start: &Path) -> Tree {
     match git_toplevel(start) {
         Some(top) => {
-            let wts = worktrees(&top);
-            let roots: Vec<PathBuf> = wts.iter().map(|w| w.root.clone()).collect();
-            let groups = wts
-                .iter()
-                .map(|w| {
-                    let exclude: Vec<PathBuf> =
-                        roots.iter().filter(|r| **r != w.root).cloned().collect();
-                    let files = to_entries(scan_markdown(&w.root, &exclude), &w.root);
-                    let name = w
-                        .root
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| w.root.to_string_lossy().to_string());
-                    Group {
-                        name,
-                        branch: w.branch.clone(),
-                        root: w.root.to_string_lossy().to_string(),
-                        files,
-                    }
-                })
-                .collect();
-            Tree { groups, git: true }
+            let files = to_entries(scan_markdown(&top, &nested_worktrees(&top)), &top);
+            Tree {
+                groups: vec![Group {
+                    name: dir_name(&top, "repository"),
+                    branch: current_branch(&top),
+                    root: top.to_string_lossy().to_string(),
+                    files,
+                }],
+                git: true,
+            }
         }
         None => {
             let files = to_entries(scan_markdown(start, &[]), start);
             Tree {
                 groups: vec![Group {
-                    name: start
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "files".to_string()),
+                    name: dir_name(start, "files"),
                     branch: None,
                     root: start.to_string_lossy().to_string(),
                     files,
@@ -195,20 +179,11 @@ pub fn build_tree(start: &Path) -> Tree {
     }
 }
 
-/// Canonical roots a client-selected file must live under. Falls back to the
-/// start dir when git discovery yields nothing.
+/// Canonical roots a client-selected file must live under: the current working
+/// tree (or the start dir outside git).
 pub fn allowed_roots(start: &Path) -> Vec<PathBuf> {
-    let raw = match git_toplevel(start) {
-        Some(top) => {
-            let mut wts: Vec<PathBuf> = worktrees(&top).into_iter().map(|w| w.root).collect();
-            if wts.is_empty() {
-                wts.push(top);
-            }
-            wts
-        }
-        None => vec![start.to_path_buf()],
-    };
-    raw.iter().filter_map(|r| r.canonicalize().ok()).collect()
+    let root = git_toplevel(start).unwrap_or_else(|| start.to_path_buf());
+    root.canonicalize().ok().into_iter().collect()
 }
 
 /// Resolve a client-supplied path: it must canonicalize to an existing markdown
@@ -285,5 +260,19 @@ mod tests {
         let tree = build_tree(&here);
         let total: usize = tree.groups.iter().map(|g| g.files.len()).sum();
         assert!(total > 0, "expected to discover markdown files");
+    }
+
+    #[test]
+    fn build_tree_lists_only_the_current_working_tree() {
+        let here = std::env::current_dir().unwrap();
+        let tree = build_tree(&here);
+        assert_eq!(
+            tree.groups.len(),
+            1,
+            "other worktrees/branches are not listed"
+        );
+        let top = git_toplevel(&here).unwrap();
+        assert_eq!(tree.groups[0].root, top.to_string_lossy());
+        assert_eq!(allowed_roots(&here), vec![top.canonicalize().unwrap()]);
     }
 }
