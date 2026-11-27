@@ -1,6 +1,7 @@
-//! TypeSafe AI **Jev** selector (design §0 / §3.3).
+//! System One decision models (TypeSafe Jev, GPT-6 Luna Decision, Gemini
+//! Decision, Microsoft Decision) — design §0 / §3.3.
 //!
-//! One `POST {base_url}/v1/systemone` per document. The state holds only the
+//! One `POST {base_url}/v1/systemone` per batch of sections. The state holds only the
 //! headings, a bounded excerpt (default 600 chars) and deterministic features
 //! per section — never the full text. Questions:
 //!
@@ -19,9 +20,7 @@ use std::time::Instant;
 
 use serde_json::{Map, Value, json};
 
-use super::{
-    Answer, Candidate, SelectConfig, SelectError, SelectionDecisions, SelectionRequest, Selector,
-};
+use super::{Answer, Candidate, SelectError, SelectionDecisions, SelectionRequest, Selector};
 
 pub const DOC_TYPES: &[(&str, &str)] = &[
     ("readme", "Project README: what it is, install, usage"),
@@ -52,25 +51,38 @@ Each section lists candidate widgets that were pre-validated against its content
 Prefer plain text unless a widget clearly helps a reader. \
 Never assume facts beyond the given excerpts and features.";
 
-pub struct JevSelector {
+/// System One client: one `POST {base_url}/v1/systemone` per batch. Used by
+/// every decision model (Jev, GPT-6 Luna Decision, Gemini Decision, Microsoft
+/// Decision); they differ only in URL, model id and auth header.
+pub struct SystemOneSelector {
     model: String,
     url: String,
+    auth: crate::select::models::Auth,
     key: String,
     /// HTTP attempts actually sent by the last `select` (incl. a retry).
     sent: std::sync::atomic::AtomicU32,
 }
 
-impl JevSelector {
-    pub fn new(cfg: &SelectConfig, key: String) -> Result<Self, SelectError> {
+impl SystemOneSelector {
+    pub fn new(spec: &crate::select::models::ModelSpec, key: String) -> Result<Self, SelectError> {
         if !cfg!(feature = "llm") {
             return Err(SelectError::NotBuilt);
         }
-        Ok(JevSelector {
-            model: cfg.model.clone(),
-            url: format!("{}/v1/systemone", cfg.base_url.trim_end_matches('/')),
+        Ok(SystemOneSelector {
+            model: spec.model.clone(),
+            url: spec.url(),
+            auth: spec.auth,
             key,
             sent: std::sync::atomic::AtomicU32::new(0),
         })
+    }
+}
+
+/// The auth header for `key` (`Authorization: Bearer …`, `x-api-key`, `api-key`).
+pub(crate) fn auth_header(auth: crate::select::models::Auth, key: &str) -> (&'static str, String) {
+    match auth {
+        crate::select::models::Auth::Bearer => (auth.header(), format!("Bearer {key}")),
+        _ => (auth.header(), key.to_string()),
     }
 }
 
@@ -288,11 +300,7 @@ pub fn parse_response(
     Ok(d)
 }
 
-impl Selector for JevSelector {
-    fn id(&self) -> (&'static str, String) {
-        ("jev", self.model.clone())
-    }
-
+impl Selector for SystemOneSelector {
     fn last_requests(&self) -> Option<u32> {
         Some(self.sent.load(std::sync::atomic::Ordering::SeqCst))
     }
@@ -306,14 +314,21 @@ impl Selector for JevSelector {
         let n_questions = body["questions"].as_object().map(|m| m.len()).unwrap_or(0);
         let started = Instant::now();
         self.sent.store(0, std::sync::atomic::Ordering::SeqCst);
-        let res = http::post(&self.url, &self.key, &body, deadline, &self.sent);
+        let res = super::http::post(super::http::Post {
+            url: &self.url,
+            headers: vec![auth_header(self.auth, &self.key)],
+            body: &body,
+            deadline,
+            cancel: req.cancel,
+            sent: &self.sent,
+        });
         let ms = started.elapsed().as_millis();
         match res {
             Ok((status, attempts, value)) => {
                 let parsed = parse_response(&value, req);
                 tracing::info!(
                     target: "mdpeek::select",
-                    "jev: status {status} in {ms}ms, attempts {attempts}, sections {}, questions {n_questions}{}",
+                    "systemone: status {status} in {ms}ms, attempts {attempts}, sections {}, questions {n_questions}{}",
                     req.sections.len(),
                     if parsed.is_err() { ", invalid response" } else { "" }
                 );
@@ -325,7 +340,7 @@ impl Selector for JevSelector {
             Err(e) => {
                 tracing::warn!(
                     target: "mdpeek::select",
-                    "jev: failed after {ms}ms ({}{}); falling back to rules",
+                    "systemone: failed after {ms}ms ({}{})",
                     e.code(),
                     match e {
                         SelectError::Http(s) | SelectError::Server(s) => format!(", HTTP {s}"),
@@ -335,134 +350,6 @@ impl Selector for JevSelector {
                 Err(e)
             }
         }
-    }
-}
-
-#[cfg(feature = "llm")]
-mod http {
-    use std::time::{Duration, Instant};
-
-    use serde_json::Value;
-
-    use super::SelectError;
-
-    /// POST with an overall deadline. 429/529 are retried at most once,
-    /// honouring `retry-after` only when it fits inside the deadline.
-    pub fn post(
-        url: &str,
-        key: &str,
-        body: &Value,
-        deadline: Instant,
-        sent: &std::sync::atomic::AtomicU32,
-    ) -> Result<(u16, u32, Value), SelectError> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|_| SelectError::Network)?;
-        rt.block_on(async {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            match tokio::time::timeout(remaining, post_async(url, key, body, deadline, sent)).await
-            {
-                Ok(r) => r,
-                Err(_) => Err(SelectError::Timeout),
-            }
-        })
-    }
-
-    async fn post_async(
-        url: &str,
-        key: &str,
-        body: &Value,
-        deadline: Instant,
-        sent: &std::sync::atomic::AtomicU32,
-    ) -> Result<(u16, u32, Value), SelectError> {
-        let client = reqwest::Client::builder()
-            .user_agent("mdpeek-select")
-            .build()
-            .map_err(|_| SelectError::Network)?;
-        let mut attempt = 0u32;
-        loop {
-            attempt += 1;
-            sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let resp = client
-                .post(url)
-                .bearer_auth(key)
-                .json(body)
-                .send()
-                .await
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        SelectError::Timeout
-                    } else {
-                        SelectError::Network
-                    }
-                })?;
-            let status = resp.status().as_u16();
-            match status {
-                200..=299 => {
-                    let bytes = resp.bytes().await.map_err(|e| {
-                        if e.is_timeout() {
-                            SelectError::Timeout
-                        } else {
-                            SelectError::Network
-                        }
-                    })?;
-                    let v: Value =
-                        serde_json::from_slice(&bytes).map_err(|_| SelectError::InvalidResponse)?;
-                    return Ok((status, attempt, v));
-                }
-                401 | 403 => return Err(SelectError::Unauthorized),
-                429 | 529 => {
-                    let err = if status == 429 {
-                        SelectError::RateLimited
-                    } else {
-                        SelectError::Overloaded
-                    };
-                    if attempt >= 2 {
-                        return Err(err);
-                    }
-                    let secs = resp
-                        .headers()
-                        .get("retry-after")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|s| s.trim().parse::<f64>().ok())
-                        .filter(|s| s.is_finite() && *s >= 0.0)
-                        .unwrap_or(0.5);
-                    // Compare in f64 *before* building a Duration, so a malformed
-                    // or hostile header (e.g. 1e300) can neither panic nor
-                    // overflow, and we never wait past our own deadline.
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if secs >= remaining.as_secs_f64() {
-                        return Err(err);
-                    }
-                    let Ok(wait) = Duration::try_from_secs_f64(secs) else {
-                        return Err(err);
-                    };
-                    tokio::time::sleep(wait).await;
-                }
-                500..=599 => return Err(SelectError::Server(status)),
-                _ => return Err(SelectError::Http(status)),
-            }
-        }
-    }
-}
-
-#[cfg(not(feature = "llm"))]
-mod http {
-    use std::time::Instant;
-
-    use serde_json::Value;
-
-    use super::SelectError;
-
-    pub fn post(
-        _url: &str,
-        _key: &str,
-        _body: &Value,
-        _deadline: Instant,
-        _sent: &std::sync::atomic::AtomicU32,
-    ) -> Result<(u16, u32, Value), SelectError> {
-        Err(SelectError::NotBuilt)
     }
 }
 
@@ -477,6 +364,7 @@ mod tests {
         let a = mdpeek_analyzer::analyze(MD, Some("README.md"));
         let plan = sections::plan_document(MD, Some("README.md"), &a, 600);
         let cfg = SelectConfig::default();
+        let cancel = std::sync::atomic::AtomicBool::new(false);
         let secs = plan
             .sections
             .iter()
@@ -488,6 +376,7 @@ mod tests {
             sections: secs,
             ask_document: true,
             cfg: &cfg,
+            cancel: &cancel,
         };
         f(&req)
     }

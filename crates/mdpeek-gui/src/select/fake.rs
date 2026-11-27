@@ -1,6 +1,6 @@
-//! Scripted, deterministic selector for tests / web E2E without a Jev key (R7).
-//!
-//! Script (JSON file, `[select] fake_script = "…"` or `--fake-script`):
+//! Scripted, deterministic selector for tests / web E2E without a network
+//! (R7). Not documented for users: `[models.x] api = "fake"`, with an optional
+//! `script = "…"` (JSON file):
 //!
 //! ```json
 //! {
@@ -20,8 +20,8 @@
 //! Sections are matched by heading text, then by positional id (`s3`).
 //! `fail` makes every call fail with that fallback code (e.g. `"timeout"`),
 //! `delay_ms` simulates latency (and times out if it exceeds the deadline).
-//! Unmatched sections use `default`: `"rules"` (default), `"missing"` (treated
-//! as an invalid answer), or an entry object.
+//! Unmatched sections use `default`: `"rules"` (default: the highest-scoring
+//! candidate), `"missing"` (treated as an invalid answer), or an entry object.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 
 use super::{
-    Answer, Candidate, SelectError, SelectionDecisions, SelectionRequest, Selector, rules_answer,
+    Answer, Candidate, SelectError, SelectionDecisions, SelectionRequest, Selector, score_answer,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,13 +91,28 @@ impl FakeSelector {
         Ok(FakeSelector { script })
     }
 
+    /// No script: every section gets its highest-scoring candidate.
+    pub fn unscripted() -> Self {
+        FakeSelector {
+            script: Script {
+                model: None,
+                delay_ms: 0,
+                fail: None,
+                doc_type: None,
+                document: None,
+                sections: HashMap::new(),
+                default: None,
+            },
+        }
+    }
+
     pub fn from_script(script: Script) -> Self {
         FakeSelector { script }
     }
 }
 
 fn entry_answer(e: &Entry, cands: &[Candidate]) -> Answer {
-    let rules = rules_answer(cands);
+    let rules = score_answer(cands);
     let candidate = match &e.widget {
         Some(w) => w.clone(),
         None => match &rules {
@@ -114,10 +129,6 @@ fn entry_answer(e: &Entry, cands: &[Candidate]) -> Answer {
 }
 
 impl Selector for FakeSelector {
-    fn id(&self) -> (&'static str, String) {
-        ("fake", self.script.model.clone().unwrap_or_else(|| "fake".into()))
-    }
-
     fn select(
         &self,
         req: &SelectionRequest<'_>,
@@ -125,11 +136,18 @@ impl Selector for FakeSelector {
     ) -> Result<SelectionDecisions, SelectError> {
         if self.script.delay_ms > 0 {
             let want = Instant::now() + Duration::from_millis(self.script.delay_ms);
+            let until = want.min(deadline);
+            while Instant::now() < until {
+                if req.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(SelectError::Cancelled);
+                }
+                std::thread::sleep(
+                    Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())),
+                );
+            }
             if want > deadline {
-                std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
                 return Err(SelectError::Timeout);
             }
-            std::thread::sleep(Duration::from_millis(self.script.delay_ms));
         }
         if let Some(code) = &self.script.fail {
             return Err(SelectError::Scripted(code.clone()));
@@ -150,7 +168,7 @@ impl Selector for FakeSelector {
                 (None, Some(DefaultMode::Mode(m))) if m == "missing" => {
                     Answer::Invalid("missing".into())
                 }
-                _ => match rules_answer(&s.candidates) {
+                _ => match score_answer(&s.candidates) {
                     Some(a) => a,
                     None => continue,
                 },
@@ -158,11 +176,11 @@ impl Selector for FakeSelector {
             d.sections.insert(s.id.clone(), a);
         }
         if req.ask_document {
-            d.document = self
-                .script
-                .document
-                .as_ref()
-                .map(|e| entry_answer(e, &req.plan.doc_candidates));
+            // Unscripted: the highest-scoring document candidate.
+            d.document = match &self.script.document {
+                Some(e) => Some(entry_answer(e, &req.plan.doc_candidates)),
+                None => score_answer(&req.plan.doc_candidates),
+            };
             d.doc_type = self
                 .script
                 .doc_type

@@ -1,8 +1,8 @@
 use crate::config::{BrowserTheme, Config, DefaultMode};
-use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
-use mdpeek_gui::select::{Provider, SelectConfig};
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
+use mdpeek_gui::select::{ModelSpec, SelectConfig};
 use serde::Deserialize;
 use std::{io::IsTerminal, path::PathBuf};
 
@@ -52,15 +52,9 @@ pub enum Commands {
 pub struct SelectArg {
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
-    /// Selector override: rules | jev | fake (default: `[select] provider`, else rules).
-    #[arg(long, value_enum)]
-    pub provider: Option<Provider>,
-    /// Explicitly allow sending excerpts to the external selector (Jev) for this run.
-    #[arg(long)]
-    pub allow_network: bool,
-    /// Scripted answers for the `fake` provider (JSON file).
-    #[arg(long, value_name = "FILE")]
-    pub fake_script: Option<PathBuf>,
+    /// Model to ask: a `[models.<name>]` entry (default: `[model] use`).
+    #[arg(long, value_name = "NAME")]
+    pub model: Option<String>,
     /// Accepted for symmetry with the design doc; output is always JSON.
     #[arg(long)]
     pub json: bool,
@@ -74,9 +68,10 @@ pub struct SelectEvalArg {
     /// Cold-cache runs per document for the latency percentiles.
     #[arg(long, default_value_t = 5)]
     pub runs: usize,
-    /// Also evaluate Jev (needs TYPESAFE_API_KEY); otherwise reported as not run.
-    #[arg(long)]
-    pub allow_network: bool,
+    /// Models to evaluate (`[models.<name>]`, repeatable; default: `[model] use`).
+    /// A model that cannot run (e.g. its key is not set) is reported as not run.
+    #[arg(long = "model", value_name = "NAME")]
+    pub models: Vec<String>,
     /// Print the report as JSON instead of a table.
     #[arg(long)]
     pub json: bool,
@@ -114,9 +109,10 @@ pub struct ServeArg {
     pub host: Option<String>,
     #[arg(long, value_name = "PORT")]
     pub port: Option<String>,
-    /// Selector override for `/api/adaptive`: rules | jev | fake.
-    #[arg(long = "select", value_enum, value_name = "PROVIDER")]
-    pub select: Option<Provider>,
+    /// Model for reading aids in this session (`[models.<name>]`); the
+    /// default stays `[model] use`.
+    #[arg(long, value_name = "NAME")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -146,7 +142,8 @@ pub enum Mode {
         host: String,
         port: String,
         theme: BrowserTheme,
-        select: SelectConfig,
+        /// `--model` for this session.
+        model: Option<String>,
     },
     Term {
         file: PathBuf,
@@ -166,11 +163,13 @@ pub enum Mode {
     Select {
         file: PathBuf,
         select: SelectConfig,
+        model: ModelSpec,
     },
     SelectEval {
         dir: PathBuf,
         runs: usize,
         select: SelectConfig,
+        models: Vec<ModelSpec>,
         json: bool,
     },
 }
@@ -223,13 +222,7 @@ impl Cli {
                     .or(cfg_port)
                     .unwrap_or_else(|| DEFAULT_PORT.to_string()),
                 theme: browser_theme,
-                select: {
-                    let mut s = select_cfg.clone();
-                    if let Some(p) = arg.select {
-                        s.provider = p;
-                    }
-                    s
-                },
+                model: arg.model,
             }),
             Some(Commands::Term(arg)) => Ok(Mode::Term {
                 file: arg.file.unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT)),
@@ -256,30 +249,36 @@ impl Cli {
                 })
             }
             Some(Commands::Select(arg)) => {
-                let mut s = select_cfg;
-                if let Some(p) = arg.provider {
-                    s.provider = p;
-                }
-                if arg.allow_network {
-                    s.allow_network = true;
-                }
-                if let Some(f) = arg.fake_script {
-                    s.fake_script = Some(f);
-                }
+                let models = config.models();
+                let name = arg.model.unwrap_or_else(|| models.default.clone());
+                let Some(model) = models.get(&name).cloned() else {
+                    anyhow::bail!("no model named \"{name}\" in [models]");
+                };
                 Ok(Mode::Select {
                     file: arg.file,
-                    select: s,
+                    select: select_cfg,
+                    model,
                 })
             }
             Some(Commands::SelectEval(arg)) => {
-                let mut s = select_cfg;
-                if arg.allow_network {
-                    s.allow_network = true;
+                let models = config.models();
+                let names = if arg.models.is_empty() {
+                    vec![models.default.clone()]
+                } else {
+                    arg.models
+                };
+                let mut list = Vec::new();
+                for n in names {
+                    let Some(m) = models.get(&n).cloned() else {
+                        anyhow::bail!("no model named \"{n}\" in [models]");
+                    };
+                    list.push(m);
                 }
                 Ok(Mode::SelectEval {
                     dir: arg.dir,
                     runs: arg.runs,
-                    select: s,
+                    select: select_cfg,
+                    models: list,
                     json: arg.json,
                 })
             }
@@ -308,7 +307,7 @@ impl Cli {
                         host,
                         port,
                         theme: browser_theme,
-                        select: select_cfg,
+                        model: None,
                     }),
                     DefaultMode::Term => Ok(Mode::Term {
                         file: root,

@@ -19,10 +19,20 @@ pub struct Reply {
 
 impl Reply {
     pub fn json(status: u16, body: serde_json::Value) -> Self {
-        Reply { status, headers: vec![], body: body.to_string(), delay_ms: 0 }
+        Reply {
+            status,
+            headers: vec![],
+            body: body.to_string(),
+            delay_ms: 0,
+        }
     }
     pub fn raw(status: u16, body: &str) -> Self {
-        Reply { status, headers: vec![], body: body.to_string(), delay_ms: 0 }
+        Reply {
+            status,
+            headers: vec![],
+            body: body.to_string(),
+            delay_ms: 0,
+        }
     }
     pub fn header(mut self, k: &str, v: &str) -> Self {
         self.headers.push((k.into(), v.into()));
@@ -159,7 +169,7 @@ pub fn jev_config(dir: &std::path::Path, base_url: &str, extra: &str) -> std::pa
         dir,
         "config.toml",
         &format!(
-            "[select]\nprovider = \"jev\"\nallow_network = true\nbase_url = \"{base_url}\"\n{extra}\n"
+            "[model]\nuse = \"jev\"\n{extra}\n\n[models.jev]\napi = \"systemone\"\nmodel = \"jev-1.14.0\"\nbase_url = \"{base_url}\"\n"
         ),
     )
 }
@@ -168,12 +178,50 @@ pub fn jev_config(dir: &std::path::Path, base_url: &str, extra: &str) -> std::pa
 pub fn http_get(port: u16, path: &str) -> (u16, String) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-    write!(s, "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+    write!(
+        s,
+        "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
     let mut buf = Vec::new();
     s.read_to_end(&mut buf).unwrap();
     let text = String::from_utf8_lossy(&buf).to_string();
-    let status = text.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
-    let body = text.split_once("\r\n\r\n").map(|x| x.1.to_string()).unwrap_or_default();
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("0")
+        .parse()
+        .unwrap_or(0);
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|x| x.1.to_string())
+        .unwrap_or_default();
+    (status, body)
+}
+
+/// Plain HTTP/1.1 POST with a JSON body, returning (status, body).
+pub fn http_post(port: u16, path: &str, body: &str) -> (u16, String) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    write!(
+        s,
+        "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut buf = Vec::new();
+    s.read_to_end(&mut buf).unwrap();
+    let text = String::from_utf8_lossy(&buf).to_string();
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("0")
+        .parse()
+        .unwrap_or(0);
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|x| x.1.to_string())
+        .unwrap_or_default();
     (status, body)
 }
 
@@ -197,7 +245,10 @@ impl Ws {
             s.read_exact(&mut b).unwrap();
             hdr.push(b[0]);
         }
-        assert!(String::from_utf8_lossy(&hdr).contains("101"), "ws upgrade failed");
+        assert!(
+            String::from_utf8_lossy(&hdr).contains("101"),
+            "ws upgrade failed"
+        );
         Ws { s }
     }
 
@@ -216,7 +267,9 @@ impl Ws {
             }
             let op = h[0] & 0x0f;
             let mut len = (h[1] & 0x7f) as u64;
-            self.s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            self.s
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
             if len == 126 {
                 let mut e = [0u8; 2];
                 self.s.read_exact(&mut e).unwrap();
@@ -253,6 +306,19 @@ impl Ws {
         out
     }
 
+    /// Wait for an `adaptive` message whose run has ended (done / stopped / error).
+    pub fn wait_settled(&mut self, timeout: Duration) -> Option<serde_json::Value> {
+        let end = Instant::now() + timeout;
+        while Instant::now() < end {
+            let v = self.wait_adaptive(end.saturating_duration_since(Instant::now()))?;
+            let st = v["layout"]["progress"]["state"].as_str().unwrap_or("");
+            if st != "running" && st != "idle" {
+                return Some(v);
+            }
+        }
+        None
+    }
+
     /// Wait for the first `adaptive` message.
     pub fn wait_adaptive(&mut self, timeout: Duration) -> Option<serde_json::Value> {
         let end = Instant::now() + timeout;
@@ -281,7 +347,12 @@ impl Drop for Server {
     }
 }
 
-pub fn spawn_serve(dir: &std::path::Path, file: &std::path::Path, config: &std::path::Path, env: &[(&str, &str)]) -> Server {
+pub fn spawn_serve(
+    dir: &std::path::Path,
+    file: &std::path::Path,
+    config: &std::path::Path,
+    env: &[(&str, &str)],
+) -> Server {
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mdpeek"));
     cmd.current_dir(dir)
@@ -327,7 +398,9 @@ pub fn spawn_serve(dir: &std::path::Path, file: &std::path::Path, config: &std::
             }
         });
     }
-    let port = prx.recv_timeout(Duration::from_secs(20)).expect("server did not start");
+    let port = prx
+        .recv_timeout(Duration::from_secs(20))
+        .expect("server did not start");
     Server { child, port, log }
 }
 

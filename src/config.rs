@@ -10,10 +10,11 @@
 //! ```
 
 use crate::cli::ThemeChoice;
-use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
 use mdpeek_analyzer::generation::DEFAULT_CONFIDENCE_THRESHOLD;
 use mdpeek_analyzer::{GenerationConfig, GenerationStrategy};
-use mdpeek_gui::select::{Provider, SelectConfig};
+use mdpeek_gui::generator::llm::{Effort, LlmBackendConfig, LlmProvider};
+use mdpeek_gui::select::models::ModelEntry;
+use mdpeek_gui::select::{ModelSpec, Models, SelectConfig};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -30,33 +31,80 @@ pub struct Config {
     /// Generative-UI / LLM settings (rules-first vs LLM-first). Consumed by the
     /// generator (Layer 3); read here at startup.
     pub llm: LlmConfig,
-    /// Adaptive reading-aid selection (`mdpeek select`, `/api/adaptive`).
-    pub select: SelectSection,
+    /// Reading-aid toggle defaults (`[aids]`).
+    pub aids: AidsSection,
+    /// Which model chooses reading aids, and shared tuning (`[model]`).
+    pub model: ModelSection,
+    /// Models that can choose reading aids (`[models.<name>]`), in file order.
+    pub models: toml::Table,
+    /// Decision cache on disk (`[cache]`).
+    pub cache: CacheSection,
+    /// Removed section (reading-aid selection moved to `[model]` / `[models]`).
+    /// Accepted only so the error can say where its settings went.
+    pub select: Option<toml::Value>,
+    /// Why the file could not be read (shown in the UI), if it could not.
+    #[serde(skip)]
+    pub load_error: Option<String>,
+    /// The file this configuration came from (or would be written to).
+    #[serde(skip)]
+    pub path: Option<PathBuf>,
 }
 
-/// `[select]` section (design `docs/design/jev-adaptive-ui.md` §5). There is
-/// deliberately **no key field**: the Jev API key is read only from the
-/// `TYPESAFE_API_KEY` environment variable, so `api_key = …` here is rejected
-/// as an unknown key.
+/// `[aids]` section: the reading-aid toggle.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct SelectSection {
-    /// `"rules"` (default, offline) | `"jev"` | `"fake"` (scripted, tests/E2E).
-    pub provider: Option<Provider>,
-    /// Must be `true` for `provider = "jev"` to send anything over the network.
-    pub allow_network: Option<bool>,
-    pub model: Option<String>,
-    pub base_url: Option<String>,
+pub struct AidsSection {
+    /// Initial state of the toggle: `"on"` (default) or `"off"`.
+    pub default: Option<OnOff>,
+    /// Start choosing aids as soon as a document opens (default `true`); when
+    /// `false`, the reader starts it.
+    pub auto_generate: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OnOff {
+    On,
+    Off,
+}
+
+/// `[model]` section. There is deliberately **no key field** anywhere: each
+/// `[models.<name>]` entry names the environment variable that holds its key.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ModelSection {
+    /// The default model: a key of `[models]`.
+    #[serde(rename = "use")]
+    pub use_: Option<String>,
     pub timeout_ms: Option<u64>,
-    pub confidence_threshold: Option<f32>,
-    pub helps_threshold: Option<f32>,
-    pub max_questions: Option<usize>,
     pub excerpt_chars: Option<usize>,
     pub max_state_chars: Option<usize>,
+    pub batch_sections: Option<usize>,
+    pub confidence_threshold: Option<f32>,
+    pub helps_threshold: Option<f32>,
     pub debounce_ms: Option<u64>,
-    pub cache_entries: Option<usize>,
-    /// Scripted answers for `provider = "fake"` (JSON file).
-    pub fake_script: Option<PathBuf>,
+}
+
+/// `[cache]` section.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CacheSection {
+    pub enabled: Option<bool>,
+    /// Default: `$XDG_CACHE_HOME/mdpeek` (else `~/.cache/mdpeek`).
+    pub dir: Option<PathBuf>,
+    pub max_size_mb: Option<u64>,
+    pub ttl_days: Option<u64>,
+    pub memory_entries: Option<usize>,
+}
+
+/// Resolved `[cache]`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CacheSettings {
+    /// `None` = memory only (disabled, or no usable directory).
+    pub dir: Option<PathBuf>,
+    pub max_size_mb: u64,
+    pub ttl_days: u64,
+    pub memory_entries: usize,
 }
 
 /// `[server]` section: browser previewer defaults.
@@ -144,7 +192,10 @@ impl Config {
     pub fn load_explicit(path: &Path) -> Self {
         if !path.exists() {
             eprintln!("mdpeek: warning: config file not found: {}", path.display());
-            return Self::default();
+            return Self {
+                path: Some(path.to_path_buf()),
+                ..Self::default()
+            };
         }
         Self::load_from(path)
     }
@@ -173,26 +224,77 @@ impl Config {
         }
     }
 
-    /// Resolve `[select]` onto the built-in defaults (timeout clamped to
-    /// 100..=30000 ms so a request always ends within a bounded time).
+    /// Resolve `[model]` onto the built-in defaults (timeout clamped to
+    /// 1 s..=5 min so a request always ends within a bounded time).
     pub fn select_config(&self) -> SelectConfig {
-        let s = &self.select;
+        let m = &self.model;
         let d = SelectConfig::default();
         SelectConfig {
-            provider: s.provider.unwrap_or(d.provider),
-            allow_network: s.allow_network.unwrap_or(d.allow_network),
-            model: s.model.clone().unwrap_or(d.model),
-            base_url: s.base_url.clone().unwrap_or(d.base_url),
-            timeout_ms: s.timeout_ms.unwrap_or(d.timeout_ms).clamp(100, 30_000),
-            confidence_threshold: unit_or(s.confidence_threshold, d.confidence_threshold),
-            helps_threshold: unit_or(s.helps_threshold, d.helps_threshold),
-            max_questions: s.max_questions.unwrap_or(d.max_questions).max(1),
-            excerpt_chars: s.excerpt_chars.unwrap_or(d.excerpt_chars),
-            max_state_chars: s.max_state_chars.unwrap_or(d.max_state_chars),
-            debounce_ms: s.debounce_ms.unwrap_or(d.debounce_ms),
-            cache_entries: s.cache_entries.unwrap_or(d.cache_entries).max(1),
-            fake_script: s.fake_script.clone(),
+            timeout_ms: m.timeout_ms.unwrap_or(d.timeout_ms).clamp(1_000, 300_000),
+            confidence_threshold: unit_or(m.confidence_threshold, d.confidence_threshold),
+            helps_threshold: unit_or(m.helps_threshold, d.helps_threshold),
+            excerpt_chars: m.excerpt_chars.unwrap_or(d.excerpt_chars),
+            max_state_chars: m.max_state_chars.unwrap_or(d.max_state_chars),
+            batch_sections: m.batch_sections.unwrap_or(d.batch_sections).clamp(1, 64),
+            debounce_ms: m.debounce_ms.unwrap_or(d.debounce_ms),
         }
+    }
+
+    /// The `[models]` entries (config order) and the default from `[model] use`.
+    /// An entry that cannot be read is kept with its problem, so the UI can
+    /// show it as invalid instead of it silently disappearing.
+    pub fn models(&self) -> Models {
+        let list = self
+            .models
+            .iter()
+            .map(|(name, v)| match v.clone().try_into::<ModelEntry>() {
+                Ok(e) => ModelSpec::from_entry(name, e),
+                Err(e) => ModelSpec::broken(name, redact_quoted(e.message().trim_end())),
+            })
+            .collect();
+        Models::new(list, self.model.use_.as_deref())
+    }
+
+    /// Problems with the configuration as a whole, for the UI.
+    pub fn errors(&self, models: &Models) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(e) = &self.load_error {
+            out.push(e.clone());
+        }
+        if self.select.is_some() {
+            out.push(
+                "[select] was removed: reading aids are chosen by the models in [models.<name>]; pick one with [model] use = \"<name>\"".into(),
+            );
+        }
+        out.extend(models.errors.iter().cloned());
+        out
+    }
+
+    /// Resolve `[cache]` (directory: `[cache] dir`, else `$XDG_CACHE_HOME/mdpeek`).
+    pub fn cache_settings(&self) -> CacheSettings {
+        let c = &self.cache;
+        let dir = if c.enabled == Some(false) {
+            None
+        } else {
+            c.dir
+                .as_ref()
+                .map(|d| expand_home(d))
+                .or_else(mdpeek_gui::select::default_cache_dir)
+        };
+        CacheSettings {
+            dir,
+            max_size_mb: c.max_size_mb.unwrap_or(100).max(1),
+            ttl_days: c.ttl_days.unwrap_or(30).max(1),
+            memory_entries: c.memory_entries.unwrap_or(256).max(1),
+        }
+    }
+
+    /// `[aids]`: (toggle on by default, start automatically).
+    pub fn aids(&self) -> (bool, bool) {
+        (
+            self.aids.default != Some(OnOff::Off),
+            self.aids.auto_generate.unwrap_or(true),
+        )
     }
 
     /// Whether the `[llm]` section opted into LLM generation.
@@ -201,26 +303,34 @@ impl Config {
     }
 
     fn load_from(path: &Path) -> Self {
+        let at = |c: Config| Config {
+            path: Some(path.to_path_buf()),
+            ..c
+        };
         let content = match std::fs::read_to_string(path) {
             Ok(content) => content,
             // A missing config file is the normal case, not an error.
-            Err(_) => return Self::default(),
+            Err(_) => return at(Self::default()),
         };
-        match toml::from_str(&content) {
-            Ok(config) => config,
+        match toml::from_str::<Config>(&content) {
+            Ok(config) => at(config),
             Err(e) => {
                 // Print only the message (not the offending source line), so a
                 // secret mistakenly pasted into config.toml is never echoed.
                 let line = e
                     .span()
                     .map(|s| content[..s.start.min(content.len())].matches('\n').count() + 1);
-                eprintln!(
-                    "mdpeek: warning: failed to parse {}{}: {}",
+                let msg = format!(
+                    "{} could not be read{}: {}",
                     path.display(),
                     line.map(|l| format!(" (line {l})")).unwrap_or_default(),
                     redact_quoted(e.message().trim_end())
                 );
-                Self::default()
+                eprintln!("mdpeek: warning: {msg}");
+                at(Config {
+                    load_error: Some(msg),
+                    ..Self::default()
+                })
             }
         }
     }
@@ -257,6 +367,16 @@ fn redact_quoted(msg: &str) -> String {
         }
     }
     out
+}
+
+/// `~/x` → `$HOME/x`.
+fn expand_home(p: &Path) -> PathBuf {
+    match p.strip_prefix("~") {
+        Ok(rest) => std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(rest))
+            .unwrap_or_else(|| p.to_path_buf()),
+        Err(_) => p.to_path_buf(),
+    }
 }
 
 /// Resolve the path to `config.toml` following the XDG Base Directory spec:
@@ -314,29 +434,84 @@ mod tests {
     }
 
     #[test]
-    fn select_defaults_are_offline_rules() {
+    fn model_defaults() {
         let config: Config = toml::from_str("").unwrap();
         let s = config.select_config();
-        assert_eq!(s.provider, Provider::Rules);
-        assert!(!s.allow_network);
-        assert_eq!(s.timeout_ms, 4000);
+        assert_eq!(s.timeout_ms, 30_000);
+        assert_eq!(s.batch_sections, 8);
         assert_eq!(s.debounce_ms, 800);
-        assert!((s.helps_threshold - 0.5).abs() < f32::EPSILON);
-        assert!((s.confidence_threshold - 0.6).abs() < f32::EPSILON);
+        let m = config.models();
+        assert_eq!(m.default, "jev");
+        assert_eq!(m.list.len(), 1);
+        assert_eq!(config.aids(), (true, true));
     }
 
     #[test]
-    fn select_section_parses_and_rejects_key_fields() {
+    fn models_keep_file_order_and_report_problems() {
         let config: Config = toml::from_str(
-            "[select]\nprovider = \"jev\"\nallow_network = true\nbase_url = \"http://127.0.0.1:9\"\ntimeout_ms = 999999\n",
+            r#"
+            [model]
+            use = "sonnet"
+            timeout_ms = 999999
+
+            [models.sonnet]
+            api = "anthropic"
+            model = "claude-sonnet-5-5"
+
+            [models.jev]
+            api = "systemone"
+            model = "jev-1.14"
+            api_key = "sk-secret-value"
+
+            [models.weird]
+            api = "teleport"
+            "#,
         )
         .unwrap();
-        let s = config.select_config();
-        assert_eq!(s.provider, Provider::Jev);
-        assert!(s.allow_network);
-        assert_eq!(s.timeout_ms, 30_000);
-        assert!(toml::from_str::<Config>("[select]\napi_key = \"x\"").is_err());
-        assert!(toml::from_str::<Config>("[select]\nbogus = 1").is_err());
+        assert_eq!(config.select_config().timeout_ms, 300_000);
+        let m = config.models();
+        let names: Vec<_> = m.list.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["sonnet", "jev", "weird"]);
+        assert_eq!(m.default, "sonnet");
+        let jev = m.get("jev").unwrap().config_problem.clone().unwrap();
+        assert!(jev.contains("api_key is not allowed"), "{jev}");
+        assert!(!jev.contains("sk-secret-value"));
+        let weird = m.get("weird").unwrap().config_problem.clone().unwrap();
+        assert!(!weird.is_empty());
+        assert!(config.errors(&m).is_empty());
+    }
+
+    #[test]
+    fn removed_select_section_is_explained() {
+        let config: Config = toml::from_str("[select]\nprovider = \"jev\"\n").unwrap();
+        let errs = config.errors(&config.models());
+        assert!(errs[0].contains("[select] was removed"), "{errs:?}");
+    }
+
+    #[test]
+    fn cache_dir_and_aids() {
+        let config: Config = toml::from_str(
+            "[cache]\ndir = \"/tmp/x\"\nmax_size_mb = 5\n[aids]\ndefault = \"off\"\nauto_generate = false\n",
+        )
+        .unwrap();
+        let c = config.cache_settings();
+        assert_eq!(c.dir.as_deref(), Some(Path::new("/tmp/x")));
+        assert_eq!(c.max_size_mb, 5);
+        assert_eq!(config.aids(), (false, false));
+        let off: Config = toml::from_str("[cache]\nenabled = false\n").unwrap();
+        assert!(off.cache_settings().dir.is_none());
+    }
+
+    #[test]
+    fn unreadable_config_keeps_the_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(&p, "[model]\nuse = \"sk-very-secret\"\nbogus = 1\n").unwrap();
+        let c = Config::load_explicit(&p);
+        let e = c.load_error.unwrap();
+        assert!(e.contains("line"), "{e}");
+        assert!(!e.contains("sk-very-secret"));
+        assert_eq!(c.path.as_deref(), Some(p.as_path()));
     }
 
     #[test]

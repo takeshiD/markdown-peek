@@ -36,8 +36,11 @@ fn main() -> Result<()> {
             host,
             port,
             theme,
-            select,
-        } => handle_serve(file, host, port, theme, generation, gui_llm, select),
+            model,
+        } => {
+            let aids = adaptive_setup(&config, model);
+            handle_serve(file, host, port, theme, generation, gui_llm, aids)
+        }
         Mode::Term {
             file,
             watch,
@@ -49,48 +52,102 @@ fn main() -> Result<()> {
             no_cache,
             llm,
         } => handle_gen(file, no_cache, llm)?,
-        Mode::Select { file, select } => handle_select(file, select)?,
+        Mode::Select {
+            file,
+            select,
+            model,
+        } => handle_select(file, select, model)?,
         Mode::SelectEval {
             dir,
             runs,
             select,
+            models,
             json,
-        } => handle_select_eval(dir, runs, select, json)?,
+        } => handle_select_eval(dir, runs, select, models, json)?,
     }
     Ok(())
 }
 
+/// Everything `serve` needs for reading aids, resolved from the config.
+fn adaptive_setup(config: &Config, start_with: Option<String>) -> mdpeek_server::AdaptiveSetup {
+    let models = config.models();
+    let mut config_errors = config.errors(&models);
+    if let Some(n) = &start_with
+        && models.get(n).is_none()
+    {
+        config_errors.push(format!(
+            "--model {n}: no [models.{n}] entry; using \"{}\"",
+            models.default
+        ));
+    }
+    let c = config.cache_settings();
+    let disk = c.dir.as_ref().and_then(|d| {
+        match mdpeek_gui::select::DiskCache::open(d.clone(), c.ttl_days, c.max_size_mb) {
+            Ok(dc) => Some(dc),
+            Err(e) => {
+                config_errors.push(format!(
+                    "cache directory {} cannot be used ({}); decisions are kept in memory only",
+                    d.display(),
+                    e.kind()
+                ));
+                None
+            }
+        }
+    });
+    for e in &config_errors {
+        eprintln!("mdpeek: warning: {e}");
+    }
+    let (aids_default_on, auto_generate) = config.aids();
+    mdpeek_server::AdaptiveSetup {
+        cfg: config.select_config(),
+        models,
+        start_with,
+        config_errors,
+        config_path: config.path.clone().or_else(config::config_path),
+        aids_default_on,
+        auto_generate,
+        cache: mdpeek_gui::select::SelectionCache::with_disk(c.memory_entries, disk),
+    }
+}
+
 /// `mdpeek select`: print the AdaptiveLayout JSON for `file` on stdout. Never
-/// fails because of the selector — problems degrade to rules and are reported
-/// in `selector.fallback` (plus a one-line note on stderr, without content).
-fn handle_select(file: PathBuf, select: mdpeek_gui::select::SelectConfig) -> Result<()> {
+/// fails because of the model — problems are reported in `selector.error` /
+/// `selector.message` (plus a one-line note on stderr, without content). The
+/// cache is memory-only here, so every run asks the model.
+fn handle_select(
+    file: PathBuf,
+    select: mdpeek_gui::select::SelectConfig,
+    model: mdpeek_gui::select::ModelSpec,
+) -> Result<()> {
     init_stderr_tracing();
     if !file.is_file() {
         anyhow::bail!("'{}' is not a file.", file.display());
     }
     let markdown = std::fs::read_to_string(&file)?;
     let filename = file.file_name().and_then(|n| n.to_str());
-    let cache = mdpeek_gui::select::SelectionCache::new(select.cache_entries);
-    let layout = mdpeek_gui::select::adaptive_layout(&markdown, filename, &select, &cache, 1);
-    if let Some(f) = &layout.selector.fallback {
+    let cache = mdpeek_gui::select::SelectionCache::new(256);
+    let layout =
+        mdpeek_gui::select::adaptive_layout(&markdown, filename, &select, &model, &cache, 1);
+    if let Some(m) = &layout.selector.message {
         eprintln!(
-            "mdpeek: select: {} unavailable ({f}); using rules",
-            layout.selector.requested
+            "mdpeek: select: model {} could not answer: {m}",
+            layout.selector.name
         );
     }
     println!("{}", mdpeek_gui::select::layout_json(&layout));
     Ok(())
 }
 
-/// `mdpeek select-eval`: accuracy / none-appropriateness / p50-p95 per provider.
+/// `mdpeek select-eval`: accuracy / none-appropriateness / p50-p95 per model.
 fn handle_select_eval(
     dir: PathBuf,
     runs: usize,
     select: mdpeek_gui::select::SelectConfig,
+    models: Vec<mdpeek_gui::select::ModelSpec>,
     json: bool,
 ) -> Result<()> {
     init_stderr_tracing();
-    let report = mdpeek_gui::select::eval::evaluate(&dir, &select, runs)?;
+    let report = mdpeek_gui::select::eval::evaluate(&dir, &select, &models, runs)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
@@ -103,9 +160,9 @@ fn handle_select_eval(
 /// `warn` unless `RUST_LOG` says otherwise.
 fn init_stderr_tracing() {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            quiet_http(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))),
-        )
+        .with_env_filter(quiet_http(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+        ))
         .with_writer(std::io::stderr)
         .without_time()
         .try_init();
@@ -142,7 +199,7 @@ fn handle_serve(
     theme: BrowserTheme,
     generation: GenerationConfig,
     gui_llm: Option<mdpeek_gui::generator::llm::LlmBackendConfig>,
-    select: mdpeek_gui::select::SelectConfig,
+    aids: mdpeek_server::AdaptiveSetup,
 ) {
     init_tracing();
     tracing::info!(
@@ -164,7 +221,7 @@ fn handle_serve(
     // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
     // picks a valid active file, so we hand off even when `root` doesn't exist
     // (e.g. the default README.md is absent) rather than bailing out here.
-    serve(root, host, port, theme, gui_llm, select);
+    serve(root, host, port, theme, gui_llm, aids);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {
@@ -321,9 +378,9 @@ fn init_tracing() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         tracing_subscriber::fmt()
-            .with_env_filter(
-                quiet_http(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))),
-            )
+            .with_env_filter(quiet_http(
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            ))
             .with_ansi(true)
             .without_time()
             .init();

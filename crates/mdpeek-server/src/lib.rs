@@ -1,4 +1,5 @@
 mod adaptive;
+pub use adaptive::{AdaptiveSetup, write_default_model};
 mod explorer;
 mod scrolly;
 
@@ -27,7 +28,6 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use mdpeek_gui::generator::llm::LlmBackendConfig;
-use mdpeek_gui::select::SelectConfig;
 use mdpeek_render_html::HtmlEmitter;
 use mdpeek_watcher::watch_channel;
 
@@ -78,7 +78,7 @@ pub fn serve(
     port: String,
     theme: Theme,
     llm: Option<LlmBackendConfig>,
-    select: SelectConfig,
+    aids: AdaptiveSetup,
 ) {
     // Discover the enclosing repo/worktrees from where the user ran mdpeek so
     // the explorer sidebar (#14) works regardless of the file argument.
@@ -89,7 +89,7 @@ pub fn serve(
     let active = explorer::initial_active(&watch_path, &scan_root).unwrap_or(watch_path);
 
     let (tx, _) = broadcast::channel::<Message>(16);
-    let adaptive = Arc::new(adaptive::Adaptive::new(select));
+    let adaptive = Arc::new(adaptive::Adaptive::new(aids));
     let file_path = Arc::new(RwLock::new(active.clone()));
     let theme = Arc::new(RwLock::new(theme));
     let (rewatch_tx, rewatch_rx) = std::sync::mpsc::channel::<WatchTarget>();
@@ -198,6 +198,11 @@ async fn run_server(state: AppState, host: String, port: String) -> Result<()> {
         .route("/api/select", post(select_handler))
         .route("/api/gui", get(gui_handler))
         .route("/api/adaptive", get(adaptive_handler))
+        .route("/api/adaptive/run", post(adaptive_run_handler))
+        .route("/api/adaptive/stop", post(adaptive_stop_handler))
+        .route("/api/models", get(models_handler))
+        .route("/api/models/active", post(models_active_handler))
+        .route("/api/models/default", post(models_default_handler))
         .route("/api/scrolly", get(scrolly_handler))
         .route("/api/scrolly/ask", post(scrolly_ask_handler))
         .route("/static/{*path}", get(static_handler))
@@ -240,7 +245,10 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
         Theme::Light => "light",
         Theme::Dark => "dark",
     };
-    let title = boot["title"].as_str().unwrap_or("markdown-peek").to_string();
+    let title = boot["title"]
+        .as_str()
+        .unwrap_or("markdown-peek")
+        .to_string();
     Html(render_shell(&title, theme, &boot))
 }
 
@@ -254,7 +262,10 @@ fn render_shell(title: &str, theme: &str, boot: &serde_json::Value) -> String {
         .replace("</", "<\\/")
         .replace("<!--", "<\\u0021--");
     include_str!("../../../static/index.html")
-        .replace("{{ title }}", &escape_html_min(title).replace('"', "&quot;"))
+        .replace(
+            "{{ title }}",
+            &escape_html_min(title).replace('"', "&quot;"),
+        )
         .replace("{{ theme }}", theme)
         .replace("{{ boot }}", &json)
 }
@@ -390,7 +401,10 @@ async fn gui_handler(State(state): State<AppState>) -> impl IntoResponse {
                 .into_response()
         }
         Err(e) => {
-            error!("gui: generation task panicked for '{}': {e}", file_path.display());
+            error!(
+                "gui: generation task panicked for '{}': {e}",
+                file_path.display()
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
@@ -465,7 +479,10 @@ async fn scrolly_handler(
             Json(guide).into_response()
         }
         Ok(Err(e)) => {
-            error!("scrolly: generation failed for '{}': {e}", file_path.display());
+            error!(
+                "scrolly: generation failed for '{}': {e}",
+                file_path.display()
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
@@ -580,19 +597,15 @@ fn escape_html_min(s: &str) -> String {
 
 /// `GET /api/tree` — the discovered repo/worktree markdown tree plus the
 /// currently active file, for the explorer sidebar (#14).
-/// `GET /api/adaptive` — the current file's AdaptiveLayout (R6). Never waits on
-/// the network: see [`adaptive::Adaptive::for_get`] (a `pending` rules layout
-/// is returned while a networked selection runs and is pushed over the WS).
+/// `GET /api/adaptive` — the current file's AdaptiveLayout (R6). Never asks a
+/// model: the last pushed layout for this revision, or the cached decisions
+/// (see [`adaptive::Adaptive::for_get`]). Runs are started with
+/// `POST /api/adaptive/run` and pushed over the WebSocket.
 async fn adaptive_handler(State(state): State<AppState>) -> impl IntoResponse {
     let file_path = { state.file_path.read().unwrap().to_path_buf() };
     let adaptive = Arc::clone(&state.adaptive);
-    let tx = state.tx.clone();
-    // Never waits on the network (rules/fake are sub-millisecond; a networked
-    // selector answers with a `pending` rules layout and pushes the real one
-    // over the WebSocket). Run off the async runtime anyway: it reads the file
-    // and the Jev client drives its own runtime.
-    let result =
-        tokio::task::spawn_blocking(move || adaptive.for_get(&file_path, &tx)).await;
+    // Reads the file and may read the disk cache: off the async runtime.
+    let result = tokio::task::spawn_blocking(move || adaptive.for_get(&file_path)).await;
     match result {
         Ok(Ok(layout)) => Json(serde_json::to_value(layout).unwrap_or_default()).into_response(),
         Ok(Err(e)) => (
@@ -600,6 +613,72 @@ async fn adaptive_handler(State(state): State<AppState>) -> impl IntoResponse {
             Json(serde_json::json!({ "error": format!("cannot read file: {}", e.kind()) })),
         )
             .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// `POST /api/adaptive/run` — start (or resume) choosing aids.
+async fn adaptive_run_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    state.adaptive.start(file_path, state.tx.clone());
+    StatusCode::ACCEPTED
+}
+
+/// `POST /api/adaptive/stop` — stop the running selection.
+async fn adaptive_stop_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let adaptive = Arc::clone(&state.adaptive);
+    let tx = state.tx.clone();
+    let _ = tokio::task::spawn_blocking(move || adaptive.stop(&file_path, &tx)).await;
+    StatusCode::ACCEPTED
+}
+
+/// `GET /api/models` — the models from the config and the one in use.
+async fn models_handler(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.adaptive.models_info())
+}
+
+#[derive(Deserialize)]
+struct ModelRequest {
+    name: String,
+}
+
+fn model_error(msg: String) -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg })),
+    )
+        .into_response()
+}
+
+/// `POST /api/models/active` — use another model for this session.
+async fn models_active_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ModelRequest>,
+) -> impl IntoResponse {
+    let file_path = { state.file_path.read().unwrap().to_path_buf() };
+    let adaptive = Arc::clone(&state.adaptive);
+    let tx = state.tx.clone();
+    let res =
+        tokio::task::spawn_blocking(move || adaptive.set_active(&req.name, file_path, tx)).await;
+    match res {
+        Ok(Ok(())) => Json(state.adaptive.models_info()).into_response(),
+        Ok(Err(e)) => model_error(e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// `POST /api/models/default` — save a model as the default in `config.toml`.
+async fn models_default_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ModelRequest>,
+) -> impl IntoResponse {
+    let adaptive = Arc::clone(&state.adaptive);
+    let tx = state.tx.clone();
+    let res = tokio::task::spawn_blocking(move || adaptive.set_default(&req.name, &tx)).await;
+    match res {
+        Ok(Ok(())) => Json(state.adaptive.models_info()).into_response(),
+        Ok(Err(e)) => model_error(e),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -785,8 +864,14 @@ mod tests {
         let rest = &page[start..];
         let body_start = rest.find('>').unwrap() + 1;
         let close = rest.find("</script>").unwrap();
-        let json: serde_json::Value = serde_json::from_str(&rest[body_start..close]).expect("intact JSON");
-        assert!(json["html"].as_str().unwrap().contains("</script><script>alert(1)"));
+        let json: serde_json::Value =
+            serde_json::from_str(&rest[body_start..close]).expect("intact JSON");
+        assert!(
+            json["html"]
+                .as_str()
+                .unwrap()
+                .contains("</script><script>alert(1)")
+        );
         assert_eq!(json["revision"], 3);
     }
 

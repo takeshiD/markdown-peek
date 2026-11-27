@@ -1,4 +1,4 @@
-//! Selection evaluation (design §7, R9): compare selectors against hand labels.
+//! Selection evaluation (design §7, R9): compare models against hand labels.
 //!
 //! Fixtures: `<dir>/*.md` plus `<dir>/labels.json`:
 //!
@@ -9,9 +9,9 @@
 //! Metrics per provider: section-level agreement, *none appropriateness*
 //! (share of `none`-labelled sections where nothing was shown), widget recall
 //! (share of widget-labelled sections where the exact widget was shown) and
-//! select latency p50/p95 over `runs` cold-cache runs per document. A provider
-//! that cannot run (e.g. Jev without key / opt-in) is reported as `not_run`
-//! with the reason — never with numbers.
+//! select latency p50/p95 over `runs` cold-cache runs per document. A model
+//! that cannot run (bad entry, key not set) is reported as `not_run` with the
+//! reason — never with numbers.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -19,7 +19,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use super::{Provider, SelectConfig, SelectionCache, adaptive_layout};
+use super::{ModelSpec, SelectConfig, SelectionCache, adaptive_layout};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Mismatch {
@@ -96,6 +96,7 @@ fn run_provider(
     docs: &[(String, String)],
     labels: &Labels,
     cfg: &SelectConfig,
+    spec: &ModelSpec,
     runs: usize,
 ) -> ProviderReport {
     let mut times = Vec::new();
@@ -110,17 +111,19 @@ fn run_provider(
     for (name, md) in docs {
         let mut last = None;
         for _ in 0..runs.max(1) {
-            let cache = SelectionCache::new(cfg.cache_entries);
+            let cache = SelectionCache::new(256);
             let t = Instant::now();
-            let l = adaptive_layout(md, Some(name), cfg, &cache, 0);
+            let l = adaptive_layout(md, Some(name), cfg, spec, &cache, 0);
             times.push(t.elapsed().as_secs_f64() * 1000.0);
-            if let Some(f) = &l.selector.fallback {
+            if let Some(f) = &l.selector.error {
                 *fallbacks.entry(f.clone()).or_default() += 1;
             }
             last = Some(l);
         }
         let l = last.unwrap();
-        let Some(lab) = labels.get(name) else { continue };
+        let Some(lab) = labels.get(name) else {
+            continue;
+        };
         for (heading, expected) in lab {
             let got = l
                 .placements
@@ -153,12 +156,18 @@ fn run_provider(
         }
     }
     times.sort_by(|a, b| a.total_cmp(b));
-    let ratio = |a: usize, b: usize| (b > 0).then(|| (a as f64 / b as f64 * 1000.0).round() / 1000.0);
+    let ratio =
+        |a: usize, b: usize| (b > 0).then(|| (a as f64 / b as f64 * 1000.0).round() / 1000.0);
     ProviderReport {
-        provider: cfg.provider.as_str().into(),
-        status: if fallbacks.is_empty() { "ok" } else { "degraded" }.into(),
+        provider: spec.name.clone(),
+        status: if fallbacks.is_empty() {
+            "ok"
+        } else {
+            "degraded"
+        }
+        .into(),
         reason: (!fallbacks.is_empty())
-            .then(|| "some runs fell back to rules; numbers include those runs".into()),
+            .then(|| "some runs failed (no aids shown); numbers include those runs".into()),
         docs: Some(docs.len()),
         labelled_sections: Some(total),
         accuracy: ratio(agree, total),
@@ -171,8 +180,13 @@ fn run_provider(
     }
 }
 
-/// Evaluate rules (always) and Jev (only when opted in and a key is present).
-pub fn evaluate(dir: &Path, base: &SelectConfig, runs: usize) -> anyhow::Result<EvalReport> {
+/// Evaluate each model that can run; the others are reported as `not_run`.
+pub fn evaluate(
+    dir: &Path,
+    base: &SelectConfig,
+    models: &[ModelSpec],
+    runs: usize,
+) -> anyhow::Result<EvalReport> {
     let labels_text = std::fs::read_to_string(dir.join("labels.json"))
         .map_err(|e| anyhow::anyhow!("reading {}/labels.json: {e}", dir.display()))?;
     let labels: Labels = serde_json::from_str(&labels_text)?;
@@ -201,34 +215,14 @@ pub fn evaluate(dir: &Path, base: &SelectConfig, runs: usize) -> anyhow::Result<
     doc_types.dedup();
 
     let mut providers = Vec::new();
-    let rules = SelectConfig {
-        provider: Provider::Rules,
-        ..base.clone()
-    };
-    providers.push(run_provider(&docs, &labels, &rules, runs));
-
-    let jev = SelectConfig {
-        provider: Provider::Jev,
-        ..base.clone()
-    };
-    let key_set = std::env::var(super::API_KEY_ENV).is_ok_and(|k| !k.trim().is_empty());
-    if !jev.allow_network {
-        providers.push(ProviderReport::not_run(
-            "jev",
-            "未実行 (not run): external sending not allowed ([select] allow_network = false; pass --allow-network)".into(),
-        ));
-    } else if !key_set {
-        providers.push(ProviderReport::not_run(
-            "jev",
-            format!("未実行 (not run): {} is not set", super::API_KEY_ENV),
-        ));
-    } else if !cfg!(feature = "llm") {
-        providers.push(ProviderReport::not_run(
-            "jev",
-            "未実行 (not run): built without the `llm` feature".into(),
-        ));
-    } else {
-        providers.push(run_provider(&docs, &labels, &jev, runs));
+    for spec in models {
+        match spec.problem() {
+            Some(p) => providers.push(ProviderReport::not_run(
+                &spec.name,
+                format!("未実行 (not run): {p}"),
+            )),
+            None => providers.push(run_provider(&docs, &labels, base, spec, runs)),
+        }
     }
 
     Ok(EvalReport {
