@@ -16,7 +16,7 @@ Markdown Peek（`mdpeek`）は、リポジトリを理解する軽量な CLI ツ
 ### 現在使えるもの
 - ⚡ 高速 — すべてのアセットを埋め込んだ単一バイナリ
 - 🔄 その場でのライブ更新 — 変更したブロックだけを再描画し（ページ全体は再読み込みしない）、スクロール位置を保ち、変更箇所を一時的に強調表示
-- 🌐 ブラウザプレビュー — Read / Adaptive の 2 モード、出典にリンクした読書補助と、**本文内に表示するチャート・ノードグラフ・比較カード**、コマンドパレット（Ctrl/⌘K）、現在のブランチのファイルエクスプローラ、アウトラインと見出しのあいまい検索、front matter パネル、light / dark / system テーマ、キーボードだけでの操作
+- 🌐 ブラウザプレビュー — 出典にリンクした読書補助（**本文内に表示するチャート・ノードグラフ・比較カード**など）を 1 つのトグルでオン / オフ。読書補助は選んだモデルが決めます: **Jev**（推奨）、他の Decision Model（GPT-6 Luna Decision、Gemini Decision、Microsoft Decision）、通常の LLM（Claude、GPT、GLM、DeepSeek など）。生成中のスピナー、中止 / 再開、ディスクへの判断キャッシュ付き。ほかに、コマンドパレット（Ctrl/⌘K）、現在のブランチのファイルエクスプローラ、アウトラインと見出しのあいまい検索、front matter パネル、light / dark / system テーマ、キーボードだけでの操作
 - 🖥️ 対話型ターミナルビューア（TUI） — スクロール、折り返し、vim 風の検索、ちらつきのないライブ更新
 - 📝 GitHub Flavored Markdown（GFM）。GitLab Flavored Markdown（GLFM）は対応予定
 - ⚙️ TOML（XDG）で簡単に設定
@@ -45,14 +45,21 @@ mdpeek
 
 ### ブラウザ UI
 
-![Adaptive モード: 本文内のチェックリストとステップの操作、ノードグラフで RETRY の行き先をたどる、アウトラインをフローティングにしてドラッグ、比較カードを観点で絞る、棒グラフの指標切り替え、折れ線グラフの読み取り、Read モードへの切り替え](docs/design/media/adaptive-tour.gif)
+![読書補助がスピナーとともに 1 つずつ入ってくる様子、本文内のチェックリストとステップの操作、ノードグラフで RETRY の行き先をたどる、比較カードを観点で絞る、このセッションだけモデルを切り替えてデフォルトにする、読書補助のオフ / オン](docs/design/media/adaptive-tour.gif)
 
-画面は、上部バー（リポジトリ / ファイルのパンくず、選択器の状態、表示モード、**View** メニュー、コマンドパレット、テーマ）、左の **Files**、文書本体、右の **Outline** で構成されます。Adaptive モードでは、文書の中に*読書補助*が入ります。読書補助は文書から作った小さな widget（ステップ、チェックリスト、コマンド、チャート、ノードグラフ、比較カード、リスク、アクションアイテムなど）で、**抽出元の行の直後に本文の一部として**表示され、それぞれその行にリンクしています。読書補助用のサイドペインはありません。
+画面は、上部バー（リポジトリ / ファイルのパンくず、**読書補助の操作**、**View** メニュー、コマンドパレット、テーマ）、左の **Files**、文書本体、右の **Outline** で構成されます。読書補助をオンにすると、文書の中に小さな widget（ステップ、チェックリスト、コマンド、チャート、ノードグラフ、比較カード、リスク、アクションアイテムなど）が入ります。widget は文書から作ったもので、**抽出元の行の直後に本文の一部として**表示され、それぞれその行にリンクしています。表の下にチャート、リストの下にステップナビ、コードの下にコピーできるコマンド、という配置です。文書全体にかかる補助（役割別アウトライン、用語集など）は、冒頭のセクションの後に折り畳んで置きます。読書補助用のサイドペインはありません。
 
-| モード | キー | 表示内容 |
-|---|---|---|
-| **Read** | `1` | 本文のみ |
-| **Adaptive** | `2` | 読書補助を含んだ本文。表の下にチャート、リストの下にステップナビ、コードの下にコピーできるコマンド。文書全体にかかる補助（役割別アウトライン、用語集など）は、冒頭のセクションの後に折り畳んで置きます |
+読書補助の操作（左から順に）:
+
+| 操作 | 内容 |
+|---|---|
+| **Aids** トグル（`a`） | 読書補助のオン / オフ。オフなら本文のみ。モデルが選んでいる間は、トグルに**スピナー**が出ます |
+| **モデル**メニュー | 設定ファイルのモデル（`[models.<名前>]`）の一覧。ここで選んだモデルは**このセッションだけ**有効です。設定に問題があるモデルは理由付きで表示され、選べません |
+| **Make default** | デフォルト以外のモデルを使っているときだけ表示されます。押すと、そのモデルを設定ファイルの `[model] use` に保存します（コメントやほかの設定はそのまま残ります） |
+| 状態 | Choosing *n/N*、Ready、Stopped、Failed。ポップオーバーには、判断したモデル、送った内容、文書の種類、キャッシュの場所を表示します |
+| **Stop** / **Resume** | 選んでいる途中で止めます（それまでに選ばれた補助は残ります）。Resume では、まだ答えのないセクションだけを問い合わせます（判断はセクションごとにキャッシュされます） |
+
+設定に問題がある場合（キーの環境変数が未設定、設定ファイルにキーを直接書いた、未知の `api`、廃止した `[select]` セクションなど）は、問題の内容と設定ファイルの場所を**通知**で知らせます。
 
 - **チャート**: 列が数値（`120 ms`、`$4.20`、`35%`、`1,200`）の表は棒グラフに、行が日付・月・四半期・バージョンの表は折れ線グラフになります。値はすべて表のセルを読み取ったもので、推定した値はありません。ツールチップとスクリーンリーダー向けの表には、セルの文字列をそのまま表示します。単位が混在する列、行番号 / ID の列、文字列の列はグラフにしません。数値の列が複数ある表は、切り替えスイッチで 1 つずつ表示します（2 軸のグラフにはしません）。折れ線グラフはフォーカスして ← / → で値を読めます。
 - **ノードグラフ**: リストに矢印で書いた流れ（`Planning (Orchestrator) → Frontend, Backend`、`Verification --PASS--> Release`、`A -->|RETRY| B`）や、*from* / *to* 列を持つ表を、上から下へのグラフとして描きます。本流の後に書かれ、ループを閉じる辺（やり直しなど）は破線になります。グラフの下のチップ（またはノード自体）でノードを選ぶと、文書に書かれた説明（`- **名前**: …` または `名前 (補足)`）、どこから来てどこへ行くかを表示します。ラベル付きの出口を持つノードには切り替え（例: *PASS / RETRY*）が付き、その出口の行き先を強調します。
@@ -60,22 +67,23 @@ mdpeek
 
 - 読書補助は本文の写しではなく、**操作できる**ものです: チェックリストやアクションアイテムにチェックを付ける（進捗メーター付き）、手順を 1 ステップずつ進める（Step n of N、前へ / 次へ）、コマンドを 1 行ずつまたはまとめてコピーする（コマンドを実行することはありません）、表をソート・絞り込む。チェックと現在のステップは文書ごとにこのブラウザ内にだけ保存されます。**Markdown ファイルは一切変更されません**。*Reset to file* でファイルの内容どおりの状態に戻せます。
 - widget の行範囲（例: `L21–26`）をクリックすると、その行までスクロールして強調表示します。スクロールに合わせて、現在のセクションが Outline とその読書補助で強調されます。読書補助はタイトルから折り畳めます。
-- widget の ⓘ ボタンで、**なぜ選ばれたか**を確認できます: 選択器とモデル、confidence（確信度）、どれだけ役立つか（helps）、他の候補、fallback の有無。上部バーのドットは、選択器の状態（rules / jev / fake、選択中、fallback、エラー）を常に示します。
+- widget の ⓘ ボタンで、**なぜ選ばれたか**を確認できます: モデル、confidence（確信度）、どれだけ役立つか（helps）、他の候補。
+- モデルが新しく選んだ補助は、**少し行き過ぎて戻る動きで本文に入り**、薄い枠の光が消えていきます。何が追加されたかが分かります。キャッシュから再利用した補助は動かずに表示され、OS の「視差効果を減らす」設定では枠の光だけになります。
 - 読書補助を**固定（pin）**すると本文の先頭（タイトルの下）に移り、**非表示（hide）**にすると隠れます。どちらも文書ごとに記憶されます。隠したものは、本文の上の *n hidden* またはコマンドパレットから戻せます。
-- 編集後に新しい選択が実行されている間も、前回の widget は表示されたままです。古いバージョンのファイルに対する結果が表示されることはありません。
+- 編集後にモデルが選び直している間も、前回の widget は表示されたままです。古いバージョンのファイルに対する結果が表示されることはありません。
 - **Outline**（右）: 見出しのあいまい絞り込みと、スクロールに合わせた現在のセクションの強調。ヘッダーのボタンで文書の上に**フローティング**させられ（ヘッダーをドラッグ、またはグリップにフォーカスして矢印キーで移動）、サイドバーに**ドッキング**し直すこともできます。`]` で表示・非表示を切り替えます。
-- 左右のサイドバーは、区切りをドラッグするか、区切りにフォーカスして ← / → を押すとサイズを変えられます。`[` で Files を折り畳めます。モード、テーマ、サイズ、折り畳み状態、フローティング時の位置は再読み込み後も保たれます。
+- 左右のサイドバーは、区切りをドラッグするか、区切りにフォーカスして ← / → を押すとサイズを変えられます。`[` で Files を折り畳めます。読書補助のオン / オフ、テーマ、サイズ、折り畳み状態、フローティング時の位置は再読み込み後も保たれます。
 - **Files** には現在のブランチの Markdown が並びます。パンくずにはリポジトリ名とブランチ名を表示します。
 - **View** メニューには、**Guided reading**（`g`）、*Follow live changes*（変更箇所に追従）、ショートカット一覧があります。
-- モードを切り替えたりサイドバーを折り畳んだりしても、文書内の読んでいる位置は保たれます。
+- 読書補助をオン / オフしたりサイドバーを折り畳んだりしても、文書内の読んでいる位置は保たれます。
 - スマートフォン（狭い画面）では、読書補助を含んだ文書が画面いっぱいに表示され、Files / Outline はシートとして開きます。
 
 **キーボードショートカット**（アプリ内では `?` で表示。1 文字のキーはテキスト入力欄にフォーカスがないときに使えます）:
 
 | キー | 操作 |
 |---|---|
-| `Ctrl`+`K`（macOS では `⌘K`） | コマンドパレット: ファイルを開く、見出しへジャンプ、モードやテーマの切り替え、読書補助の選び直し、読書補助の固定 / 非表示 / 再表示 |
-| `1` / `2` | Read / Adaptive |
+| `Ctrl`+`K`（macOS では `⌘K`） | コマンドパレット: ファイルを開く、見出しへジャンプ、読書補助のオン / オフ、中止 / 再開、ほかのモデルを使う、それをデフォルトにする、テーマ、読書補助の固定 / 非表示 / 再表示 |
+| `a` | 読書補助のオン / オフ |
 | `[` | Files の折り畳み・展開 |
 | `]` | Outline の表示・非表示（ドッキング / フローティングとも） |
 | `/` | Outline の見出しを絞り込む |
@@ -85,7 +93,7 @@ mdpeek
 | フォーカスした区切りで `←` / `→` | ペインのサイズ変更 |
 | `Esc` | ダイアログ、シート、ポップオーバーを閉じる |
 
-既定では、読書補助は `rules` によってオフラインで選ばれます。**Jev はオプトイン**です: `[select]` で `provider = "jev"` **と** `allow_network = true` を設定し、`TYPESAFE_API_KEY` を export してください（[適応型の読書補助](#適応型の読書補助-select)を参照）。そうしない限り、何も外部へ送信されません。Jev が使えない場合は、UI がその旨（fallback）を表示し、ルールによる選択を表示します。
+読書補助は**モデル**が選びます（既定は Jev。[読書補助とモデル](#読書補助とモデル)を参照）。読書補助がオンのとき、`mdpeek` は選んだモデルに見出し、セクションごとの短い抜粋、数値の特徴量を送ります。ファイル全体は送りません。外に出してはいけない文書では、読書補助をオフにしてください（`[aids] default = "off"` で最初からオフにもできます）。モデルが答えられない場合、読書補助は表示されず、UI がその理由を示します。
 
 ### Web UI のビルド
 
@@ -93,7 +101,7 @@ UI は `web/` にある React 19 + Tailwind CSS v4 + shadcn/ui のアプリで�
 
 ```sh
 cd web && npm ci && npm run build     # web/dist を再ビルド（再現性あり: scripts/check-web-dist.sh）
-npm run test:e2e                      # 実際の mdpeek に対する Playwright E2E（fake 選択器、キー不要、ネットワーク不要）
+npm run test:e2e                      # 実際の mdpeek に対する Playwright E2E（テスト専用の fake モデル、キー不要、ネットワーク不要）
 ```
 
 E2E はシステムの Chrome を使います（パスは `MDPEEK_CHROME` で上書き可能。Playwright 自身のブラウザダウンロードは使いません）。また、`docs/design/screenshots/` の参照スクリーンショットも更新します。
@@ -192,58 +200,106 @@ theme = "glow"
 pager = "less -R"
 ```
 
-## 適応型の読書補助 (`[select]`)
+## 読書補助とモデル
 
-`mdpeek select <file>` は **AdaptiveLayout** JSON を出力します。セクションごとに、どの読書補助 widget（ステップナビ、チェックリスト、表ビュー、チャート、ノードグラフ、比較カード、コマンド一覧、タイムライン、リスク callout など）を表示するか、または表示しない理由（`skipped`）が入っています。`mdpeek serve` は同じレイアウトを `GET /api/adaptive` で返し、ファイルが変わるたびに WebSocket で `{"type":"adaptive","revision":N,"layout":{…}}` を送ります（debounce あり、既定 800 ms。古い revision の結果は破棄され、変更のないセクションはメモリ内の判断を再利用します。ディスクには何も書き込みません）。
+`mdpeek serve` は、モデルが選んだ読書補助を表示します。`mdpeek select <file>` は同じ選択を **AdaptiveLayout** JSON として出力します。JSON には、セクションごとにどの widget（ステップナビ、チェックリスト、表ビュー、チャート、ノードグラフ、比較カード、コマンド一覧、タイムライン、リスク callout など）を表示するか、または表示しない理由が入っています。
 
-widget の*内容*は常に文書から決定的に抽出され、ソース行の範囲を持ちます。選択器は、そのセクションにすでに適合している候補の中から選ぶだけです。
+**モデルは選ぶだけで、内容は書きません。** widget はすべて文書から決定的に抽出したもので、抽出元の行範囲を持ちます。モデルは、各セクションに当てはまる候補の中から選び、どれだけ役立つかを答えるだけです。
 
-| キー（`[select]`） | 既定値 | 説明 |
-|---|---|---|
-| `provider` | `rules` | `rules`（オフライン）、`jev`（TypeSafe AI の Jev）、`fake`（台本どおりに答える。テスト / E2E 用） |
-| `allow_network` | `false` | `jev` が送信するには `true` が必要 |
-| `model` / `base_url` | `jev-1.14.0` / `https://api.typesafe.ai` | Jev のモデルとエンドポイント |
-| `timeout_ms` | `4000` | リクエスト全体の期限（429 / 529 は `retry-after` を尊重して最大 1 回再試行） |
-| `helps_threshold` / `confidence_threshold` | `0.5` / `0.6` | Jev が役に立たないと判断した widget / 確信が持てない widget を隠す |
-| `debounce_ms` | `800` | `serve`: 変更後、選び直すまでの待ち時間 |
-| `fake_script` | – | `provider = "fake"` 用の JSON 台本 |
+### モデルの種類
 
-**外部送信はオプトインです。** `provider = "jev"` **かつ** `allow_network = true`（または `mdpeek select --provider jev --allow-network`）でない限り、何も外部へ送信されません。送信する場合、Jev には文書ごとに 1 回、見出し、セクションごとの短い抜粋（600 文字以内）、数値の特徴量を送ります。全文は送りません。機密文書は `rules` のままにしてください。
+| `api` | 種類 | 例 | エンドポイント（`base_url` + …） | キーのヘッダー |
+|---|---|---|---|---|
+| `systemone` | Decision Model | **TypeSafe Jev（推奨）**、GPT-6 Luna Decision、Gemini Decision 1、Microsoft Decision | `/v1/systemone` | `Authorization: Bearer`（Azure では `auth = "api-key"`） |
+| `anthropic` | LLM | Claude Haiku / Sonnet / Opus | `/v1/messages` | `x-api-key`（OpenCode 経由では `auth = "bearer"`） |
+| `openai` | LLM | GPT-6 Luna / Sol（Responses API） | `/v1/responses` | `Authorization: Bearer` |
+| `openai_chat` | LLM | GLM、DeepSeek、Kimi など（OpenAI 互換） | `/v1/chat/completions` | `Authorization: Bearer` |
+| `claude_code` / `codex` | LLM | このマシンでサインイン済みの `claude` / `codex` CLI | – | – |
 
-**API キーは、`mdpeek` プロセスの環境変数 `TYPESAFE_API_KEY` からのみ読み込みます。** `config.toml` やコマンドラインでは設定できず、表示・ログ出力・ブラウザへの返却も一切しません。キーがない場合、またはタイムアウト、401、429 / 529、5xx、不正な応答、ネットワーク不通の場合、`mdpeek` は `rules` にフォールバックし、その理由を `selector.fallback` に記録します。
+Decision Model は質問に直接答えます（yes / no の質問には確率、選択の質問には選んだ候補と確信度）。LLM には同じ質問を JSON のプロンプトとして渡し、同じ形の JSON で答えてもらいます。JSON のない文章だけの回答は不正な回答として扱います。LLM に読書補助の中身まで書かせる機能はありません（issue #58 で検討中）。
+
+### 設定
+
+```toml
+[aids]
+default = "on"           # トグルの初期状態: "on" | "off"
+auto_generate = true     # 文書を開いたら選び始める。false なら利用者が開始するまで待つ
+
+[model]
+use = "jev"              # デフォルトのモデル（[models] のキー）
+timeout_ms = 30000       # 1 リクエストの上限時間
+batch_sections = 8       # 1 リクエストで問い合わせるセクション数（中止 / 再開の単位）
+excerpt_chars = 600      # セクションごとにモデルへ送る抜粋の上限
+max_state_chars = 24000  # 1 リクエストで送る総量の上限
+helps_threshold = 0.5    # モデルが「役立たない」と見た補助を隠す…
+confidence_threshold = 0.6  # …または自信のない補助を隠す
+debounce_ms = 800        # serve: 編集後、選び直すまでの待ち時間
+
+[models.jev]                       # TypeSafe に直接
+api = "systemone"
+model = "jev-1.14.0"
+api_key_env = "TYPESAFE_API_KEY"   # 環境変数の「名前」。キーそのものは書かない
+
+# OpenCode 経由（以下のモデルは 1 つのキーで使える）
+[models.gpt-luna]
+api = "systemone"
+model = "gpt-6-luna-decision"
+base_url = "https://opencode.ai/inference/systemone"
+api_key_env = "OPENCODE_API_KEY"
+
+[models.gemini]
+api = "systemone"
+model = "gemini-decision-1"
+base_url = "https://opencode.ai/inference/systemone"
+api_key_env = "OPENCODE_API_KEY"
+
+[models.haiku]
+api = "anthropic"
+model = "claude-haiku-5-5"
+base_url = "https://opencode.ai/inference/anthropic"
+api_key_env = "OPENCODE_API_KEY"
+auth = "bearer"
+
+[models.glm]
+api = "openai_chat"
+model = "glm-5.3"
+base_url = "https://opencode.ai/inference/openai"
+api_key_env = "OPENCODE_API_KEY"
+
+# Azure Foundry の Microsoft Decision（`model` にはデプロイ名）
+[models.microsoft]
+api = "systemone"
+model = "<デプロイ名>"
+base_url = "https://<リソース名>.services.ai.azure.com/providers/microsoft"
+api_key_env = "AZURE_API_KEY"
+auth = "api-key"
+
+[cache]
+enabled = true
+dir = "~/.cache/mdpeek"  # 既定: $XDG_CACHE_HOME/mdpeek、未設定なら ~/.cache/mdpeek
+max_size_mb = 100        # これを超えたら古いものから削除
+ttl_days = 30            # これより古い判断は使わない
+memory_entries = 256     # ディスクの前に置くプロセス内キャッシュの件数
+```
+
+`[models]` がない場合は、`jev`（TypeSafe、`TYPESAFE_API_KEY`）だけを使います。各エントリには `effort`（`low` 〜 `max`。Anthropic の `output_config.effort`、OpenAI の `reasoning.effort` になります）と `kind`（`decision` / `llm`。`api` と矛盾しないかを確認します）も書けます。
+
+**キー。** 各エントリには、キーを入れた環境変数の名前（`api_key_env`）を書きます。キーはリクエストを送るときにその環境変数から読み、表示・ログ出力・キャッシュ・ブラウザへの返却は一切しません。設定ファイルにキーそのものを書くと（`api_key = …`）、そのエントリは使えなくなります。`http://` は `localhost` 以外では使えません。
+
+**送る内容。** 見出し、セクションごとの抜粋（`excerpt_chars` 以内）、数値の特徴量です。ファイル全体は送りません。
+
+**キャッシュ。** 判断はセクションごとに（メモリ、次にディスクへ）保存されます。キーは、セクションの内容のハッシュ、モデル（api、エンドポイント、id、effort）、候補の一覧です。変わっていないセクションを 2 回問い合わせることはなく、中止した実行は止めたところから再開できます。ディスクに書くのは候補の id と数値だけで（ファイル名は SHA-256 のダイジェスト）、文書の文章・見出し・キーは書きません。`[cache] enabled = false` にすると、メモリだけに保存します。
+
+**失敗したとき。** 使えないモデル（設定の誤り、キーの環境変数が未設定、401 / 404、CLI がない）では読書補助を表示せず、理由と設定ファイルの場所を UI が通知します。タイムアウト、429 / 529（`retry-after` に従って 1 回だけ再試行）、5xx、不正な回答、ネットワーク不通では、実行がエラーで終わり、再試行できます。
 
 ```sh
-mdpeek select README.md                                  # rules、オフライン
-TYPESAFE_API_KEY=… mdpeek select README.md --provider jev --allow-network
-mdpeek select README.md --provider fake --fake-script tests/fake-select.json   # 台本どおり
-mdpeek select-eval tests/fixtures/select                 # 一致率 / none の適切さ / p50・p95
+mdpeek select README.md                     # デフォルトのモデル（[model] use）
+mdpeek select README.md --model gemini      # ほかのエントリ
+mdpeek serve README.md --model haiku        # このセッションだけほかのモデルを使う
+mdpeek select-eval tests/fixtures/select --model jev --model haiku   # 正解率 / none / p50-p95
 ```
 
-### fake 選択器の台本（`provider = "fake"`）
-
-キーなしでテストや Web E2E を行うために、`fake` は JSON の台本に従って答えます（例: [`tests/fake-select.json`](tests/fake-select.json)）。ネットワークには一切接続せず、同じ文書には毎回同じ答えを返します。
-
-```json
-{
-  "model": "fake-e2e",
-  "delay_ms": 0,
-  "fail": null,
-  "doc_type": { "value": "runbook", "confidence": 0.95 },
-  "document": { "widget": "ActionItems", "confidence": 0.9, "helps": 0.9 },
-  "sections": {
-    "Steps": { "widget": "StepNavigator", "confidence": 0.9, "helps": 0.9 },
-    "Commands": { "helps": 0.1 }
-  },
-  "default": "rules"
-}
-```
-
-- `sections` のキーはセクションの見出し（または位置による id `s0`、`s1`、…）です。各エントリには任意で `widget`（`StepNavigator`、`ConfigViewer:commands`、`DataTable:status`、`Callout:risk` などの候補 id。省略するとルールの選択）、`helps`、`confidence`（0〜1、既定 1）を指定できます。通常の閾値が適用されるので、`helps` / `confidence` が低いと widget は隠れます。そのセクションの候補にない id はルールにフォールバックします（`fallback_invalid_answer`）。
-- `document`: 文書レベルのパネル（`SemanticOutline`、`ActionItems`、`RiskPanel` など）。
-- `default`: 台本にないセクションの扱い。`"rules"`（既定）、`"missing"`（不正な回答として扱う）、またはエントリのオブジェクト。
-- `fail`: すべての呼び出しを、指定した fallback コード（例: `"timeout"`）で失敗させます。`delay_ms`: 疑似的な遅延（`timeout_ms` を超えると `timeout`）。
-- 台本がない・壊れている場合は `selector.fallback = "fake_script_error"` となり、理由（I/O エラーの種類または JSON エラーの位置）を stderr に出力します。
-
+`mdpeek select` は判断をメモリにだけ保存するので、実行するたびにモデルへ問い合わせます。
 
 # 対応状況
 ## ビューア

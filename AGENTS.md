@@ -35,6 +35,8 @@
 
 > **2026-11-27 追記(論点 A の実装変更)**: web UI ランタイムを Preact から **React 19** に変更した。Tailwind CSS v4 + shadcn/ui(radix-ui)を採用するにあたり、`preact/compat` 上で Dialog/Dropdown/Tooltip/cmdk のキーボード操作が壊れる・結果が実行ごとに揺れることを実測したため(比較表は [`docs/design/jev-adaptive-ui.md`](docs/design/jev-adaptive-ui.md) §6.1)。「単一の component tree で本文も生成 UI も描画する」という論点 A の意図は維持する。
 >
+> **2026-11-27 追記(論点 E の一部変更・読書補助の選択)**: 読書補助(Adaptive reading aids)の**選択結果**に限り、ディスクキャッシュを持つ。場所は `$XDG_CACHE_HOME/mdpeek`(未設定なら `~/.cache/mdpeek`)、`[cache] dir` で変更可、`[cache] enabled = false` でメモリのみ。保存するのは「セクションの内容ハッシュ + モデル + 候補一覧」をキーにした**候補 id と数値(confidence / helps)だけ**で、本文・見出し・抜粋・UI IR・API キーは書かない(ファイル名も SHA-256)。理由: 選択は外部モデル(Jev などの Decision Model、または通常の LLM)を前提にしたため、生成の中止/再開と再起動後の再利用が必要になった。生成 UI IR(`mdpeek gen` / `/api/gui`)の非永続方針は変えない。同時に、読書補助の**選択**から rules / fake を外した(候補の**抽出**は従来どおり決定的。fake はテスト専用で設定には出さない)。モデルが使えないときは補助を出さず、理由を UI に通知する。LLM に補助の中身まで生成させるかは issue #58 で検討する。
+>
 > **E と F の整合**: 恒久キャッシュを持たない(E)ため、`serve` 再起動や別プロセスでは LLM を再実行する。これは *rules-first(LLM 依存ノードだけ生成)* と *同一プロセス内メモリ再利用* で吸収する、というトレードオフを受け入れる。`mdpeek gen` はユーザーが出力先を指定する一回きりのエクスポートであり、自動管理される cache ではない。
 
 ---

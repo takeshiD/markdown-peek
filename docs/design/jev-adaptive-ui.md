@@ -427,6 +427,20 @@ kenshu-loop で受入済みの UI を、frontend-design の「批評」手順と
 - 状態は `outlineCollapsed` / `outlineSize` / `outlineFloating` / `outlineFloatPos` として保存する。旧 `railTab` は読み込み時に捨てる。モバイルは従来どおり Files / Outline のシート。
 - **検証**: E2E にドッキングの表示 / 非表示・サイズの保存、フローティングの表示・スクロール追従しないこと・スクロールスパイ・ドラッグとキー操作での移動・再読み込み後の位置・ドッキング復帰を追加した。全キーボード巡回テストもドッキング / フローティングの両方で行い、全停止点にフォーカス表示があることを確認した。スクリーンショットは `*-desktop-outline-floating.png`。
 
+### 11.10 追加要望: トグル 1 つ、モデル前提、モデル切り替え、キャッシュ、中止 / 再開(2026-11-27)
+
+Read / Adaptive のモードをやめ、読書補助のオン / オフを 1 つのトグル(`a`)にした。選択はモデル前提とし、rules と fake を設定から外した(候補の抽出は従来どおり決定的。fake はテスト専用の `api = "fake"` として残し、文書化しない)。
+
+- **モデル**: `[models.<名前>]` に並べ、`[model] use` がデフォルト。`api` は `systemone`(Decision Model: Jev、GPT-6 Luna Decision、Gemini Decision 1、Microsoft Decision)、`anthropic`、`openai`(Responses)、`openai_chat`(GLM・DeepSeek など)、`claude_code` / `codex`。Decision Model はどれも System One 形式で、URL・モデル id・キーのヘッダー(`Authorization: Bearer` / Azure の `api-key`)だけが違う。OpenCode では `https://opencode.ai/inference/systemone` に `jev-1.14`・`gpt-6-luna-decision`・`gemini-decision-1` があり、Microsoft Decision は Azure Foundry(`<endpoint>/providers/microsoft/v1/systemone`)にしかない。
+- **LLM**: System One と同じ質問を JSON のプロンプトで渡し、同じ `answers` の形で答えさせる(`jev::parse_response` で読むので、列挙した候補 id 以外は通らない)。散文だけの回答は `invalid_response`。中身の生成は issue #58 で検討。
+- **キー**: エントリは環境変数名(`api_key_env`)だけを持つ。`api_key = …` を書くとそのエントリは無効(値は保持しない)。
+- **バッチと中止 / 再開**: 未回答のセクションを読む順に `batch_sections`(既定 8)ずつ問い合わせ、文書の質問は最初のバッチに載せる。各バッチの答えはすぐキャッシュし、途中の layout を WS で push する。`POST /api/adaptive/stop` は取消フラグを立て、送信中の HTTP も 50ms 以内に打ち切る。`POST /api/adaptive/run` で再開すると、キャッシュにないセクションだけを問い合わせる。`GET /api/adaptive` はモデルを呼ばない(キャッシュだけで組んだ layout を返す)。
+- **キャッシュ**: メモリの LRU の後ろにディスク(`$XDG_CACHE_HOME/mdpeek/select/<2桁>/<sha256>.json`、0700)。書くのは候補 id と数値だけ。`ttl_days` を過ぎたものは使わず、`max_size_mb` を超えたら古い順に消す。AGENTS.md の論点 E に追記した。
+- **UI**: トグル(実行中はスピナー)、モデルメニュー(このセッションだけ切り替え。問題のあるモデルは理由付きで選べない)、デフォルト以外を使っているときだけ出る **Make default**(`toml_edit` で `[model] use` だけを書き換え、コメントは残す)、状態チップ、Stop / Resume。設定の誤りは通知(toast)で、問題と設定ファイルの場所を示す。同じ問題は 1 回だけ通知する。
+- **出現アニメーション**: run の push で新しく入った補助だけ、`cubic-bezier(0.34, 1.56, 0.64, 1)` の 560ms で下から少し行き過ぎて入り、枠の光が 1.6 秒で消える。同じバッチの補助は 70ms ずつずらす。キャッシュから再利用した補助、HTTP で取得した layout(再読み込み・ファイル切り替え)は動かさない。reduced motion では枠の光だけ。
+- **編集中の表示**: run が実行中の間、まだ答えていないセクションは前の補助を出したままにする(クライアント側で前の layout から引き継ぐ)。
+- **検証**: Rust のテストに、モデル定義の検証、ディスクキャッシュ(再起動後も残る、本文が書かれない、サイズ上限)、バッチ分割、中止 / 再開、Microsoft の `api-key` ヘッダー、Anthropic / OpenAI 互換の LLM(モック)、設定の書き戻しを追加した。E2E に、スピナーと中止 / 再開、モデル切り替えと Make default、設定エラーの通知、`auto_generate = false`、出現アニメーションを追加した。実サービスでは、TypeSafe の Jev で無害な fixture(architecture.md、deploy-guide.md)を確認した(1 セクションずつ 4 リクエスト、runbook 0.99)。OpenCode 経由のモデルは、トークン受領後に確認する。
+
 ## 12. ベンチマーク(実測, 2026-11-27)
 
 環境: NixOS / Chrome 158(Playwright, headless)/ release ビルド。ベースライン = `308e537`(起点ブランチ)。数値は 7 回の中央値。`docs/sample-design-doc.md`、rules。
