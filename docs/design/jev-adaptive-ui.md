@@ -81,6 +81,8 @@ markdown ──▶ mdpeek-parser BlockTree (stable BlockId, SourceRange)
 | `DataTable`/`sortable` | section | GFM table ≥3 行 | セル値(原文) | 表 |
 | `DataTable`/`status` | section | table に status 列 | 同上 + status 列判定 | 表 |
 | `Chart` (bar / line) | section | table ≥3 行に「単位が揃った数値列」≥1 + ラベル列(行番号・ID・年だけの列は数値扱いしない) | セルを parse した数値 + セル原文(tooltip) | 表 |
+| `NodeGraph` | section | 矢印の連鎖になっているリスト項目、または from / to 列を持つ表から、ノード ≥3・辺 ≥2 | ノード名・辺ラベル・`名前 (補足)` / `- **名前**: 説明` の原文 + 各行の range | 辺のリスト |
+| `Comparison` | section | 選択肢 2〜4 個 × スコア行 ≥2(数値 ≤5/10/100、★、◎○△×)の比較表 | セル値(原文) + 文書が明示した推奨(見出しの `(推奨)`、判定行、または推奨文) | 表 |
 | `ConfigViewer`/`commands` | section | shell/command code ≥2 | code 本文(実行しない) | コードそのまま |
 | `ConfigViewer`/`config` | section | json/yaml/toml code | parse 結果 | コード |
 | `Timeline` | section | 日付/バージョン見出し or 行 ≥3 | 日付 + 行 + range | リスト |
@@ -406,6 +408,15 @@ kenshu-loop で受入済みの UI を、frontend-design の「批評」手順と
 - **本文内表示**: Split モード(右ペイン)と欄外注を廃止し、モードは Read / Adaptive の 2 つ(`1` / `2`)。Adaptive では各補助を **抽出元ブロックの直後** に 1 つの slot として記事内に挿入する(表の直後にチャート、リストの直後にステップ)。文書レベルの補助は冒頭セクションの後に折り畳みで、pin した補助はタイトル直下へ移動する。補助は本文と同じ measure に収め、hairline 枠 + 1 段明るい面で本文と区別する(影・グラデーションなし)。保存済み `mode: "split"` は Adaptive に移行し、旧 `widgetsSize` / `groupBy` は捨てる。右側シートだった「Generated UI」(`/api/gui` のレンズ)も UI から外した(API と `mdpeek gen` は残す。文書レベルの rules レンズは Adaptive の文書レベル候補として本文内に出る)。
 - **チャート**(`UiNode::Chart`, `select/chart.rs`): 表の各列を「全非空セルが同じ単位で数値に parse できる」ときだけ指標列とみなし、ラベル列が日付・月・四半期・バージョンなら折れ線、それ以外は横棒。値はセルの parse 結果のみで、セル原文を `cells` に保持して tooltip / スクリーンリーダー用の表に出す(推定値なし)。単位混在・行番号・ID・年だけの列は描画しない。指標が複数でも 2 軸にせず、切替で 1 つずつ。dataviz スキルの指針(棒 ≤24px・データ端 4px 角丸・2px 線・hairline grid・単一系列は凡例なし・テキストは系列色を使わない・hover/キーボードで値)に従い、色は `--series-1`(light `#257de0` / dark `#338ced`)。rules スコアは bar 0.7 / line 0.75(+0.05 if ≥6 行)で DataTable:sortable(0.4/0.65)より上、Jev には他候補と同じく id だけを選ばせる。`REGISTRY_VERSION` を 2 に上げた。
 - **検証**: Rust 全テスト、web build、Playwright E2E 36 件 + スクリーンショット 12 件が通過。sr-only 表が記事外へはみ出してページ root がスクロールする不具合をスクリーンショットで見つけて修正(`.gui-chart { position: relative }`、E2E で root がスクロールしないことを確認)。
+
+### 11.8 追加要望: ノードグラフと比較カード(2026-11-27)
+
+ユーザーが添付したイメージ(実行フローのノードグラフ / アーキテクチャ比較カード)に対応する 2 種類の補助を追加した。どちらも文書の原文からの決定的抽出で、Jev は他の候補と同じく id を選ぶだけ(`REGISTRY_VERSION` 3)。
+
+- **`NodeGraph`**(`select/graph.rs`, `web/src/components/NodeGraph.tsx`): 抽出元は矢印のリスト項目(`→` `->` `=>` `⇒`、`--LABEL-->`、`-->|LABEL|`、`-[LABEL]->`、`,` / `、` で分岐・合流)と from / to(+ 条件)列の表。ノードの補足は `名前 (補足)` か同じ節の定義項目 `- **名前**: 説明`。40 字超・句点で終わる区間を含む項目は散文として扱う。レイアウトは、文書順に辺を足していき既存の辺と閉路を作る辺を戻り辺(破線、右側のガターを回る)にして、残りの最長路で層を決める。最初は DFS で戻り辺を決めていたが、`Verification --RETRY--> Backend` が木の辺に、`Backend → Verification` が戻り辺になって Backend が最下段に落ちることをスクリーンショットで見つけ、文書順の判定に変えた。ラベル付き出口が 2 種類以上あるノード(判定ノード)を最初に選び、出口の切り替え(PASS / RETRY)で行き先を強調する。SVG は `aria-hidden` で、操作はチップのボタン、内容は sr-only の辺リストで提供する。
+- **`Comparison`**(`select/compare.rs`, `web/src/components/Comparison.tsx`): 左上の見出しが観点名(`観点` `Criteria` や空)なら列が選択肢、選択肢名(`案` `Option` …)なら行が選択肢。スコア行は全セルが同じ尺度(5 / 10 / 100、★=5、◎○△×=3)で、`時間` `価格` `latency` などの測定値を表す行名は数値でも事実行として原文のまま表示する。大きな数字は「各スコアを満点で割った値の平均 ×100」で、カードに「Average of N scores」と明記する(重み付けは作らない)。**Recommended** は文書が推奨を明示した場合だけ(見出しの `(推奨)` / `✅`、`推奨` `結論` 行の単独の ◎・✓、または 1 つの選択肢名と推奨語を含む文)で、その文をカードの下に引用する。
+- **見た目**: イメージの構成(上から下のフロー、点のグリッド、判定ノードの強調、PASS 辺の強調と RETRY の破線 / カードの大きな数字・観点バー・事実行・推奨バッジ)を、本文の hairline 枠と `--series-1` の単色に合わせて作った。モバイルで推奨バッジが選択肢名を 1 文字ずつ折り返させていたのを、見出しの折り返しで修正した。
+- **検証**: Rust 単体テスト(graph 3 件、compare 3 件)、E2E 3 件(レイアウトの段、戻り辺、判定の切り替え、ノード詳細と出典ジャンプ、平均値、事実行、推奨バッジの有無、観点フォーカス、axe light / dark)、スクリーンショット(desktop / mobile × light / dark)。**実 Jev**(jev-1.14.0、無害な fixture)は `architecture.md` で NodeGraph(confidence 1.00 / helps 0.87)と Comparison(0.64 / 0.81)を選び、`metrics.md` では折れ線 Chart(0.84 / 0.80)を選んだ。サービス別レイテンシの棒グラフは confidence がしきい値 0.6 未満として表示しなかった(rules では表示する)。
 
 ## 12. ベンチマーク(実測, 2026-11-27)
 

@@ -16,7 +16,7 @@ Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watche
 ### Available now
 - ⚡ Fast — a single binary with all assets embedded
 - 🔄 Live, in-place updates — only the blocks you changed re-render (no full reload), your scroll position is kept, and changed blocks are briefly highlighted
-- 🌐 Browser preview with Read / Adaptive modes, source-linked reading aids and **charts set into the text**, a command palette (Ctrl/⌘K), a file explorer for the current branch, outline + fuzzy heading search, a front matter panel, light/dark/system themes, and full keyboard support
+- 🌐 Browser preview with Read / Adaptive modes, source-linked reading aids, **charts, node graphs and comparison cards set into the text**, a command palette (Ctrl/⌘K), a file explorer for the current branch, outline + fuzzy heading search, a front matter panel, light/dark/system themes, and full keyboard support
 - 🖥️ Interactive terminal viewer (TUI) — scrolling, wrapping, vim-style search, and live updates without flicker
 - 📝 GitHub Flavored Markdown (GFM); GitLab Flavored Markdown (GLFM) planned
 - ⚙️ Easy to configure via TOML (XDG)
@@ -46,9 +46,9 @@ The preview updates **in place** as you edit — only the blocks that changed re
 
 ### The browser UI
 
-![Adaptive mode: ticking a checklist and stepping through steps inside the text, switching a bar chart's measure, reading a line chart, and switching to Read mode](docs/design/media/adaptive-tour.gif)
+![Adaptive mode: ticking a checklist and stepping through steps inside the text, following a node graph's RETRY exit, focusing comparison cards on one criterion, switching a bar chart's measure, reading a line chart, and switching to Read mode](docs/design/media/adaptive-tour.gif)
 
-The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), a left rail with **Outline** and **Files**, and the document. In Adaptive mode the document carries *reading aids*: small widgets (steps, checklists, commands, charts, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines. There is no side pane.
+The window has a top bar (repository / file breadcrumb, selector status, view mode, a **View** menu, command palette, theme), a left rail with **Outline** and **Files**, and the document. In Adaptive mode the document carries *reading aids*: small widgets (steps, checklists, commands, charts, node graphs, comparison cards, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines. There is no side pane.
 
 | Mode | Key | What you see |
 |---|---|---|
@@ -56,6 +56,8 @@ The window has a top bar (repository / file breadcrumb, selector status, view mo
 | **Adaptive** | `2` | The text with its reading aids inside it: a chart under its table, a step navigator under its list, copyable commands under the code. Whole-document aids (outline by role, glossary, …) sit folded after the opening section. |
 
 - **Charts**: a table whose columns are measures (`120 ms`, `$4.20`, `35%`, `1,200`) becomes a bar chart, or a line chart when its rows are dates, months, quarters or versions. Every value is a parsed table cell — nothing is estimated — and the tooltip and the screen-reader table show the cell text exactly as written. A column with mixed units, row numbers / IDs, or text is never plotted; a table with several measures shows one at a time with a switch (never two axes). The line chart can be read with ← / → when focused.
+- **Node graphs**: a flow written as arrows in a list (`Planning (Orchestrator) → Frontend, Backend`, `Verification --PASS--> Release`, `A -->|RETRY| B`) or as a table with *from* / *to* columns is drawn top-down; an edge written after the main flow that closes a loop (a retry) is dashed. Pick a node (chips below the graph, or click it) to see its description from the document (`- **Name**: …` or `Name (subtitle)`), where it comes from and where it goes; a node with labelled exits gets a switch (e.g. *PASS / RETRY*) that highlights where that exit leads.
+- **Comparison cards**: a table comparing 2–4 options on scored criteria (numbers out of 5 / 10 / 100, ★★★☆☆, or ◎ ○ △ ×) becomes one card per option with the scores as bars; other rows (durations, prices, …) are shown verbatim. The figure is the plain average of the option's scores (labelled as such); *Focus* on one criterion shows that cell and marks the best option. A **Recommended** badge appears only when the document says which option it recommends (e.g. `… Agent Swarm を推奨する` or `(推奨)` in the header), and the sentence is quoted under the cards.
 
 - Reading aids are **operable**, not copies of the text: tick checklist / action items (with a progress meter), step through a procedure (Step n of N, previous / next), copy one command or all of them (commands are never run), sort and filter tables. Ticks and the current step are kept per document in this browser only; **the Markdown file is never modified**, and *Reset to file* returns to what the file says.
 - Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and on its aid. Fold any aid from its title.
@@ -192,7 +194,7 @@ pager = "less -R"
 ## Adaptive reading aids (`[select]`)
 
 `mdpeek select <file>` prints an **AdaptiveLayout** JSON: for each section, which
-reading-aid widget to show (step navigator, checklist, table view, chart, command list,
+reading-aid widget to show (step navigator, checklist, table view, chart, node graph, comparison cards, command list,
 timeline, risk callout, …) or why nothing is shown (`skipped`). `mdpeek serve`
 exposes the same layout at `GET /api/adaptive` and pushes
 `{"type":"adaptive","revision":N,"layout":{…}}` over the WebSocket after each file
