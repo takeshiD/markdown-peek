@@ -20,7 +20,7 @@ use crate::ir::node::*;
 
 /// Bumped whenever the candidate catalogue / prefilter / extraction changes.
 /// Part of the selection cache key.
-pub const REGISTRY_VERSION: u32 = 6;
+pub const REGISTRY_VERSION: u32 = 7;
 
 /// Deterministic features of a section (sent to Jev instead of the full text).
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -57,7 +57,7 @@ pub struct Features {
 /// One selectable widget for a section or the document.
 #[derive(Debug, Clone)]
 pub struct Candidate {
-    /// Stable option id, e.g. `"StepNavigator"` or `"ConfigViewer:config"`.
+    /// Stable option id, e.g. `"StepNavigator"` or `"NodeGraph:stages"`.
     pub id: &'static str,
     /// Short, fixed description used as the Jev `criteria` text.
     pub description: &'static str,
@@ -314,7 +314,6 @@ pub fn plan_document(
         // --- walk blocks ---
         let mut steps: Vec<Step> = Vec::new();
         let mut checklist: Vec<ChecklistItem> = Vec::new();
-        let mut configs: Vec<(ConfigFormat, String, SourceRange)> = Vec::new();
         let mut trees: Vec<(Vec<TreeEntry>, SourceRange)> = Vec::new();
         let mut events: Vec<TimelineEvent> = Vec::new();
         let mut tables: Vec<(Vec<String>, Vec<Vec<String>>, SourceRange)> = Vec::new();
@@ -401,7 +400,6 @@ pub fn plan_document(
                     } else {
                         code_lines.clone()
                     };
-                    let content = inner.join("\n");
                     let first_inner = if inner.len() < code_lines.len() { r.start_line + 1 } else { r.start_line };
                     let tree = (lang != "mermaid")
                         .then(|| super::tree::tree_from_code(&inner, first_inner))
@@ -418,9 +416,8 @@ pub fn plan_document(
                                 !t.is_empty() && !t.starts_with('#')
                             })
                             .count();
-                    } else if let Some(fmt) = config_format(&lang) {
+                    } else if config_format(&lang).is_some() {
                         f.config_blocks += 1;
-                        configs.push((fmt, content, r));
                     } else {
                         f.other_code_blocks += 1;
                         if DIAGRAM_LANGS.contains(&lang.as_str()) {
@@ -700,24 +697,10 @@ pub fn plan_document(
                 }),
             });
         }
-        // No "Commands" aid (#67): a copy of the section's shell blocks added
-        // little next to the blocks themselves, which now carry a copy button
-        // in the body. `shell_blocks` / `command_lines` stay as features.
-        if let Some((fmt, content, r)) = configs.first() {
-            let n = content.lines().count();
-            let s = if n >= 8 { 0.6 } else { 0.4 };
-            cands.push(Candidate {
-                id: "ConfigViewer:config",
-                description: "Structured viewer for the section's JSON/YAML/TOML config block",
-                score: s,
-                node: UiNode::ConfigViewer(ConfigViewerNode {
-                    meta: meta(*r, s),
-                    format: *fmt,
-                    content: content.clone(),
-                    title: (!heading.is_empty()).then(|| heading.clone()),
-                }),
-            });
-        }
+        // No "Commands" aid (#67) and no config viewer: a copy of the
+        // section's shell / JSON / YAML / TOML block added nothing next to the
+        // block itself, which carries a copy button in the body.
+        // `shell_blocks` / `command_lines` / `config_blocks` stay as features.
         if events.len() >= 3 {
             let s = if events.len() >= 5 { 0.75 } else { 0.6 };
             let r = span(events.iter().filter_map(|e| e.source_range)).unwrap();

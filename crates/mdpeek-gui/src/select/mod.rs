@@ -919,7 +919,8 @@ mod tests {
             .iter()
             .map(|p| p.why.candidate.as_str())
             .collect();
-        assert!(!kinds.contains(&"ConfigViewer:commands"), "{kinds:?}"); // removed, #67
+        // Removed: commands (#67) and the config viewer (the toml block above).
+        assert!(!kinds.iter().any(|k| k.starts_with("ConfigViewer")), "{kinds:?}");
         assert!(kinds.contains(&"StepNavigator"));
         assert!(l.skipped.iter().any(|s| s.anchor.heading == "License"));
         for p in &l.placements {

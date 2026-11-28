@@ -91,7 +91,6 @@ const ITEMS: Item[] = [
       click((a) => a.getByRole("button", { name: "Expand all" })),
     ],
   },
-  { id: "config", widget: "ConfigViewer:config", section: "設定ファイル" },
   { id: "timeline", widget: "Timeline", section: "リリース履歴" },
   { id: "callout-risk", widget: "Callout:risk", section: "リスク" },
   { id: "doc-outline", widget: "SemanticOutline" },
