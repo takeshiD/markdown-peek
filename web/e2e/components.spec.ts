@@ -102,7 +102,8 @@ const ITEMS: Item[] = [
 
 test.describe("component catalogue media", () => {
   test.skip(!process.env.MDPEEK_COMPONENT_MEDIA, "set MDPEEK_COMPONENT_MEDIA=1 to regenerate docs/components/media");
-  test.use({ viewport: { width: 1440, height: 1100 } });
+  // 2x pixels: sharp on high-density screens and when zoomed.
+  test.use({ viewport: { width: 1440, height: 1100 }, deviceScaleFactor: 2 });
 
   for (const it of ITEMS) {
     test.describe(it.id, () => {
