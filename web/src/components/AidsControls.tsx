@@ -51,7 +51,7 @@ export function AidsToggle({ compact }: { compact?: boolean }) {
         <Button
           variant="ghost"
           size="sm"
-          className={cn("h-8 gap-1.5 px-2 text-[13px] font-normal", on ? "bg-muted font-medium text-foreground" : "text-muted-foreground", compact && "size-11 px-0")}
+          className={cn("h-8 gap-1.5 px-2 text-[13px] font-normal", on ? cn("bg-primary/10 font-medium text-primary hover:bg-primary/15 hover:text-primary", !busy && "mp-genui-on") : "text-muted-foreground/60 hover:text-muted-foreground", compact && "size-11 px-0")}
           aria-pressed={on}
           aria-busy={busy || undefined}
           aria-label={busy ? "GenUI (choosing…)" : "GenUI"}

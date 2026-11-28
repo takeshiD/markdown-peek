@@ -1,6 +1,6 @@
 // Reading aids shown inside the document: the aid block itself, the "why this
 // aid" popover, and the strip above the text (errors, hidden-aid restore).
-import { useId, useState } from "react";
+import { useId, useState, type ReactElement } from "react";
 import {
   CalendarRange,
   ChartColumn,
@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +53,16 @@ import type { AdaptiveLayout, Placement } from "../lib/types";
 import { kindLabel, widgetKey } from "../lib/types";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+/** A short hover / focus hint for an icon action in a view's header. */
+function ActionTip({ tip, children }: { tip: string; children: ReactElement }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="bottom">{tip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 /** Placements to show, in reading order, pinned first; hidden ones removed. */
 export function useVisiblePlacements(): { visible: Placement[]; hidden: Placement[]; pinned: Set<string> } {
@@ -200,6 +211,7 @@ export function WidgetNote({
         <SourceLink range={r} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
         <span className="flex-1" />
         {replaces && (
+          <ActionTip tip={showingOriginal ? "Show as GenUI again" : "Show the original Markdown"}>
           <Button
             variant="ghost"
             size="sm"
@@ -207,14 +219,15 @@ export function WidgetNote({
             aria-pressed={showingOriginal}
             // A toggle keeps one name; aria-pressed carries the state (APG).
             aria-label={`Show the original ${title.toLowerCase()}`}
-            title={showingOriginal ? "Show as GenUI" : "Show the original Markdown"}
             onClick={() => toggleOriginal(p)}
             data-testid="show-original"
           >
             <FileText aria-hidden="true" /> <span className="max-sm:sr-only">Original</span>
           </Button>
+          </ActionTip>
         )}
         <WhyPopover p={p} layout={layout} />
+        <ActionTip tip={pinned ? "Unpin: back to its section" : "Pin: keep in view while you scroll"}>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -225,9 +238,12 @@ export function WidgetNote({
         >
           {pinned ? <PinOff /> : <Pin />}
         </Button>
+        </ActionTip>
+        <ActionTip tip="Hide: restore later from “hidden”">
         <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Hide ${title}`} onClick={() => hideWidget(p)}>
           <EyeOff />
         </Button>
+        </ActionTip>
       </header>
       {bodyOpen && (
         <div className="mp-aid__body">

@@ -167,3 +167,24 @@ test.describe("#65 a flow of the stages a section walks through", () => {
     await expect(page.locator("article h3", { hasText: "planner" })).toBeInViewport();
   });
 });
+
+test.describe("view header hints and the GenUI toggle state", () => {
+  test("pin / hide explain themselves on hover; the toggle is colored on and grayed off", async ({ page, server }) => {
+    await openApp(page, server);
+    const steps = page.locator('article [data-kind="StepNavigator"]');
+    await steps.getByRole("button", { name: "Pin Steps to the top" }).hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Pin: keep in view while you scroll");
+    await steps.getByRole("button", { name: "Hide Steps" }).hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Hide: restore later from “hidden”");
+    await page.mouse.move(0, 0);
+
+    const toggle = page.getByTestId("aids-toggle");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(toggle).toHaveClass(/mp-genui-on/);
+    const onColor = await toggle.evaluate((e) => getComputedStyle(e).color);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(toggle).not.toHaveClass(/mp-genui-on/);
+    expect(await toggle.evaluate((e) => getComputedStyle(e).color)).not.toBe(onColor);
+  });
+});
