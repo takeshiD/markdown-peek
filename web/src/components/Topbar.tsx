@@ -122,7 +122,7 @@ function IconToggle({ label, pressed, onClick, icon: Icon, shortcut }: { label: 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={label} aria-pressed={pressed} onClick={onClick} className={cn(pressed && "bg-muted text-primary")}>
+        <Button variant="ghost" size="icon-sm" aria-label={label} aria-pressed={pressed} onClick={onClick} className={cn(pressed && "bg-muted text-foreground")}>
           <Icon />
         </Button>
       </TooltipTrigger>
