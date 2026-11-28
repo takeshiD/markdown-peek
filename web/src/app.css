@@ -307,7 +307,7 @@
   }
   .mp-changed { animation: mp-changed 1.6s ease-out 1; border-radius: 3px; box-shadow: -7px 0 0 -4px var(--change); }
   @keyframes mp-hit { from { background-color: color-mix(in srgb, var(--primary) 16%, transparent); } to { background-color: transparent; } }
-  .mp-source-hit { animation: mp-hit 2.2s ease-out 1; box-shadow: -10px 0 0 0 var(--primary); border-radius: 4px; }
+  .mp-source-hit { animation: mp-hit 2.2s ease-out 1; border-radius: 4px; }
   /* Persistent (no-motion) fallbacks so state is still visible with reduced motion. */
   @media (prefers-reduced-motion: reduce) {
     .mp-changed { background-color: color-mix(in srgb, var(--change) 22%, transparent); }
