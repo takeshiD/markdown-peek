@@ -204,6 +204,8 @@ pager = "less -R"
 
 ## GenUI とモデル
 
+GenUI のコンポーネントの一覧（元の Markdown と画像、操作するものは GIF）は [docs/components.md](docs/components.md) にあります。
+
 `mdpeek serve` は、モデルが選んだ GenUI を表示します。`mdpeek select <file>` は同じ選択を **AdaptiveLayout** JSON として出力します。JSON には、セクションごとにどの widget（ステップナビ、チェックリスト、表ビュー、チャート、ノードグラフ、段階フロー、比較カード、ディレクトリツリー、タイムライン、リスク callout など）を表示するか、または表示しない理由が入っています。
 
 **モデルは選ぶだけで、内容は書きません。** widget はすべて文書から決定的に抽出したもので、抽出元の行範囲を持ちます。モデルは、各セクションに当てはまる候補の中から選び、どれだけ役立つかを答えるだけです。

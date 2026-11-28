@@ -205,6 +205,8 @@ pager = "less -R"
 
 ## GenUI and models
 
+Every GenUI component, with the Markdown it is built from and a picture (a GIF for the interactive ones), is in [docs/components.md](docs/components.md) (in Japanese).
+
 `mdpeek serve` shows GenUI views chosen by a model; `mdpeek select <file>` prints
 the same choice as an **AdaptiveLayout** JSON (for each section, which widget to
 show — step navigator, checklist, table view, chart, node graph, stage flow,

@@ -294,9 +294,18 @@ export function flash(els: Element[], cls: string, ms: number) {
 export interface HeadingInfo { id: string; level: number; text: string; line: number | null; el: HTMLElement }
 
 export function collectHeadings(article: HTMLElement): HeadingInfo[] {
+  // Two headings with the same text get the same id from the server; ids key
+  // the outline and are jump targets, so the later ones get "-1", "-2", … (as
+  // GitHub does). Duplicate keys left rows of the previous file in the outline.
+  const seen = new Map<string, number>();
   return (Array.from(article.querySelectorAll(":scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6")) as HTMLElement[]).map(
     (el, i) => {
       if (!el.id) el.id = `mp-h-${i}`;
+      const base = el.dataset.baseId ?? el.id;
+      el.dataset.baseId = base;
+      const n = seen.get(base) ?? 0;
+      seen.set(base, n + 1);
+      el.id = n ? `${base}-${n}` : base;
       const l = Number(el.dataset.lineStart);
       return { id: el.id, level: Number(el.tagName[1]), text: el.textContent?.trim() ?? "", line: Number.isFinite(l) ? l : null, el };
     },

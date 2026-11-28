@@ -206,7 +206,10 @@ test.describe("view header hints and the GenUI toggle state", () => {
     const steps = page.locator('article [data-kind="StepNavigator"]');
     await steps.getByRole("button", { name: "Pin Steps", exact: true }).hover();
     await expect(page.getByRole("tooltip").filter({ hasText: "Pin: keep in view while you scroll" })).toBeVisible();
-    await page.locator("article p").first().hover();
+    // Away from the button, in several moves: Radix closes a hoverable tooltip
+    // on the pointer move after leaving, not on the leave itself.
+    const main = (await page.locator("main#main").boundingBox())!;
+    await page.mouse.move(main.x + 4, main.y + main.height - 4, { steps: 6 });
     await expect(page.getByRole("tooltip")).toHaveCount(0);
     await steps.getByRole("button", { name: "Hide Steps" }).hover();
     await expect(page.getByRole("tooltip").filter({ hasText: "Hide: restore later from “hidden”" })).toBeVisible();
@@ -220,5 +223,23 @@ test.describe("view header hints and the GenUI toggle state", () => {
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(toggle).not.toHaveClass(/mp-genui-on/);
     await expect.poll(() => toggle.evaluate((e) => getComputedStyle(e).color)).not.toBe(onColor);
+  });
+});
+
+test.describe("outline after switching files", () => {
+  test("headings with the same text get their own ids; no row of the previous file is left", async ({ page, server }) => {
+    server.write("dup-a.md", "# Alpha\n\n## Configuration\n\ntext\n\n### Configuration\n\nmore\n");
+    server.write("dup-b.md", "# Beta\n\n## Same\n\none\n\n## Same\n\ntwo\n");
+    await openApp(page, server);
+    const outline = page.getByRole("navigation", { name: "Outline" });
+    await page.getByRole("button", { name: "dup-a.md", exact: true }).click();
+    await expect(outline.getByRole("link")).toHaveText(["Alpha", "Configuration", "Configuration"]);
+    expect(await page.locator("article > h2, article > h3").evaluateAll((hs) => hs.map((h) => h.id))).toEqual(["configuration", "configuration-1"]);
+    await page.getByRole("button", { name: "dup-b.md", exact: true }).click();
+    await expect(outline.getByRole("link")).toHaveText(["Beta", "Same", "Same"]);
+    await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
+    await expect(outline.getByRole("link").first()).toHaveText("決済サービス デプロイ手順");
+    await expect(outline.getByRole("link", { name: "Configuration" })).toHaveCount(0);
+    await expect(outline.getByRole("link", { name: "Same" })).toHaveCount(0);
   });
 });
