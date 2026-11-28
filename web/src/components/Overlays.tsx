@@ -1,7 +1,7 @@
 // Overlays: command palette, keyboard shortcuts, guided reading panel, and
 // the mobile Files / Outline sheet.
 import { useEffect, useRef, useState } from "react";
-import { BookOpenText, Bot, EyeOff, FileText, Hash, Keyboard, LocateFixed, Monitor, Moon, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
+import { BookOpenText, Bot, EyeOff, FileText, Hash, Keyboard, LocateFixed, Monitor, Moon, PanelLeft, PanelTop, PictureInPicture2, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -14,9 +14,9 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Kbd } from "@/components/ui/kbd";
-import { aidsOn, getState, setPrefs, setState, useStore } from "../lib/store";
+import { aidsOn, getState, setPrefs, setState, useStore, type PinSide } from "../lib/store";
 import { keepReadingPosition } from "../lib/nav";
-import { hideWidget, makeDefaultModel, runAids, selectFile, setActiveModel, setTheme, showWidget, stopAids, toggleAids, togglePin } from "../lib/actions";
+import { hideWidget, makeDefaultModel, runAids, selectFile, setActiveModel, setPinSide, setTheme, showWidget, stopAids, toggleAids, togglePin } from "../lib/actions";
 import { jumpToHeading } from "../lib/nav";
 import { kindLabel, widgetKey } from "../lib/types";
 import { paletteFilter, STRICT } from "../lib/paletteFilter";
@@ -104,6 +104,14 @@ export function CommandPalette() {
       entries.push({ id: `pin:${widgetKey(p)}`, group: "GenUI", label: `${pinned.has(widgetKey(p)) ? "Unpin" : "Pin"} ${kindLabel(p.node.kind)}${where(p)}`, strict: true, icon: <Pin />, action: () => togglePin(p) });
     for (const p of visible)
       entries.push({ id: `hide:${widgetKey(p)}`, group: "GenUI", label: `Hide ${kindLabel(p.node.kind)}${where(p)}`, strict: true, icon: <EyeOff />, action: () => hideWidget(p) });
+    const side = getState().prefs.pinSide;
+    const places: [PinSide, string, React.ReactNode][] = [
+      ["float", "Float the pinned views over the text", <PictureInPicture2 />],
+      ["top", "Dock pinned views above the text", <PanelTop />],
+      ["left", "Dock pinned views left of the text", <PanelLeft />],
+    ];
+    for (const [s, label, icon] of places)
+      if (s !== side) entries.push({ id: `pin:side:${s}`, group: "GenUI", label, extras: ["pin", "dock", "pinned", "floating", s], icon, action: () => setPinSide(s) });
     for (const p of hidden)
       entries.push({ id: `show:${widgetKey(p)}`, group: "GenUI", label: `Show ${kindLabel(p.node.kind)}${where(p)}`, extras: ["hidden", "restore"], strict: true, icon: <Undo2 />, action: () => showWidget(widgetKey(p)) });
   }

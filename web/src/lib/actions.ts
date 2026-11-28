@@ -1,5 +1,5 @@
 // Server I/O and user actions. Components call these; they update the store.
-import { aidsOn, announce, getState, setPrefs, setState, updateDocPrefs, type Toast } from "./store";
+import { aidsOn, announce, getState, setPrefs, setState, updateDocPrefs, type PinSide, type Toast } from "./store";
 import { keepReadingPosition } from "./nav";
 import type { AdaptiveLayout, DocPayload, ModelsInfo, Placement, ThemePref, TreeResponse } from "./types";
 import { CONFIG_ERRORS, kindLabel, widgetKey } from "./types";
@@ -360,17 +360,25 @@ export function togglePin(p: Placement) {
   // The aid moves away from under the pointer (to the top, or back to its
   // section): say where it went and offer to go there, so it does not look
   // like it vanished (#61).
-  announce(`${name} ${pinned ? "pinned to the top" : "unpinned, back in its section"}`);
+  const side = getState().prefs.pinSide;
+  const where = side === "left" ? "left of the text" : side === "top" ? "above the text" : "over the text";
+  announce(`${name} ${pinned ? `pinned ${where}` : "unpinned, back in its section"}`);
   notify(
     {
       kind: "info",
-      title: pinned ? `${name} pinned to the top` : `${name} back in its section`,
-      body: [pinned ? "It stays at the top of the text while you read." : p.scope === "section" ? `Under “${p.anchor.heading}”.` : ""].filter(Boolean),
+      title: pinned ? `${name} pinned` : `${name} back in its section`,
+      body: [pinned ? (side === "float" ? "It floats over the text while you read; drag its bar to move it." : `It stays ${where} while you read.`) : p.scope === "section" ? `Under “${p.anchor.heading}”.` : ""].filter(Boolean),
       // Pinned aids stick at the top, already in view; one put back can be far away.
       ...(pinned ? {} : { action: { label: "Show it", run: () => revealWidget(k) } }),
     },
     `aid-move:${k}`,
   );
+}
+
+/** Dock pinned views above the text or to its left. */
+export function setPinSide(side: PinSide) {
+  setPrefs({ pinSide: side });
+  announce(side === "left" ? "Pinned views docked left of the text" : side === "top" ? "Pinned views docked above the text" : "Pinned views float over the text");
 }
 
 export function hideWidget(p: Placement) {

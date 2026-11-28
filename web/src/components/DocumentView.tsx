@@ -3,7 +3,12 @@
 // text next to the lines they come from.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { GripVertical, PanelLeft, PanelTop, PictureInPicture2, Pin } from "lucide-react";
 import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { setPinSide } from "../lib/actions";
+import { setPrefs, type PinSide } from "../lib/store";
 import { aidsOn, docPrefs, getState, setState, useStore } from "../lib/store";
 import {
   SLOT_CLASS,
@@ -89,8 +94,7 @@ export function DocumentView() {
     let raf = 0;
     const update = () => {
       raf = 0;
-      // Pinned aids stick over the top of the column: read below them.
-      const top = sc.getBoundingClientRect().top + 96 + (parseFloat(sc.style.scrollPaddingTop) || 0);
+      const top = sc.getBoundingClientRect().top + 96;
       let line: number | null = null;
       for (const h of getState().headings) {
         if (!h.el.isConnected) continue;
@@ -118,13 +122,23 @@ export function DocumentView() {
     };
   }, []);
 
+  // Pinned views live in a dock outside the scrolling text (above it or to
+  // its left), so the text never slides under them and a tall view scrolls
+  // in its own box.
+  const pinSide = useStore((s) => s.prefs.pinSide);
+  const { visible, pinned } = useVisiblePlacements();
+  const pinnedCount = aids ? visible.filter((p) => pinned.has(widgetKey(p))).length : 0;
+  const [dock, setDock] = useState<HTMLDivElement | null>(null);
+
   return (
+    <div className="mp-docwrap" data-pin-side={pinSide}>
+    {pinnedCount > 0 && <PinDock side={pinSide} count={pinnedCount} listRef={setDock} />}
     <main
       id="main"
       ref={scrollRef}
       tabIndex={-1}
       aria-label="Document"
-      className="h-full overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:auto]"
+      className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:auto]"
     >
       <div className={cn("mp-doc px-5 pt-6 pb-[50vh] sm:px-10 sm:pt-10", aids && "mp-adaptive")}>
         <div className="mx-auto max-w-(--measure) text-[16px]">
@@ -136,10 +150,118 @@ export function DocumentView() {
           {aids && <AidsStrip />}
           {doc.frontmatter && <FrontMatter text={doc.frontmatter} />}
           <article ref={articleRef} className="markdown-body" lang={lang} aria-label={doc.title} />
-          {aids && <InlineAids articleRef={articleRef} />}
+          {aids && <InlineAids articleRef={articleRef} dock={pinnedCount > 0 ? dock : null} />}
         </div>
       </div>
     </main>
+    </div>
+  );
+}
+
+/** Floating panel width (it never exceeds the column). */
+const FLOAT_W = 400;
+const FLOAT_STEP = 24;
+
+/**
+ * Pinned views, outside the scrolling text: a floating panel over it (drag it
+ * by its bar, or move it with the arrow keys on the grip), or a dock above it
+ * or to its left. The header holds the count and the place switch.
+ */
+function PinDock({ side, count, listRef }: { side: PinSide; count: number; listRef: (el: HTMLDivElement | null) => void }) {
+  const saved = useStore((s) => s.prefs.pinFloatPos);
+  const [pos, setPos] = useState(saved);
+  const box = useRef<HTMLElement>(null);
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const float = side === "float";
+  const clamp = (p: { left: number; top: number }) => {
+    const parent = box.current?.parentElement;
+    const pw = parent?.clientWidth ?? 1000;
+    const ph = parent?.clientHeight ?? 800;
+    const bw = box.current?.offsetWidth ?? FLOAT_W;
+    return {
+      left: Math.round(Math.max(8, Math.min(p.left, pw - bw - 8))),
+      top: Math.round(Math.max(8, Math.min(p.top, ph - 80))),
+    };
+  };
+  const commit = (p: { left: number; top: number }) => {
+    const c = clamp(p);
+    setPos(c);
+    setPrefs({ pinFloatPos: c });
+  };
+  const sideButton = (s: PinSide, label: string, icon: React.ReactNode) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={cn("size-7", side === s ? "bg-muted text-foreground" : "text-muted-foreground")}
+          aria-label={label}
+          aria-pressed={side === s}
+          onClick={() => setPinSide(s)}
+        >
+          {icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+  return (
+    <section
+      ref={box}
+      className="mp-dock"
+      data-side={side}
+      aria-label="Pinned GenUI views"
+      data-testid="pinned-aids"
+      style={float ? { left: `max(8px, min(${pos.left}px, calc(100% - min(${FLOAT_W}px, 100% - 16px) - 8px)))`, top: `max(8px, min(${pos.top}px, calc(100% - 80px)))` } : undefined}
+    >
+      <div
+        className="mp-dock__bar"
+        data-testid="pinned-bar"
+        onPointerDown={(e) => {
+          if (!float || e.button !== 0 || (e.target as HTMLElement).closest("button:not([data-grip])")) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = { x: e.clientX, y: e.clientY, left: pos.left, top: pos.top };
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          setPos(clamp({ left: d.left + (e.clientX - d.x), top: d.top + (e.clientY - d.y) }));
+        }}
+        onPointerUp={() => {
+          if (!drag.current) return;
+          drag.current = null;
+          commit(pos);
+        }}
+      >
+        {float ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-grip
+            className="-ml-1.5 size-7 cursor-grab text-muted-foreground max-md:hidden"
+            aria-label="Move the pinned views (arrow keys)"
+            onKeyDown={(e) => {
+              const d = ({ ArrowLeft: [-FLOAT_STEP, 0], ArrowRight: [FLOAT_STEP, 0], ArrowUp: [0, -FLOAT_STEP], ArrowDown: [0, FLOAT_STEP] } as Record<string, number[]>)[e.key];
+              if (!d) return;
+              e.preventDefault();
+              commit({ left: pos.left + d[0], top: pos.top + d[1] });
+            }}
+          >
+            <GripVertical />
+          </Button>
+        ) : null}
+        <Pin className={cn("size-3.5", float && "md:hidden")} aria-hidden="true" />
+        <span className="font-medium text-foreground">Pinned</span>
+        <span>{count}</span>
+        <span className="flex-1" />
+        <span className="flex items-center gap-0.5 max-md:hidden">
+          {sideButton("float", "Float the pinned views over the text", <PictureInPicture2 />)}
+          {sideButton("top", "Dock pinned views above the text", <PanelTop />)}
+          {sideButton("left", "Dock pinned views left of the text", <PanelLeft />)}
+        </span>
+      </div>
+      <div ref={listRef} className="mp-dock__list" data-testid="pinned-list" />
+    </section>
   );
 }
 
@@ -158,7 +280,7 @@ function FrontMatter({ text }: { text: string }) {
  * under their list). Whole-document aids sit after the opening section;
  * pinned aids sit at the top, under the title.
  */
-function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | null> }) {
+function InlineAids({ articleRef, dock }: { articleRef: React.RefObject<HTMLElement | null>; dock: HTMLElement | null }) {
   const { visible, pinned } = useVisiblePlacements();
   const activeLine = useStore((s) => s.activeLine);
   const originalList = useStore(docPrefs).original;
@@ -199,40 +321,25 @@ function InlineAids({ articleRef }: { articleRef: React.RefObject<HTMLElement | 
         created = true;
       }
     }
-    // Headings and source jumps land below the sticky strip, not under it.
-    const scroller = article.closest("main");
-    const ro = new ResizeObserver(() => {
-      const strip = article.querySelector<HTMLElement>(`:scope > .${PINNED_CLASS}`);
-      if (scroller) scroller.style.scrollPaddingTop = strip && strip.childElementCount ? `${strip.offsetHeight + 8}px` : "";
-    });
     const place = () => {
-      const { strip, replacing: r } = placeSlots(article, visible, pinned, original, map);
+      const r = placeSlots(article, visible, pinned, original, map, dock);
       const joined = [...r].sort().join("|");
       setReplacing((prev) => (prev === joined ? prev : joined));
-      ro.disconnect();
-      if (strip) ro.observe(strip);
-      else if (scroller) scroller.style.scrollPaddingTop = "";
     };
     place();
     window.addEventListener(BODY_EVENT, place);
     if (created) force((n) => n + 1);
-    return () => {
-      window.removeEventListener(BODY_EVENT, place);
-      ro.disconnect();
-    };
+    return () => window.removeEventListener(BODY_EVENT, place);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keys]);
+  }, [keys, dock]);
 
   useEffect(
     () => () => {
       for (const el of slots.current.values()) el.remove();
       slots.current.clear();
       const article = articleRef.current;
-      article?.querySelector(`:scope > .${PINNED_CLASS}`)?.remove();
       // Reading aids off: the text shows its own tables and lists again.
       if (article) unreplace(article);
-      const scroller = article?.closest("main");
-      if (scroller) scroller.style.scrollPaddingTop = "";
     },
     [],
   );
@@ -290,12 +397,10 @@ function useEntering(visible: Placement[], mounted: (key: string) => boolean): M
   return out;
 }
 
-/** The sticky strip of pinned aids (one slot-classed wrapper in the article). */
-const PINNED_CLASS = "mp-pinned";
-
 /**
  * Where each slot goes; slots aimed at the same spot keep their order. Pinned
- * slots go into the sticky strip under the title. Returns the strip, if any.
+ * slots go into the dock outside the text. Returns the views that stand in for
+ * their block (#63).
  */
 function placeSlots(
   article: HTMLElement,
@@ -303,35 +408,18 @@ function placeSlots(
   pinned: Set<string>,
   original: Set<string>,
   map: Map<string, HTMLDivElement>,
-): { strip: HTMLElement | null; replacing: Set<string> } {
+  dock: HTMLElement | null,
+): Set<string> {
   unreplace(article);
   const replacing = new Set<string>();
   const blocks = bodyBlocks(article);
-  const title = blocks[0] && /^H1$/.test(blocks[0].tagName) ? blocks[0] : null;
-  const top = title ? nextBlock(title) : (blocks[0] ?? null);
   const secondHeading = blocks.find((b, i) => i > 0 && /^H[1-6]$/.test(b.tagName)) ?? null;
-  let strip = article.querySelector<HTMLElement>(`:scope > .${PINNED_CLASS}`);
-  const anyPinned = visible.some((p) => pinned.has(widgetKey(p)) && map.has(widgetKey(p)));
-  if (anyPinned) {
-    if (!strip) {
-      strip = document.createElement("div");
-      strip.className = `${SLOT_CLASS} ${PINNED_CLASS}`;
-      strip.dataset.place = "top";
-      strip.setAttribute("role", "region");
-      strip.setAttribute("aria-label", "Pinned GenUI views");
-      strip.dataset.testid = "pinned-aids";
-    }
-    if (strip.nextElementSibling !== top || strip.parentNode !== article) article.insertBefore(strip, top);
-  } else if (strip) {
-    strip.remove();
-    strip = null;
-  }
   for (const p of visible) {
     const el = map.get(widgetKey(p));
     if (!el) continue;
     el.dataset.place = pinned.has(widgetKey(p)) ? "top" : p.scope;
-    if (pinned.has(widgetKey(p)) && strip) {
-      strip.appendChild(el);
+    if (pinned.has(widgetKey(p)) && dock) {
+      dock.appendChild(el);
       continue;
     }
     // A table / task list shown as an aid takes the place of its block (#63);
@@ -353,7 +441,7 @@ function placeSlots(
     else before = afterSource(blocks, p);
     article.insertBefore(el, before);
   }
-  return { strip, replacing };
+  return replacing;
 }
 
 /** Aids that stand in for the block they were built from (#63). */

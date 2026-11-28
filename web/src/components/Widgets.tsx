@@ -197,14 +197,14 @@ export function WidgetNote({
           <Button
             variant="ghost"
             size="sm"
-            className="mp-aid__toggle -ml-1.5 h-7 min-w-0 gap-1.5 px-1.5 text-[13px] font-semibold max-md:h-11"
+            className="mp-aid__toggle -ml-1.5 h-7 min-w-0 shrink overflow-hidden gap-1.5 px-1.5 text-[13px] font-semibold max-md:h-11"
             aria-expanded={bodyOpen}
             onClick={() => (showingOriginal ? toggleOriginal(p) : setOpen(!open))}
           >
             <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none", bodyOpen && "rotate-90")} aria-hidden="true" />
             <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
-            <span className="truncate">{title}</span>
-            {where && <span className="truncate text-[12.5px] font-normal text-muted-foreground">{where}</span>}
+            <span className="shrink-0">{title}</span>
+            {where && <span className="min-w-0 truncate text-[12.5px] font-normal text-muted-foreground">{where}</span>}
             {showingOriginal && <span className="truncate text-[12.5px] font-normal text-muted-foreground">original shown below</span>}
           </Button>
         </h3>
@@ -233,7 +233,7 @@ export function WidgetNote({
           size="icon-sm"
           className={cn("mp-note-action size-7 max-md:size-11", pinned ? "text-primary" : "text-muted-foreground")}
           aria-pressed={pinned}
-          aria-label={pinned ? `Unpin ${title} from the top` : `Pin ${title} to the top`}
+          aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
           onClick={() => togglePin(p)}
         >
           {pinned ? <PinOff /> : <Pin />}

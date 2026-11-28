@@ -325,25 +325,59 @@
   /* A table / task list an aid stands in for (#63): hidden from the text only. */
   .markdown-body > .mp-replaced { display: none !important; }
   .mp-note-slot[data-place="replace"] { margin: 0 0 1em; }
-  /* Pinned aids (#61): a strip under the title that sticks to the top of the
-     document column, so a pinned aid stays in view while reading. Capped in
-     height (it scrolls inside) so the text below keeps most of the screen. */
-  .mp-note-slot.mp-pinned {
-    position: sticky; top: 0; z-index: 5;
-    max-height: min(45vh, 440px); overflow-y: auto; overscroll-behavior: contain;
-    /* Room inside the scroll box for the pinned view's shadow (overflow clips it). */
-    margin: 0 -14px 1em; padding: 10px 14px 16px;
+  .mp-docwrap { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .mp-docwrap[data-pin-side="left"] { flex-direction: row; }
+  /* The dock sits outside the scrolling text, so nothing slides under it; it
+     floats over the page with one shadow along its open edge, and a tall view
+     scrolls inside it. */
+  .mp-dock {
+    position: relative; z-index: 2; flex: none;
+    display: flex; flex-direction: column; min-height: 0; min-width: 0;
     background: var(--background);
+    --dock-shadow: rgb(0 0 0 / 0.14);
   }
-  /* A pinned view floats above the text: a shadow on every side. */
-  .mp-pinned .mp-aid {
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 6px 20px -2px rgb(0 0 0 / 0.16);
+  .dark .mp-dock { --dock-shadow: rgb(0 0 0 / 0.55); }
+  .mp-dock[data-side="top"] {
+    max-height: min(42vh, 480px);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 8px 18px -12px var(--dock-shadow);
   }
-  .dark .mp-pinned .mp-aid {
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px -2px rgb(0 0 0 / 0.6);
+  .mp-dock[data-side="left"] {
+    width: clamp(280px, 36%, 440px);
+    border-right: 1px solid var(--border);
+    box-shadow: 8px 0 18px -12px var(--dock-shadow);
   }
-  .mp-pinned > .mp-note-slot[data-place] { margin: 0 0 12px; }
-  .mp-pinned > .mp-note-slot[data-place]:last-child { margin-bottom: 0; }
+  /* Floating: a panel over the text with a shadow on every side; it scrolls
+     inside, so a tall view never pushes past the screen. */
+  .mp-dock[data-side="float"] {
+    position: absolute; z-index: 20;
+    width: min(400px, calc(100% - 16px)); max-height: min(62vh, 580px);
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--background);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.06), 0 14px 36px -8px var(--dock-shadow-float, rgb(0 0 0 / 0.22));
+  }
+  .dark .mp-dock[data-side="float"] { --dock-shadow-float: rgb(0 0 0 / 0.7); }
+  .mp-dock[data-side="float"] .mp-dock__bar { cursor: grab; touch-action: none; user-select: none; border-bottom: 1px solid var(--border); padding: 4px 6px 4px 10px; }
+  .mp-dock[data-side="float"] .mp-dock__bar:active { cursor: grabbing; }
+  .mp-dock[data-side="float"] .mp-dock__list { padding: 10px 10px 10px; }
+  .mp-dock__bar {
+    flex: none; display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px 2px 16px; min-height: 36px;
+    font-size: 12.5px; color: var(--muted-foreground);
+  }
+  .mp-dock__list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 12px; }
+  .mp-dock__list > .mp-note-slot[data-place] { margin: 0 0 10px; }
+  .mp-dock__list > .mp-note-slot[data-place]:last-child { margin-bottom: 0; }
+  /* Above the text: the views line up with the text column. */
+  .mp-dock[data-side="top"] .mp-dock__list > .mp-note-slot { max-width: var(--measure); margin-inline: auto; }
+  @media (max-width: 767px) {
+    /* Phones have no room beside the text: the dock is always on top. */
+    .mp-docwrap[data-pin-side="left"] { flex-direction: column; }
+    .mp-dock[data-side="float"] { position: relative; inset: auto !important; width: auto; border-width: 0 0 1px; border-radius: 0; }
+    .mp-dock[data-side="float"] .mp-dock__bar { cursor: default; border-bottom: 0; }
+    .mp-dock[data-side] { width: auto; max-height: 36vh; border-right: 0; border-bottom: 1px solid var(--border); box-shadow: 0 8px 18px -12px var(--dock-shadow); }
+    .mp-dock__list { padding-inline: 12px; }
+  }`
 
   /* GenUI toggle while on: the icon beats slowly (a heartbeat), so on and off
      read apart at a glance. Off is grayed out. */
@@ -355,7 +389,6 @@
   }
   .mp-genui-on svg { animation: mp-heartbeat 2.4s ease-in-out infinite; transform-origin: center; }
   @media (prefers-reduced-motion: reduce) { .mp-genui-on svg { animation: none; } }
-  @media (max-width: 767px) { .mp-note-slot.mp-pinned { max-height: 32vh; } }
 
   /* An aid reads as an instrument set into the page: one hairline frame on a
      surface a step off the paper, no shadow, a quiet header. */

@@ -20,26 +20,58 @@ test.describe("#61 pin and hide keep the aid findable", () => {
   test("a pinned aid stays in view while reading; hide offers Undo", async ({ page, server }) => {
     await page.setViewportSize({ width: 1280, height: 700 });
     await openApp(page, server);
-    const steps = page.locator('article [data-kind="StepNavigator"]');
-    await steps.scrollIntoViewIfNeeded();
-    await steps.getByRole("button", { name: "Pin Steps to the top" }).click();
-    // It moved to the sticky strip under the title and is still on screen.
-    await expect(page.getByTestId("pinned-aids").locator('[data-kind="StepNavigator"]')).toBeInViewport();
-    const toast = page.getByTestId("toast").filter({ hasText: "pinned to the top" });
-    await expect(toast).toBeVisible();
-    // Scrolling the text keeps it on screen.
+    const inText = page.locator('article [data-kind="StepNavigator"]');
+    const steps = page.locator('[data-kind="StepNavigator"]');
+    await inText.scrollIntoViewIfNeeded();
+    await inText.getByRole("button", { name: "Pin Steps", exact: true }).click();
+    // It moved out of the text into a floating panel, and is on screen.
+    const dock = page.getByTestId("pinned-aids");
+    await expect(dock).toHaveAttribute("data-side", "float");
+    await expect(dock.locator('[data-kind="StepNavigator"]')).toBeInViewport();
+    await expect(inText).toHaveCount(0);
+    await expect(page.getByTestId("toast").filter({ hasText: "Steps pinned" })).toContainText("floats over the text");
+    // The panel is outside the scrolling text: scrolling never moves or covers it.
+    const main = page.locator("main#main");
+    const floatBox = (await dock.boundingBox())!;
     await page.locator("article h2", { hasText: "連絡先" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
     await expect(steps).toBeInViewport();
-    // A heading jump lands below the strip, not under it.
-    const stripBottom = await page.getByTestId("pinned-aids").evaluate((e) => e.getBoundingClientRect().bottom);
-    await page.locator("article h2", { hasText: "設定値" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
-    const headTop = await page.locator("article h2", { hasText: "設定値" }).evaluate((e) => e.getBoundingClientRect().top);
-    expect(headTop).toBeGreaterThanOrEqual(stripBottom - 1);
+    expect(await dock.boundingBox()).toEqual(floatBox);
+    // Dragged by its bar, it stays where it was put (also after a reload).
+    const bar = page.getByTestId("pinned-bar");
+    const barBox = (await bar.boundingBox())!;
+    await page.mouse.move(barBox.x + barBox.width / 2, barBox.y + barBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(barBox.x + barBox.width / 2 + 200, barBox.y + barBox.height / 2 + 60, { steps: 5 });
+    await page.mouse.up();
+    const moved = (await dock.boundingBox())!;
+    expect(Math.round(moved.x - floatBox.x)).toBe(200);
+    expect(Math.round(moved.y - floatBox.y)).toBe(60);
+
+    // Docked above the text: the text starts below it.
+    await dock.getByRole("button", { name: "Dock pinned views above the text" }).click();
+    await expect(dock).toHaveAttribute("data-side", "top");
+    const top = (await dock.boundingBox())!;
+    expect((await main.boundingBox())!.y).toBeGreaterThanOrEqual(top.y + top.height - 1);
+
+    // Docked left: beside the text, full height.
+    await dock.getByRole("button", { name: "Dock pinned views left of the text" }).click();
+    await expect(dock).toHaveAttribute("data-side", "left");
+    const left = (await dock.boundingBox())!;
+    expect(left.x + left.width).toBeLessThanOrEqual((await main.boundingBox())!.x + 1);
+    expect(left.height).toBeGreaterThan(500);
+    // Remembered across reloads.
+    await page.reload();
+    await openApp(page, server);
+    await expect(dock).toHaveAttribute("data-side", "left");
+    await dock.getByRole("button", { name: "Float the pinned views over the text" }).click();
+    await expect(dock).toHaveAttribute("data-side", "float");
+    expect(Math.round((await dock.boundingBox())!.x - floatBox.x)).toBe(200);
+
     // Unpin: back in its section, and "Show it" goes there.
-    await steps.getByRole("button", { name: "Unpin Steps from the top" }).click();
+    await dock.getByRole("button", { name: "Unpin Steps", exact: true }).click();
     await expect(page.getByTestId("pinned-aids")).toHaveCount(0);
     await page.getByTestId("toast").filter({ hasText: "back in its section" }).getByRole("button", { name: "Show it" }).click();
-    await expect(steps).toBeInViewport();
+    await expect(inText).toBeInViewport();
 
     // Hide: the toast says how to get it back, Undo does.
     await steps.getByRole("button", { name: "Hide Steps" }).click();
@@ -172,11 +204,13 @@ test.describe("view header hints and the GenUI toggle state", () => {
   test("pin / hide explain themselves on hover; the toggle is colored on and grayed off", async ({ page, server }) => {
     await openApp(page, server);
     const steps = page.locator('article [data-kind="StepNavigator"]');
-    await steps.getByRole("button", { name: "Pin Steps to the top" }).hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Pin: keep in view while you scroll");
+    await steps.getByRole("button", { name: "Pin Steps", exact: true }).hover();
+    await expect(page.getByRole("tooltip").filter({ hasText: "Pin: keep in view while you scroll" })).toBeVisible();
+    await page.locator("article p").first().hover();
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
     await steps.getByRole("button", { name: "Hide Steps" }).hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Hide: restore later from “hidden”");
-    await page.mouse.move(0, 0);
+    await expect(page.getByRole("tooltip").filter({ hasText: "Hide: restore later from “hidden”" })).toBeVisible();
+    await page.locator("article p").first().hover();
 
     const toggle = page.getByTestId("aids-toggle");
     await expect(toggle).toHaveAttribute("aria-pressed", "true");

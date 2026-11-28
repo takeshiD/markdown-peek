@@ -91,9 +91,9 @@ test("every control is reachable by keyboard: aids toggle, model, panes, widgets
   await page.keyboard.press("Escape");
   await expect(steps.getByRole("button", { name: "Why this view: Steps" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(steps.getByRole("button", { name: "Pin Steps to the top" })).toBeFocused();
+  await expect(steps.getByRole("button", { name: "Pin Steps", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.locator('article [data-kind="StepNavigator"]').getByRole("button", { name: "Unpin Steps from the top" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("pinned-aids").getByRole("button", { name: "Unpin Steps", exact: true })).toHaveAttribute("aria-pressed", "true");
   // Shortcuts help lists the keys.
   await page.locator("body").press("?");
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("GenUI on or off");

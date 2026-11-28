@@ -60,12 +60,12 @@ test.describe("with the fake selector", () => {
   test("R8: pin and hide survive reload per document; hidden widgets can be restored", async ({ page, server }) => {
     await openApp(page, server);
     const pane = page.locator("article");
-    await pane.getByRole("button", { name: "Pin Steps to the top" }).click();
-    await expect(pane.getByRole("button", { name: "Unpin Steps from the top" })).toHaveAttribute("aria-pressed", "true");
-    // Pinned: moved to the top of the text, under the title.
-    await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
-    await expect(pane.locator('.mp-note-slot[data-place="top"] [data-kind="StepNavigator"]')).toBeVisible();
-    expect(await pane.evaluate((a) => (a.children[1] as HTMLElement).dataset.place)).toBe("top");
+    await pane.getByRole("button", { name: "Pin Steps", exact: true }).click();
+    const dock = page.getByTestId("pinned-aids");
+    await expect(dock.getByRole("button", { name: "Unpin Steps", exact: true })).toHaveAttribute("aria-pressed", "true");
+    // Pinned: moved out of the text into the dock.
+    await expect(dock.locator('[data-kind="StepNavigator"]')).toBeVisible();
+    await expect(pane.locator('[data-kind="StepNavigator"]')).toHaveCount(0);
     await pane.getByRole("button", { name: "Hide Checklist" }).click();
     await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(0);
     await expect(page.getByTestId("live-region")).toHaveText(/hidden/);
@@ -74,15 +74,15 @@ test.describe("with the fake selector", () => {
 
     await page.reload();
     await openApp(page, server);
-    await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
-    await expect(pane.getByRole("button", { name: "Unpin Steps from the top" })).toBeVisible();
+    await expect(dock.locator('[data-kind="StepNavigator"]')).toBeVisible();
+    await expect(dock.getByRole("button", { name: "Unpin Steps", exact: true })).toBeVisible();
     await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(0);
 
     // Another document has its own (empty) choices.
     await page.getByRole("button", { name: "deploy-guide-v2.md", exact: true }).click();
     await expect(page.getByTestId("breadcrumb-file")).toContainText("deploy-guide-v2.md");
     await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(1);
-    await expect(pane.getByRole("button", { name: "Pin Steps to the top" })).toBeVisible();
+    await expect(pane.getByRole("button", { name: "Pin Steps", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
 
     await page.getByTestId("hidden-aids").click();
