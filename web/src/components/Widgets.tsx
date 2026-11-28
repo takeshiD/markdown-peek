@@ -1,6 +1,6 @@
 // Reading aids shown inside the document: the aid block itself, the "why this
 // aid" popover, and the strip above the text (errors, hidden-aid restore).
-import { useId, useState } from "react";
+import { useId, useState, type ReactElement } from "react";
 import {
   CalendarRange,
   ChartColumn,
@@ -9,6 +9,8 @@ import {
   Columns2,
   Workflow,
   EyeOff,
+  FileText,
+  FolderTree,
   Footprints,
   Info,
   ListChecks,
@@ -32,6 +34,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,13 +46,23 @@ import { cn } from "cn";
 import { PanelChrome, SourceLink } from "./index";
 import { Render } from "../registry";
 import { docPrefs, useStore } from "../lib/store";
-import { bootAids, hideWidget, showWidget, stopAids, togglePin } from "../lib/actions";
+import { bootAids, hideWidget, showWidget, stopAids, toggleOriginal, togglePin } from "../lib/actions";
 import { jumpToRange } from "../lib/nav";
 import { WidgetKeyCtx } from "../lib/progress";
 import type { AdaptiveLayout, Placement } from "../lib/types";
 import { kindLabel, widgetKey } from "../lib/types";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+/** A short hover / focus hint for an icon action in a view's header. */
+function ActionTip({ tip, children }: { tip: string; children: ReactElement }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="bottom">{tip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 /** Placements to show, in reading order, pinned first; hidden ones removed. */
 export function useVisiblePlacements(): { visible: Placement[]; hidden: Placement[]; pinned: Set<string> } {
@@ -81,6 +94,8 @@ const KIND_ICON: Record<string, LucideIcon> = {
   Chart: ChartColumn,
   NodeGraph: Workflow,
   Comparison: Columns2,
+  DirectoryTree: FolderTree,
+  Verdicts: ListChecks,
 };
 
 function iconFor(p: Placement): LucideIcon {
@@ -96,7 +111,7 @@ export function WhyPopover({ p, layout }: { p: Placement; layout: AdaptiveLayout
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Why this reading aid: ${kindLabel(p.node.kind)}`}>
+        <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Why this view: ${kindLabel(p.node.kind)}`}>
           <Info />
         </Button>
       </PopoverTrigger>
@@ -135,6 +150,7 @@ export function WidgetNote({
   active,
   atTop,
   enter,
+  replaces,
 }: {
   p: Placement;
   pinned: boolean;
@@ -143,6 +159,11 @@ export function WidgetNote({
   atTop?: boolean;
   /** Just chosen by the model: animate in (value = stagger index). */
   enter?: number;
+  /**
+   * The aid stands in for its table / task list in the text (#63): "aid" while
+   * it does, "original" when the reader switched back to the Markdown block.
+   */
+  replaces?: "aid" | "original";
 }) {
   const layout = useStore((s) => s.layout)!;
   const [open, setOpen] = useState(p.scope !== "document");
@@ -152,6 +173,8 @@ export function WidgetNote({
   const r = p.node.sourceRange ?? p.anchor.range;
   const Icon = iconFor(p);
   const where = p.scope === "section" && atTop ? p.anchor.heading : p.scope === "document" ? "whole document" : "";
+  const showingOriginal = replaces === "original";
+  const bodyOpen = open && !showingOriginal;
   return (
     <section
       className="mp-aid group/note"
@@ -161,7 +184,8 @@ export function WidgetNote({
       data-kind={p.node.kind}
       data-scope={p.scope}
       data-active={active ? "true" : "false"}
-      data-open={open ? "true" : "false"}
+      data-open={bodyOpen ? "true" : "false"}
+      data-replaces={replaces}
       data-enter={enter != null ? "true" : undefined}
       style={enter != null ? ({ "--enter-delay": `${Math.min(enter, 6) * 70}ms` } as React.CSSProperties) : undefined}
       onAnimationEnd={(e) => {
@@ -174,34 +198,55 @@ export function WidgetNote({
           <Button
             variant="ghost"
             size="sm"
-            className="mp-aid__toggle -ml-1.5 h-7 min-w-0 gap-1.5 px-1.5 text-[13px] font-semibold max-md:h-11"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
+            className="mp-aid__toggle -ml-1.5 h-7 min-w-0 shrink overflow-hidden gap-1.5 px-1.5 text-[13px] font-semibold max-md:h-11"
+            aria-expanded={bodyOpen}
+            onClick={() => (showingOriginal ? toggleOriginal(p) : setOpen(!open))}
           >
-            <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none", open && "rotate-90")} aria-hidden="true" />
+            <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none", bodyOpen && "rotate-90")} aria-hidden="true" />
             <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
-            <span className="truncate">{title}</span>
-            {where && <span className="truncate text-[12.5px] font-normal text-muted-foreground">{where}</span>}
+            <span className="shrink-0">{title}</span>
+            {where && <span className="min-w-0 truncate text-[12.5px] font-normal text-muted-foreground">{where}</span>}
+            {showingOriginal && <span className="truncate text-[12.5px] font-normal text-muted-foreground">original shown below</span>}
           </Button>
         </h3>
         <SourceLink range={r} onJump={(rg) => jumpToRange(rg, p.anchor.heading)} />
         <span className="flex-1" />
+        {replaces && (
+          <ActionTip tip={showingOriginal ? "Show as GenUI again" : "Show the original Markdown"}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("mp-note-action h-7 gap-1 px-1.5 text-[12.5px] font-normal max-md:h-11 max-md:min-w-11", showingOriginal ? "text-primary" : "text-muted-foreground")}
+            aria-pressed={showingOriginal}
+            // A toggle keeps one name; aria-pressed carries the state (APG).
+            aria-label={`Show the original ${title.toLowerCase()}`}
+            onClick={() => toggleOriginal(p)}
+            data-testid="show-original"
+          >
+            <FileText aria-hidden="true" /> <span className="max-sm:sr-only">Original</span>
+          </Button>
+          </ActionTip>
+        )}
         <WhyPopover p={p} layout={layout} />
+        <ActionTip tip={pinned ? "Unpin: back to its section" : "Pin: keep in view while you scroll"}>
         <Button
           variant="ghost"
           size="icon-sm"
           className={cn("mp-note-action size-7 max-md:size-11", pinned ? "text-primary" : "text-muted-foreground")}
           aria-pressed={pinned}
-          aria-label={pinned ? `Unpin ${title} from the top` : `Pin ${title} to the top`}
+          aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
           onClick={() => togglePin(p)}
         >
           {pinned ? <PinOff /> : <Pin />}
         </Button>
+        </ActionTip>
+        <ActionTip tip="Hide: restore later from “hidden”">
         <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Hide ${title}`} onClick={() => hideWidget(p)}>
           <EyeOff />
         </Button>
+        </ActionTip>
       </header>
-      {open && (
+      {bodyOpen && (
         <div className="mp-aid__body">
           <PanelChrome.Provider value="bare">
             <WidgetKeyCtx.Provider value={widgetKey(p)}>
@@ -225,7 +270,7 @@ export function HiddenWidgetsMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuLabel>Show a hidden reading aid</DropdownMenuLabel>
+        <DropdownMenuLabel>Show a hidden view</DropdownMenuLabel>
         {hidden.map((p) => (
           <DropdownMenuItem key={widgetKey(p)} onSelect={() => showWidget(widgetKey(p))}>
             {kindLabel(p.node.kind)}
@@ -258,7 +303,7 @@ export function AidsStrip() {
       <div role="alert" className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-danger pl-3 text-[13px] text-danger" data-testid="aids-error">
         <p className="min-w-0 flex-1">
           {err}
-          {layout ? " The reading aids shown may be out of date." : ""}
+          {layout ? " The GenUI shown may be out of date." : ""}
         </p>
         <Button variant="outline" size="sm" className="max-md:h-11" onClick={() => void bootAids()}>
           <RefreshCw /> Try again
@@ -274,7 +319,7 @@ export function AidsStrip() {
         <span className="flex items-center gap-2" data-testid="aids-progress">
           <Loader2 className="size-3.5 text-primary motion-safe:animate-spin" aria-hidden="true" />
           <span className="tabular-nums">
-            Choosing reading aids with {layout!.selector.name}… {layout!.progress.done} of {layout!.progress.total}
+            Choosing GenUI with {layout!.selector.name}… {layout!.progress.done} of {layout!.progress.total}
           </span>
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 max-md:h-11" onClick={() => void stopAids()}>
             <Square className="size-3 fill-current" aria-hidden="true" /> Stop

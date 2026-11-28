@@ -27,10 +27,15 @@ function useMobile(): boolean {
   );
 }
 
-function isTyping(t: EventTarget | null): boolean {
+/** Text entry has focus: single-key shortcuts must type instead. */
+export function isTyping(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
   if (!el) return false;
-  return el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+  if (el.isContentEditable || /^(TEXTAREA|SELECT)$/.test(el.tagName)) return true;
+  // Checkboxes, radios and buttons do not take text: shortcuts still work there
+  // (e.g. `?` right after ticking a task, #66).
+  if (el.tagName === "INPUT") return !/^(checkbox|radio|button|submit|reset|range|color|file|image)$/i.test((el as HTMLInputElement).type);
+  return false;
 }
 
 function useShortcuts(mobile: boolean) {

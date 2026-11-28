@@ -31,7 +31,7 @@ test.describe("R1 shell", () => {
     await expect(outline.getByRole("navigation", { name: "Outline" })).toBeVisible();
     expect((await outline.boundingBox())!.x).toBeGreaterThan((await page.locator("article").boundingBox())!.x + 400);
     // No side pane: reading aids live inside the document.
-    await expect(page.getByRole("complementary", { name: "Reading aids" })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "GenUI" })).toHaveCount(0);
 
     release();
     await expect(page.getByTestId("selector-status")).toHaveAttribute("data-state", "ready");

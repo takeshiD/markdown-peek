@@ -24,9 +24,11 @@ export interface DocPrefs {
   marks?: Record<string, boolean>;
   /** Current step per StepNavigator widget. */
   steps?: Record<string, number>;
+  /** Table / checklist aids the reader switched back to the original block (#63). */
+  original?: string[];
 }
 export interface Prefs {
-  /** Reading aids on or off; `null` follows `[aids] default` in the config. */
+  /** Reading aids on or off; `null` follows `[genui] default` in the config. */
   aids: boolean | null;
   theme: ThemePref;
   railSize: number;
@@ -38,8 +40,16 @@ export interface Prefs {
   /** Floating outline offset from the document column's top-right corner. */
   outlineFloatPos: { right: number; top: number };
   autoscroll: boolean;
+  /** Where pinned GenUI views go, outside the scrolling text: a floating
+   * panel over it (default), or docked to its left. */
+  pinSide: PinSide;
+  /** Floating pinned panel offset from the document column's top-left corner. */
+  pinFloatPos: { left: number; top: number };
+  /** Files was folded to make room for the left dock (unfold it when the dock goes). */
+  railFoldedForPins: boolean;
   docs: Record<string, DocPrefs>;
 }
+export type PinSide = "float" | "left";
 
 export const DEFAULT_PREFS: Prefs = {
   aids: null,
@@ -51,6 +61,9 @@ export const DEFAULT_PREFS: Prefs = {
   outlineFloating: false,
   outlineFloatPos: { right: 16, top: 16 },
   autoscroll: false,
+  pinSide: "float",
+  pinFloatPos: { left: 16, top: 16 },
+  railFoldedForPins: false,
   docs: {},
 };
 
@@ -72,6 +85,11 @@ function loadPrefs(): Prefs {
     if (out.aids !== null && typeof out.aids !== "boolean") out.aids = null;
     if (!["light", "dark", "system"].includes(out.theme)) out.theme = "system";
     if (typeof out.docs !== "object" || !out.docs) out.docs = {};
+    // "top" (docked above the text) was removed: it took too much of the screen.
+    if (out.pinSide !== "float" && out.pinSide !== "left") out.pinSide = "float";
+    if (typeof out.railFoldedForPins !== "boolean") out.railFoldedForPins = false;
+    const pp = out.pinFloatPos as { left?: unknown; top?: unknown } | undefined;
+    if (!pp || typeof pp.left !== "number" || typeof pp.top !== "number") out.pinFloatPos = { ...DEFAULT_PREFS.pinFloatPos };
     const fp = out.outlineFloatPos as { right?: unknown; top?: unknown } | undefined;
     if (!fp || typeof fp.right !== "number" || typeof fp.top !== "number") out.outlineFloatPos = { ...DEFAULT_PREFS.outlineFloatPos };
     return out;
@@ -198,7 +216,7 @@ export function announce(text: string) {
   setTimeout(() => setState({ announce: text }), 30);
 }
 
-/** Reading aids on? The reader's choice, else `[aids] default`. */
+/** Reading aids on? The reader's choice, else `[genui] default`. */
 export function aidsOn(s: State): boolean {
   return s.prefs.aids ?? s.models?.aids.defaultOn ?? true;
 }

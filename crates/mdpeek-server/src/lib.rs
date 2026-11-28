@@ -37,6 +37,8 @@ struct AppState {
     tx: broadcast::Sender<Message>,
     file_path: Arc<RwLock<PathBuf>>,
     theme: Arc<RwLock<Theme>>,
+    /// Text column width (`[server] width`), a CSS length checked by the caller.
+    width: Arc<String>,
     /// Canonical roots a selected file must live under (#14 path safety).
     roots: Arc<Vec<PathBuf>>,
     /// Directory discovery starts from when (re)building the explorer tree.
@@ -77,6 +79,7 @@ pub fn serve(
     host: String,
     port: String,
     theme: Theme,
+    width: String,
     llm: Option<LlmBackendConfig>,
     aids: AdaptiveSetup,
 ) {
@@ -97,6 +100,7 @@ pub fn serve(
         tx: tx.clone(),
         file_path: Arc::clone(&file_path),
         theme: Arc::clone(&theme),
+        width: Arc::new(width),
         roots: Arc::new(roots),
         scan_root: Arc::new(scan_root),
         rewatch: rewatch_tx,
@@ -249,14 +253,20 @@ async fn file_handler(State(state): State<AppState>) -> impl IntoResponse {
         .as_str()
         .unwrap_or("markdown-peek")
         .to_string();
-    Html(render_shell(&title, theme, &boot))
+    Html(render_shell(&title, theme, &state.width, &boot))
 }
 
 /// Fill the app shell template. The boot payload is embedded as JSON inside a
 /// `<script type="application/json">`, so the body renders on the first frame
 /// (no fetch) and never waits for widget selection. `</` is escaped so document
 /// text cannot close the script element.
-fn render_shell(title: &str, theme: &str, boot: &serde_json::Value) -> String {
+fn render_shell(title: &str, theme: &str, width: &str, boot: &serde_json::Value) -> String {
+    // Defence in depth: the config already allows only digits, '.', '/' -> '%'
+    // and a unit here.
+    let width: String = width
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '%')
+        .collect();
     let json = boot
         .to_string()
         .replace("</", "<\\/")
@@ -267,6 +277,7 @@ fn render_shell(title: &str, theme: &str, boot: &serde_json::Value) -> String {
             &escape_html_min(title).replace('"', "&quot;"),
         )
         .replace("{{ theme }}", theme)
+        .replace("{{ width }}", &width)
         .replace("{{ boot }}", &json)
 }
 
@@ -801,7 +812,7 @@ mod tests {
             "# T\n\n</script><script>alert(1)</script>\n",
             3,
         );
-        let page = super::render_shell("a.md", "light", &boot);
+        let page = super::render_shell("a.md", "light", "88ch", &boot);
         // The boot element ends at the first `</script>`; everything before it
         // must be the complete JSON payload (document text cannot close it).
         let start = page.find("id=\"mdpeek-boot\"").expect("boot script");

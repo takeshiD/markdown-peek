@@ -12,11 +12,12 @@ const DOCS = path.join(repoRoot, "web/e2e/docs");
 export interface ServerOptions {
   /** File to open (relative to the workspace). */
   file?: string;
-  /** Default model: the scripted fake (default) or Jev without a key (always fails). */
-  provider?: "fake" | "jev";
+  /** Default model (`[model] use`): the scripted fake (default), Jev without a
+   * key (always fails), or an entry added in `extraConfig`. */
+  provider?: string;
   fake?: Record<string, unknown>;
   debounceMs?: number;
-  /** `[aids]` settings. */
+  /** `[genui]` settings. */
   aidsDefault?: "on" | "off";
   autoGenerate?: boolean;
   /** `[model] batch_sections` (sections per request). */
@@ -69,7 +70,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<Server> {
   writeFileSync(
     path.join(dir, "config.toml"),
     [
-      `[aids]`,
+      `[genui]`,
       `default = "${opts.aidsDefault ?? "on"}"`,
       `auto_generate = ${opts.autoGenerate ?? true}`,
       ``,

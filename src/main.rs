@@ -34,7 +34,7 @@ fn main() -> Result<()> {
             model,
         } => {
             let aids = adaptive_setup(&config, model);
-            handle_serve(file, host, port, theme, gui_llm, aids)
+            handle_serve(file, host, port, theme, config.text_width(), gui_llm, aids)
         }
         Mode::Term {
             file,
@@ -66,7 +66,8 @@ fn adaptive_setup(config: &Config, start_with: Option<String>) -> mdpeek_server:
         && models.get(n).is_none()
     {
         config_errors.push(format!(
-            "--model {n}: no [models.{n}] entry; using \"{}\"",
+            "--model {n}: {}; using \"{}\"",
+            models.unavailable(n),
             models.default
         ));
     }
@@ -87,7 +88,7 @@ fn adaptive_setup(config: &Config, start_with: Option<String>) -> mdpeek_server:
     for e in &config_errors {
         eprintln!("mdpeek: warning: {e}");
     }
-    let (aids_default_on, auto_generate) = config.aids();
+    let (aids_default_on, auto_generate) = config.genui();
     mdpeek_server::AdaptiveSetup {
         cfg: config.select_config(),
         models,
@@ -163,6 +164,7 @@ fn handle_serve(
     host: String,
     port: String,
     theme: BrowserTheme,
+    width: String,
     gui_llm: Option<mdpeek_gui::LlmBackendConfig>,
     aids: mdpeek_server::AdaptiveSetup,
 ) {
@@ -176,7 +178,7 @@ fn handle_serve(
     // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
     // picks a valid active file, so we hand off even when `root` doesn't exist
     // (e.g. the default README.md is absent) rather than bailing out here.
-    serve(root, host, port, theme, gui_llm, aids);
+    serve(root, host, port, theme, width, gui_llm, aids);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {

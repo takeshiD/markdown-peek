@@ -107,16 +107,35 @@ export function NodeGraph({ node: g, onJump }: { node: Graph; onJump?: OnJump })
   const W = Math.max(width, 260);
   const k = Math.max(...lay.order.map((l) => l.length));
   const hasNotes = g.nodes.some((n) => n.note);
-  const nh = hasNotes ? 52 : 38;
-  const nw = Math.max(92, Math.min(220, (W - gutter - PAD * 2 - 16 * (k - 1)) / k));
-  const pos = new Map<string, { x: number; y: number }>();
+  const room = W - gutter - PAD * 2;
+  const nw = Math.max(92, Math.min(220, (room - 16 * (k - 1)) / k));
+  // A name that does not fit widens its node into the row's spare room, and
+  // wraps onto a second line when even that is not enough (narrow screens).
+  const byNode = new Map(g.nodes.map((n) => [n.id, n]));
+  const size = new Map<string, { w: number; name: string[] }>();
+  for (const ids of lay.order) {
+    const most = Math.max(nw, Math.min(260, (room - 16 * (ids.length - 1)) / ids.length));
+    for (const id of ids) {
+      const label = byNode.get(id)!.label;
+      const want = textWidth(label, 7.6) + 16;
+      const w = want > nw ? Math.min(most, want) : nw;
+      size.set(id, { w, name: wrap(label, w, 7.6) });
+    }
+  }
+  const nameLines = Math.max(...[...size.values()].map((s) => s.name.length));
+  const nh = (hasNotes ? 52 : 38) + 16 * (nameLines - 1);
+  const pos = new Map<string, { x: number; y: number; w: number }>();
   lay.order.forEach((ids, l) => {
-    const total = ids.length * nw + (ids.length - 1) * 16;
-    const left = PAD + (W - gutter - PAD * 2 - total) / 2;
-    ids.forEach((id, i) => pos.set(id, { x: left + i * (nw + 16), y: PAD + l * (nh + VGAP) }));
+    const total = ids.reduce((s, id) => s + size.get(id)!.w, 0) + (ids.length - 1) * 16;
+    let x = PAD + (room - total) / 2;
+    for (const id of ids) {
+      const w = size.get(id)!.w;
+      pos.set(id, { x, y: PAD + l * (nh + VGAP), w });
+      x += w + 16;
+    }
   });
   const H = PAD * 2 + lay.order.length * nh + (lay.order.length - 1) * VGAP;
-  const maxRight = Math.max(...[...pos.values()].map((p) => p.x + nw));
+  const maxRight = Math.max(...[...pos.values()].map((p) => p.x + p.w));
 
   const edgeClass = (e: Edge) => {
     if (chosen && e.from === sel && e.label) return e.label === chosen ? "is-chosen" : "is-dim";
@@ -134,14 +153,14 @@ export function NodeGraph({ node: g, onJump }: { node: Graph; onJump?: OnJump })
       return {
         e,
         back: true,
-        d: `M${a.x + nw},${ay} H${gx} V${by} H${b.x + nw + 3}`,
+        d: `M${a.x + a.w},${ay} H${gx} V${by} H${b.x + b.w + 3}`,
         lx: gx - 6,
         ly: (ay + by) / 2,
         anchor: "end" as const,
       };
     }
-    const sx = a.x + nw / 2;
-    const tx = b.x + nw / 2;
+    const sx = a.x + a.w / 2;
+    const tx = b.x + b.w / 2;
     const sy = a.y + nh;
     const ty = b.y - 3;
     const my = b.y - VGAP / 2;
@@ -182,13 +201,15 @@ export function NodeGraph({ node: g, onJump }: { node: Graph; onJump?: OnJump })
                 <path d={p.d} markerEnd={edgeClass(p.e) === "is-chosen" ? `url(#${uid}-s)` : `url(#${uid}-a)`} />
                 {p.e.label && (
                   <text x={p.lx} y={p.ly} textAnchor={p.anchor} className="gui-graph__label">
-                    {p.e.label}
+                    {clip(p.e.label, (p.anchor === "end" ? p.lx : W - p.lx) + 12, 6.8)}
                   </text>
                 )}
               </g>
             ))}
             {g.nodes.map((n) => {
               const p = pos.get(n.id)!;
+              const rows = size.get(n.id)!.name;
+              const top = p.y + (nh - (16 * rows.length + (n.note ? 15 : 0))) / 2;
               const on = n.id === sel;
               const reached = chosen != null && g.edges.some((e) => e.from === sel && e.label === chosen && e.to === n.id);
               return (
@@ -198,13 +219,15 @@ export function NodeGraph({ node: g, onJump }: { node: Graph; onJump?: OnJump })
                   onClick={() => setSel(on ? null : n.id)}
                   data-node={n.id}
                 >
-                  <rect x={p.x} y={p.y} width={nw} height={nh} rx={7} />
-                  <text x={p.x + nw / 2} y={p.y + (n.note ? nh / 2 - 4 : nh / 2 + 4.5)} textAnchor="middle" className="gui-graph__name">
-                    {clip(n.label, nw, 7.6)}
-                  </text>
+                  <rect x={p.x} y={p.y} width={p.w} height={nh} rx={7} />
+                  {rows.map((t, i) => (
+                    <text key={i} x={p.x + p.w / 2} y={top + 12 + 16 * i} textAnchor="middle" className="gui-graph__name">
+                      {t}
+                    </text>
+                  ))}
                   {n.note && (
-                    <text x={p.x + nw / 2} y={p.y + nh / 2 + 13} textAnchor="middle" className="gui-graph__note">
-                      {clip(n.note, nw, 6.6)}
+                    <text x={p.x + p.w / 2} y={top + 16 * rows.length + 12} textAnchor="middle" className="gui-graph__note">
+                      {clip(n.note, p.w, 6.6)}
                     </text>
                   )}
                 </g>
@@ -285,9 +308,37 @@ function clip(t: string, width: number, px: number): string {
   let used = 0;
   let out = "";
   for (const ch of t) {
-    used += /[　-鿿＀-￯]/.test(ch) ? 2 : 1;
+    used += wide(ch) ? 2 : 1;
     if (used > room) return out.trimEnd() + "…";
     out += ch;
   }
   return out;
+}
+
+const wide = (ch: string) => /[　-鿿＀-￯]/.test(ch);
+
+/** Width of `t` in px at about `px` per character (CJK counts double). */
+function textWidth(t: string, px: number): number {
+  let n = 0;
+  for (const ch of t) n += wide(ch) ? 2 : 1;
+  return n * px;
+}
+
+/**
+ * Break a name onto at most two lines that fit `width`: at the last space
+ * that fits (anywhere for CJK), the rest clipped.
+ */
+function wrap(t: string, width: number, px: number): string[] {
+  if (textWidth(t, px) <= width - 16) return [t];
+  const chars = Array.from(t);
+  let cut = 0;
+  let space = -1;
+  for (let i = 1; i <= chars.length; i++) {
+    if (textWidth(chars.slice(0, i).join(""), px) > width - 16) break;
+    cut = i;
+    if (chars[i] === " ") space = i;
+  }
+  const at = space > 0 ? space : cut;
+  if (at === 0) return [clip(t, width, px)];
+  return [chars.slice(0, at).join("").trimEnd(), clip(chars.slice(at).join("").trimStart(), width, px)];
 }

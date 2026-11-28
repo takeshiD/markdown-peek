@@ -24,7 +24,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.locator("body").press("1");
     await axe(page, `${scheme} read`);
     await page.locator("body").press("2");
-    await page.getByRole("button", { name: "Why this reading aid: Steps" }).first().click();
+    await page.getByRole("button", { name: "Why this view: Steps" }).first().click();
     await axe(page, `${scheme} popover`);
     await page.keyboard.press("Escape");
     await page.keyboard.press("Control+k");
@@ -85,18 +85,18 @@ test("every control is reachable by keyboard: aids toggle, model, panes, widgets
   const steps = page.locator("article").locator('[data-kind="StepNavigator"]');
   await steps.locator("header .gui-srclink").focus();
   await page.keyboard.press("Tab");
-  await expect(steps.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
+  await expect(steps.getByRole("button", { name: "Why this view: Steps" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("why-provider")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(steps.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
+  await expect(steps.getByRole("button", { name: "Why this view: Steps" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(steps.getByRole("button", { name: "Pin Steps to the top" })).toBeFocused();
+  await expect(steps.getByRole("button", { name: "Pin Steps", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.locator('article [data-kind="StepNavigator"]').getByRole("button", { name: "Unpin Steps from the top" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("pinned-aids").getByRole("button", { name: "Unpin Steps", exact: true })).toHaveAttribute("aria-pressed", "true");
   // Shortcuts help lists the keys.
   await page.locator("body").press("?");
-  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Reading aids on or off");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("GenUI on or off");
   await page.keyboard.press("Escape");
 });
 
@@ -105,12 +105,12 @@ test("state changes are announced to screen readers", async ({ page, server }) =
   const live = page.getByTestId("live-region");
   await expect(live).toHaveAttribute("aria-live", "polite");
   await page.locator("body").press("a");
-  await expect(live).toHaveText("Reading aids off");
+  await expect(live).toHaveText("GenUI off");
   await page.locator("body").press("a");
-  await expect(live).toHaveText("Reading aids on");
+  await expect(live).toHaveText("GenUI on");
   await page.getByTestId("model-menu").click();
   await page.getByRole("menuitemradio", { name: /^fake-alt / }).click();
-  await expect(live).toHaveText(/Reading aids updated: \d+ aids? chosen by fake-alt/);
+  await expect(live).toHaveText(/GenUI updated: \d+ views? chosen by fake-alt/);
 });
 
 test("prefers-reduced-motion stops animations and transitions", async ({ page, server }) => {

@@ -19,10 +19,10 @@ pub type Table = (Vec<String>, Vec<Vec<String>>, SourceRange);
 use crate::ir::SourceRange;
 use crate::ir::node::{FlowEdge, FlowNode, NodeGraphNode, NodeMeta};
 
-const MIN_NODES: usize = 3;
-const MIN_EDGES: usize = 2;
-const MAX_NODES: usize = 24;
-const MAX_NAME_CHARS: usize = 40;
+pub(super) const MIN_NODES: usize = 3;
+pub(super) const MIN_EDGES: usize = 2;
+pub(super) const MAX_NODES: usize = 24;
+pub(super) const MAX_NAME_CHARS: usize = 40;
 
 fn arrow_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -72,14 +72,14 @@ fn label_re() -> &'static Regex {
 pub fn is_flow_heading(h: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)flow|pipeline|graph|workflow|architecture|state|フロー|パイプライン|グラフ|ワークフロー|構成|流れ|遷移|全体像")
+        Regex::new(r"(?i)flow|pipeline|graph|workflow|architecture|state|dependenc|フロー|パイプライン|グラフ|ワークフロー|構成|流れ|遷移|全体像|アーキテクチャ|依存関係")
             .unwrap()
     })
     .is_match(h)
 }
 
 /// `"Planning (Orchestrator)"` → (`"Planning"`, `Some("Orchestrator")`).
-fn split_name(raw: &str) -> Option<(String, Option<String>)> {
+pub(super) fn split_name(raw: &str) -> Option<(String, Option<String>)> {
     let t = plain(raw.trim().trim_matches(['"', '\'', '「', '」']));
     if t.is_empty() || t.chars().count() > MAX_NAME_CHARS || t.ends_with(['。', '.']) {
         return None;
@@ -95,13 +95,13 @@ fn key(label: &str) -> String {
 }
 
 #[derive(Default)]
-struct Builder {
-    nodes: Vec<FlowNode>,
-    edges: Vec<FlowEdge>,
+pub(super) struct Builder {
+    pub(super) nodes: Vec<FlowNode>,
+    pub(super) edges: Vec<FlowEdge>,
 }
 
 impl Builder {
-    fn node(&mut self, label: &str, note: Option<String>, r: SourceRange) -> String {
+    pub(super) fn node(&mut self, label: &str, note: Option<String>, r: SourceRange) -> String {
         let id = key(label);
         if let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) {
             if n.note.is_none() {
@@ -117,7 +117,7 @@ impl Builder {
         }
         id
     }
-    fn edge(&mut self, from: String, to: String, label: Option<String>, r: SourceRange) {
+    pub(super) fn edge(&mut self, from: String, to: String, label: Option<String>, r: SourceRange) {
         if from == to
             || self
                 .edges

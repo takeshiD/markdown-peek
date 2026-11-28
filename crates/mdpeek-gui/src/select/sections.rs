@@ -20,7 +20,7 @@ use crate::ir::node::*;
 
 /// Bumped whenever the candidate catalogue / prefilter / extraction changes.
 /// Part of the selection cache key.
-pub const REGISTRY_VERSION: u32 = 3;
+pub const REGISTRY_VERSION: u32 = 8;
 
 /// Deterministic features of a section (sent to Jev instead of the full text).
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -38,12 +38,18 @@ pub struct Features {
     pub chart_series: usize,
     /// Edges of a flow written as arrows / a from-to table (0 = none).
     pub flow_edges: usize,
+    /// Subsections that read as consecutive stages of a process (0 = none, #65).
+    pub stages: usize,
     /// Options of a scored comparison table (0 = none).
     pub compared_options: usize,
     pub shell_blocks: usize,
     pub command_lines: usize,
     pub config_blocks: usize,
     pub other_code_blocks: usize,
+    /// Entries of the largest directory tree drawn in a code block (0 = none).
+    pub tree_entries: usize,
+    /// List items written `ID: verdict — text` (0 = none).
+    pub verdict_items: usize,
     pub dated_lines: usize,
     pub alerts: usize,
     pub risk_blocks: usize,
@@ -53,7 +59,7 @@ pub struct Features {
 /// One selectable widget for a section or the document.
 #[derive(Debug, Clone)]
 pub struct Candidate {
-    /// Stable option id, e.g. `"StepNavigator"` or `"ConfigViewer:commands"`.
+    /// Stable option id, e.g. `"StepNavigator"` or `"NodeGraph:stages"`.
     pub id: &'static str,
     /// Short, fixed description used as the Jev `criteria` text.
     pub description: &'static str,
@@ -158,6 +164,9 @@ const SHELL_LANGS: &[&str] = &[
     "sh", "bash", "shell", "console", "zsh", "fish", "powershell", "ps1", "pwsh", "cmd", "bat",
     "shell-session", "terminal",
 ];
+
+/// Code-block languages that may hold a diagram drawn in text (never real code).
+const DIAGRAM_LANGS: &[&str] = &["", "text", "txt", "plain", "plaintext", "ascii", "diagram", "art"];
 
 fn config_format(lang: &str) -> Option<ConfigFormat> {
     match lang {
@@ -307,12 +316,14 @@ pub fn plan_document(
         // --- walk blocks ---
         let mut steps: Vec<Step> = Vec::new();
         let mut checklist: Vec<ChecklistItem> = Vec::new();
-        let mut commands: Vec<(String, SourceRange)> = Vec::new();
-        let mut configs: Vec<(ConfigFormat, String, SourceRange)> = Vec::new();
+        let mut trees: Vec<(Vec<TreeEntry>, SourceRange)> = Vec::new();
         let mut events: Vec<TimelineEvent> = Vec::new();
         let mut tables: Vec<(Vec<String>, Vec<Vec<String>>, SourceRange)> = Vec::new();
         let mut list_items: Vec<(String, SourceRange)> = Vec::new();
+        let mut verdicts: Vec<VerdictItem> = Vec::new();
         let mut alert: Option<(String, SourceRange)> = None;
+        // Code blocks that may be drawn diagrams: (inner lines, line of the first).
+        let mut diagrams: Vec<(Vec<&str>, u32)> = Vec::new();
         let mut risk_para: Option<(String, SourceRange)> = None;
 
         let sec_line_range = range.start_line..=range.end_line;
@@ -338,6 +349,20 @@ pub fn plan_document(
                         let BlockKind::Item { task } = item.kind else { continue };
                         let title = source_title(&lines, conv(item.range));
                         list_items.push((title.clone(), conv(item.range)));
+                        if task.is_none() {
+                            // The whole item: a verdict's text may wrap onto more lines.
+                            let more = lines_of(&lines, conv(item.range))
+                                .iter()
+                                .skip(1)
+                                .map(|l| l.trim())
+                                .filter(|l| !l.is_empty())
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            let full = if more.is_empty() { title.clone() } else { format!("{title} {more}") };
+                            if let Some(v) = super::verdicts::verdict_item(&full, conv(item.range)) {
+                                verdicts.push(v);
+                            }
+                        }
                         if let Some(done) = task {
                             f.task_items += 1;
                             if done {
@@ -380,9 +405,8 @@ pub fn plan_document(
                     let r = conv(b.range);
                     let code_lines = lines_of(&lines, r);
                     // Strip the fences: keep the inner lines verbatim.
-                    let inner: Vec<&str> = if code_lines.len() >= 2
-                        && code_lines[0].trim_start().starts_with(['`', '~'])
-                    {
+                    let fenced = code_lines.len() >= 2 && code_lines[0].trim_start().starts_with(['`', '~']);
+                    let inner: Vec<&str> = if fenced {
                         let last = code_lines.len() - 1;
                         let end = if code_lines[last].trim_start().starts_with(['`', '~']) {
                             last
@@ -393,8 +417,14 @@ pub fn plan_document(
                     } else {
                         code_lines.clone()
                     };
-                    let content = inner.join("\n");
-                    if SHELL_LANGS.contains(&lang.as_str()) {
+                    let first_inner = if inner.len() < code_lines.len() { r.start_line + 1 } else { r.start_line };
+                    let tree = (lang != "mermaid")
+                        .then(|| super::tree::tree_from_code(&inner, first_inner))
+                        .flatten();
+                    if let Some(entries) = tree {
+                        f.tree_entries = f.tree_entries.max(entries.len());
+                        trees.push((entries, r));
+                    } else if SHELL_LANGS.contains(&lang.as_str()) {
                         f.shell_blocks += 1;
                         f.command_lines += inner
                             .iter()
@@ -403,12 +433,13 @@ pub fn plan_document(
                                 !t.is_empty() && !t.starts_with('#')
                             })
                             .count();
-                        commands.push((content, r));
-                    } else if let Some(fmt) = config_format(&lang) {
+                    } else if config_format(&lang).is_some() {
                         f.config_blocks += 1;
-                        configs.push((fmt, content, r));
                     } else {
                         f.other_code_blocks += 1;
+                        if DIAGRAM_LANGS.contains(&lang.as_str()) {
+                            diagrams.push((inner.clone(), r.start_line + u32::from(fenced)));
+                        }
                     }
                 }
                 BlockKind::Table => {
@@ -582,6 +613,70 @@ pub fn plan_document(
                 node: UiNode::NodeGraph(g),
             });
         }
+        // A diagram drawn with box-drawing / ASCII characters reads faster as a
+        // graph. One node graph per section: the arrows written as a list win.
+        if !cands.iter().any(|c| matches!(c.node, UiNode::NodeGraph(_)))
+            && let Some(mut g) = diagrams.iter().find_map(|(inner, first)| {
+                super::ascii::graph_from_diagram(
+                    inner,
+                    *first,
+                    (!heading.is_empty()).then(|| heading.clone()),
+                    meta(range, 0.0),
+                )
+            })
+        {
+            f.flow_edges = g.edges.len();
+            let s = 0.72 + if super::graph::is_flow_heading(&heading) { 0.06 } else { 0.0 };
+            g.meta.source_range = span(
+                g.edges.iter().filter_map(|e| e.source_range).chain(g.nodes.iter().filter_map(|n| n.source_range)),
+            );
+            g.meta.confidence = Some(s);
+            cands.push(Candidate {
+                id: "NodeGraph:diagram",
+                description: "Interactive node graph redrawn from the box-and-arrow diagram drawn in the section's code block",
+                score: s,
+                node: UiNode::NodeGraph(g),
+            });
+        }
+        // Subsections that walk through the stages of a process (`### 3.1
+        // parser — markdown -> BlockTree`, …) get a flow of those stages,
+        // set in under the section's own text (#65). One flow per section.
+        if !cands.iter().any(|c| matches!(c.node, UiNode::NodeGraph(_)))
+            && let Some(h) = raw.head
+        {
+            let pos = blocks.iter().position(|b| b.id == h.id);
+            let children: Vec<(String, SourceRange)> = pos
+                .map(|p| {
+                    blocks[p + 1..]
+                        .iter()
+                        .filter_map(|b| match b.kind {
+                            BlockKind::Heading { level } => Some((level, b)),
+                            _ => None,
+                        })
+                        .take_while(|(level, _)| *level > raw.level)
+                        .filter(|(level, _)| *level == raw.level + 1)
+                        .map(|(_, b)| (source_title(&lines, conv(b.range)), conv(b.range)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let Some(mut g) = super::stages::stages_from_headings(
+                &heading,
+                &children,
+                (!heading.is_empty()).then(|| heading.clone()),
+                meta(range, 0.0),
+            ) {
+                f.stages = g.nodes.len();
+                let s = 0.72 + if super::stages::is_stage_heading(&heading) { 0.06 } else { 0.0 };
+                g.meta.source_range = span(g.nodes.iter().filter_map(|n| n.source_range));
+                g.meta.confidence = Some(s);
+                cands.push(Candidate {
+                    id: "NodeGraph:stages",
+                    description: "Flow diagram of the stages the section's subsections describe one by one",
+                    score: s,
+                    node: UiNode::NodeGraph(g),
+                });
+            }
+        }
         // Options scored on criteria read faster side by side.
         if let Some(mut c) = tables.iter().find_map(|(header, rows, r)| {
             super::compare::comparison_from_table(
@@ -604,36 +699,45 @@ pub fn plan_document(
                 node: UiNode::Comparison(c),
             });
         }
-        if f.command_lines >= 2 {
-            let s = if f.command_lines >= 3 { 0.7 } else { 0.55 };
-            let r = span(commands.iter().map(|c| c.1)).unwrap();
+        // A directory layout drawn with `├──` / `└──` reads faster as a tree
+        // that folds (#64). The largest one in the section.
+        if let Some((entries, r)) = trees.into_iter().max_by_key(|t| t.0.len()) {
+            let s = 0.74 + if super::tree::is_tree_heading(&heading) { 0.06 } else { 0.0 };
             cands.push(Candidate {
-                id: "ConfigViewer:commands",
-                description: "Copyable list of the section's shell commands (never executed)",
+                id: "DirectoryTree",
+                description: "Collapsible directory tree of the layout the section draws with tree lines in a code block",
                 score: s,
-                node: UiNode::ConfigViewer(ConfigViewerNode {
+                node: UiNode::DirectoryTree(DirectoryTreeNode {
                     meta: meta(r, s),
-                    format: ConfigFormat::Shell,
-                    content: commands.iter().map(|c| c.0.as_str()).collect::<Vec<_>>().join("\n"),
                     title: (!heading.is_empty()).then(|| heading.clone()),
+                    entries,
                 }),
             });
         }
-        if let Some((fmt, content, r)) = configs.first() {
-            let n = content.lines().count();
-            let s = if n >= 8 { 0.6 } else { 0.4 };
+        // Most of the section's list is `ID: verdict — text`, with one id kind.
+        f.verdict_items = verdicts.len();
+        let one_kind = verdicts.iter().all(|v| {
+            let p = |s: &str| s.chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>();
+            p(&v.id) == p(&verdicts[0].id)
+        });
+        if verdicts.len() >= 3 && verdicts.len() * 3 >= list_items.len() * 2 && one_kind {
+            let s = if verdicts.len() >= 5 { 0.8 } else { 0.65 };
+            let r = span(verdicts.iter().filter_map(|v| v.source_range)).unwrap();
             cands.push(Candidate {
-                id: "ConfigViewer:config",
-                description: "Structured viewer for the section's JSON/YAML/TOML config block",
+                id: "Verdicts",
+                description: "Verdict per item (requirement / check) with the checks it cites, re-checks and untested parts",
                 score: s,
-                node: UiNode::ConfigViewer(ConfigViewerNode {
-                    meta: meta(*r, s),
-                    format: *fmt,
-                    content: content.clone(),
+                node: UiNode::Verdicts(VerdictsNode {
+                    meta: meta(r, s),
                     title: (!heading.is_empty()).then(|| heading.clone()),
+                    items: verdicts.clone(),
                 }),
             });
         }
+        // No "Commands" aid (#67) and no config viewer: a copy of the
+        // section's shell / JSON / YAML / TOML block added nothing next to the
+        // block itself, which carries a copy button in the body.
+        // `shell_blocks` / `command_lines` / `config_blocks` stay as features.
         if events.len() >= 3 {
             let s = if events.len() >= 5 { 0.75 } else { 0.6 };
             let r = span(events.iter().filter_map(|e| e.source_range)).unwrap();
@@ -886,7 +990,9 @@ mod tests {
         let p = plan(md);
         let names: Vec<_> = p.sections.iter().map(|s| s.heading.as_str()).collect();
         assert_eq!(names, ["Tool", "Install", "Steps", "License"]);
-        assert_eq!(p.sections[1].candidates[0].id, "ConfigViewer:commands");
+        // Shell blocks get no "Commands" aid any more (#67).
+        assert!(p.sections[1].candidates.is_empty());
+        assert_eq!(p.sections[1].features.command_lines, 2);
         assert_eq!(p.sections[2].candidates[0].id, "StepNavigator");
         assert!(p.sections[3].candidates.is_empty());
     }
@@ -909,6 +1015,79 @@ mod tests {
         let p = plan(md);
         assert!(p.sections[0].candidates.iter().all(|c| c.id != "Callout:risk"));
         assert_eq!(p.sections[0].features.alerts, 1);
+    }
+
+    #[test]
+    fn tree_code_block_yields_directory_tree() {
+        let md = "# Repo\n\n## Layout\n\n```\nrepo/\n├── src/          # ★ code\n│   └── main.rs\n└── README.md\n```\n\n## Code\n\n```rust\nfn main() {}\n```\n";
+        let p = plan(md);
+        let c = &p.sections[1].candidates;
+        assert_eq!(c[0].id, "DirectoryTree");
+        let UiNode::DirectoryTree(t) = &c[0].node else { panic!() };
+        assert_eq!(t.title.as_deref(), Some("Layout"));
+        let names: Vec<_> = t.entries.iter().map(|e| (e.depth, e.name.as_str())).collect();
+        assert_eq!(names, [(0, "repo/"), (1, "src/"), (2, "main.rs"), (1, "README.md")]);
+        // Entry lines point at the document lines inside the fence.
+        assert_eq!(t.entries[0].source_range.unwrap().start_line, 6);
+        assert_eq!(t.entries[3].source_range.unwrap().start_line, 9);
+        assert!(t.entries[1].marked);
+        assert_eq!(p.sections[1].features.tree_entries, 4);
+        assert_eq!(p.sections[1].features.other_code_blocks, 0);
+        // Ordinary code gives no tree.
+        assert!(p.sections[2].candidates.iter().all(|c| c.id != "DirectoryTree"));
+        // The node passes validation.
+        let mut nodes = vec![c[0].node.clone()];
+        crate::ir::validate_nodes(&mut nodes, p.total_lines).unwrap();
+    }
+
+    #[test]
+    fn verdict_lists_become_verdicts() {
+        let md = "# Delivery\n\n## 検収判定\n\n合格。\n\n- R1: satisfied — C1: ビルドできた。\n- R2: satisfied — C14 と C3 で確認した。\n- R3: not satisfied — 前回差し戻した。REG1 が\n  まだ fail。\n- R4: satisfied — 実ブラウザは試していない。\n\n## Notes\n\n- one\n- two\n- three\n";
+        let p = plan(md);
+        let c = p.sections[1].candidates.iter().find(|c| c.id == "Verdicts").unwrap();
+        let UiNode::Verdicts(v) = &c.node else { panic!() };
+        assert_eq!(v.items.len(), 4);
+        assert_eq!(v.items[1].cites, ["C14", "C3"]);
+        assert_eq!(v.items[2].outcome, VerdictOutcome::Fail);
+        // A wrapped item keeps its second line.
+        assert!(v.items[2].text.ends_with("まだ fail。"), "{}", v.items[2].text);
+        assert_eq!(v.items[2].cites, ["REG1"]);
+        assert!(v.items[3].untested.is_some());
+        assert_eq!(v.items[0].source_range.unwrap().start_line, 7);
+        assert_eq!(p.sections[1].features.verdict_items, 4);
+        assert!(p.sections[2].candidates.iter().all(|c| c.id != "Verdicts"));
+        let mut nodes = vec![c.node.clone()];
+        crate::ir::validate_nodes(&mut nodes, p.total_lines).unwrap();
+    }
+
+    #[test]
+    fn stage_subsections_get_a_flow_in_the_parent_section() {
+        // #65: AGENTS.md §3 style.
+        let md = "## 3. パイプライン各段の責務\n\n各段の責務。\n\n### 3.1 parser — `markdown -> BlockTree`\n\ntext\n\n### 3.2 analyzer — 分類・抽出\n\ntext\n\n### 3.3 planner — semantic model → UI plan\n\ntext\n\n### 3.4 生成物の非永続方針\n\ntext\n";
+        let p = plan(md);
+        let c = p.sections[0].candidates.iter().find(|c| c.id == "NodeGraph:stages").unwrap();
+        let UiNode::NodeGraph(g) = &c.node else { panic!() };
+        assert_eq!(g.nodes.len(), 3);
+        assert_eq!(g.nodes[1].source_range.unwrap().start_line, 9);
+        assert_eq!(g.edges[0].label.as_deref(), Some("BlockTree"));
+        assert_eq!(p.sections[0].features.stages, 3);
+        // The subsections themselves get no stage flow.
+        assert!(p.sections[1..].iter().all(|s| s.candidates.iter().all(|c| c.id != "NodeGraph:stages")));
+    }
+
+    #[test]
+    fn drawn_diagrams_become_one_node_graph() {
+        let diagram = include_str!("testdata/agents-critical-path.txt");
+        let md = format!("## Path\n\n```\n{diagram}```\n\n## Mermaid\n\n```mermaid\n{diagram}```\n\n## Both\n\n- A → B\n- B → C\n\n```text\n{diagram}```\n");
+        let p = plan(&md);
+        let ids = |i: usize| p.sections[i].candidates.iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(0), ["NodeGraph:diagram"]);
+        let UiNode::NodeGraph(g) = &p.sections[0].candidates[0].node else { panic!() };
+        assert_eq!(g.nodes.len(), 7);
+        assert_eq!(g.nodes[0].source_range.unwrap().start_line, 4);
+        assert_eq!(p.sections[0].features.flow_edges, 5);
+        assert!(ids(1).is_empty(), "mermaid is never redrawn");
+        assert_eq!(ids(2), ["NodeGraph"], "one graph per section: the list wins");
     }
 
     #[test]

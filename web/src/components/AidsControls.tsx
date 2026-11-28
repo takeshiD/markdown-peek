@@ -51,20 +51,20 @@ export function AidsToggle({ compact }: { compact?: boolean }) {
         <Button
           variant="ghost"
           size="sm"
-          className={cn("h-8 gap-1.5 px-2 text-[13px] font-normal", on ? "bg-muted text-primary" : "text-muted-foreground", compact && "size-11 px-0")}
+          className={cn("h-8 gap-1.5 px-2 text-[13px] font-normal", on ? cn("bg-primary/10 font-medium text-primary hover:bg-primary/15 hover:text-primary", !busy && "mp-genui-on") : "text-muted-foreground/60 hover:text-muted-foreground", compact && "size-11 px-0")}
           aria-pressed={on}
           aria-busy={busy || undefined}
-          aria-label={busy ? "Reading aids (choosing…)" : "Reading aids"}
+          aria-label={busy ? "GenUI (choosing…)" : "GenUI"}
           data-testid="aids-toggle"
           data-busy={busy ? "true" : "false"}
           onClick={toggleAids}
         >
           {busy ? <Loader2 className="motion-safe:animate-spin" aria-hidden="true" /> : <Sparkles aria-hidden="true" />}
-          {!compact && <span className="max-lg:sr-only">Aids</span>}
+          {!compact && <span className="max-lg:sr-only">GenUI</span>}
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        {on ? "Turn reading aids off" : "Turn reading aids on"} <Kbd>A</Kbd>
+        {on ? "Turn GenUI off" : "Turn GenUI on"} <Kbd>A</Kbd>
       </TooltipContent>
     </Tooltip>
   );
@@ -168,12 +168,12 @@ export function RunButton({ touch }: { touch?: boolean }) {
   const cls = cn("h-7 gap-1 px-2 text-[12.5px] font-normal", touch && "h-11");
   if (view === "running")
     return (
-      <Button variant="outline" size="sm" className={cls} data-testid="aids-stop" aria-label="Stop choosing reading aids" onClick={() => void stopAids()}>
+      <Button variant="outline" size="sm" className={cls} data-testid="aids-stop" aria-label="Stop GenUI" onClick={() => void stopAids()}>
         <Square className="size-3 fill-current" aria-hidden="true" /> <span className="max-lg:sr-only">Stop</span>
       </Button>
     );
   if (view === "stopped" || view === "idle" || view === "error") {
-    const label = view === "stopped" ? "Resume" : view === "idle" ? "Choose aids" : "Retry";
+    const label = view === "stopped" ? "Resume" : view === "idle" ? "Run GenUI" : "Retry";
     const Icon = view === "error" ? RotateCw : Play;
     return (
       <Button variant="outline" size="sm" className={cls} data-testid="aids-resume" aria-label={`${label}: choose reading aids`} onClick={() => void runAids()}>
@@ -218,7 +218,7 @@ export function AidsStatus({ compact }: { compact?: boolean }) {
           data-testid="selector-status"
           data-state={chipState(view)}
           data-provider={sel?.name ?? ""}
-          aria-label={`Reading aids: ${label}. Show details`}
+          aria-label={`GenUI: ${label}. Show details`}
         >
           <span
             aria-hidden="true"
@@ -235,12 +235,12 @@ export function AidsStatus({ compact }: { compact?: boolean }) {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 text-[13px] leading-relaxed" aria-labelledby={titleId}>
-        <h3 id={titleId} className="mb-2 font-semibold">Reading aids</h3>
+        <h3 id={titleId} className="mb-2 font-semibold">GenUI</h3>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
           <dt className="text-muted-foreground">Status</dt>
           <dd data-testid="status-text">
             {label}
-            {view === "running" ? " (aids appear as they are chosen)" : ""}
+            {view === "running" ? " (views appear as they are chosen)" : ""}
           </dd>
           <dt className="text-muted-foreground">Model</dt>
           <dd data-testid="why-provider">

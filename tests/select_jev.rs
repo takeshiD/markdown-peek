@@ -14,7 +14,7 @@ const MARKER: &str = "ZZBODYMARKERZZ";
 fn doc() -> String {
     let filler = "これは長い本文です。".repeat(200); // 2000 chars
     format!(
-        "# Tool\n\nIntro paragraph.\n\n## Install\n\n```sh\ncargo build\ncargo install --path .\ncp a b\n```\n\n\
+        "# Tool\n\nIntro paragraph.\n\n## Install\n\n- [ ] get a key\n- [ ] set the variable\n- [x] install the binary\n\n\
 ## Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\n| a | status |\n|---|---|\n| 1 | ok |\n| 2 | ok |\n| 3 | ng |\n\n\
 ## Notes\n\n{filler}{MARKER}\n\n- [ ] a\n- [ ] b\n- [ ] c\n\n## License\n\nMIT\n"
     )
@@ -165,7 +165,7 @@ fn jev_sends_one_request_with_prefiltered_candidates_and_excerpts_only() {
     let p = placement(j, "Install").unwrap();
     assert_eq!(p["why"]["by"], "jev");
     assert_eq!(p["why"]["reason_code"], "chosen");
-    assert_eq!(p["node"]["kind"], "ConfigViewer");
+    assert_eq!(p["node"]["kind"], "Checklist");
     assert!(p["node"]["sourceRange"].is_object());
     assert_eq!(
         placement(j, "Steps").unwrap()["why"]["candidate"],

@@ -21,6 +21,11 @@ port = "3030"
 # Accepted values: "light" | "dark"
 theme = "light"
 
+# Width of the text column.
+# A length: "88ch" (default), "850px", "60em", "40rem"
+# or a share of the document pane: "95%", "3/4", "1/2"
+width = "88ch"
+
 [term]
 # Terminal rendering theme.
 # Accepted values: glow | mono | catputtin | dracura | solarized | nord | ayu
@@ -31,8 +36,8 @@ theme = "glow"
 pager = "less -R"
 
 [llm]
-# The LLM behind Guided reading's commentary (View menu > Guided reading).
-# Reading aids use [model] / [models] below, not this section.
+# The LLM behind Guided reading's commentary (command palette > Guided reading).
+# GenUI uses [model] / [models] below, not this section.
 
 # Whether Guided reading may call the LLM. When false, its commentary comes
 # from deterministic rules (offline, no key).
@@ -51,22 +56,22 @@ model = "claude-sonnet-5"
 effort = "medium"
 
 # ---------------------------------------------------------------------------
-# Reading aids (`mdpeek serve`, `mdpeek select`).
+# GenUI (`mdpeek serve`, `mdpeek select`).
 #
-# A model picks, per section, which reading aid to show (or none). Aid
+# A model picks, per section, which GenUI view to show (or none). View
 # *content* is always extracted from the document with a source line range;
 # the model only chooses among candidates that already fit.
 #
-# With aids on, the model receives headings, a short excerpt per section and
-# numeric features (never the whole file). Turn aids off for documents that
+# With GenUI on, the model receives headings, a short excerpt per section and
+# numeric features (never the whole file). Turn GenUI off for documents that
 # must not leave your machine.
 #
 # Keys: each model names the ENVIRONMENT VARIABLE that holds its key
 # (api_key_env). Never write a key here: `api_key = ...` makes the entry
 # invalid. Keys are never printed, logged, cached or sent to the browser.
 # ---------------------------------------------------------------------------
-[aids]
-# Initial state of the toggle: "on" | "off".
+[genui]
+# Initial state of the GenUI toggle: "on" | "off".
 default = "on"
 # Start choosing when a document opens; false = wait for the reader.
 auto_generate = true
@@ -81,7 +86,7 @@ timeout_ms = 30000
 batch_sections = 8
 excerpt_chars = 600
 max_state_chars = 24000
-# Hide an aid the model considers unhelpful (helps) or is unsure about (confidence).
+# Hide a view the model considers unhelpful (helps) or is unsure about (confidence).
 helps_threshold = 0.5
 confidence_threshold = 0.6
 # serve: wait this long after a file change before choosing again.
@@ -89,6 +94,7 @@ debounce_ms = 800
 
 # api: systemone (decision models) | anthropic | openai | openai_chat | claude_code | codex
 [models.jev]
+enable = true # false: keep the entry but do not offer or use it
 api = "systemone"
 model = "jev-1.14.0"
 # base_url defaults per api (systemone: https://api.typesafe.ai)

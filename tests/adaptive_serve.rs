@@ -8,7 +8,7 @@ use common::*;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
-const DOC: &str = "# Tool\n\nIntro paragraph.\n\n## Install\n\n```sh\ncargo build\ncargo install --path .\ncp a b\n```\n\n\
+const DOC: &str = "# Tool\n\nIntro paragraph.\n\n## Install\n\n- [ ] cargo build\n- [ ] cargo install --path .\n- [ ] cp a b\n\n\
 ## Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\n## Notes\n\n- [ ] a\n- [ ] b\n- [ ] c\n\n## License\n\nMIT\n";
 
 fn answers() -> Value {
@@ -106,7 +106,7 @@ fn decisions_survive_a_restart_on_disk_without_document_text() {
             all.push_str(&std::fs::read_to_string(f.path()).unwrap());
         }
     }
-    assert!(all.contains("ConfigViewer"), "{all}");
+    assert!(all.contains("Checklist"), "{all}");
     for text in ["cargo", "Install", "Steps", "one", "MIT"] {
         assert!(!all.contains(text), "document text {text:?} on disk: {all}");
     }
@@ -150,7 +150,7 @@ fn jev_serve_reuses_unchanged_sections_and_pushes_over_ws() {
     // Edit only the Install section → exactly one new request with one section.
     // The poll watcher compares mtimes at 1 s granularity.
     std::thread::sleep(Duration::from_millis(1100));
-    std::fs::write(&file, DOC.replace("cp a b", "cp a b\nmake check")).unwrap();
+    std::fs::write(&file, DOC.replace("- [ ] cp a b", "- [ ] cp a b\n- [ ] make check")).unwrap();
     let rev0 = pushed["revision"].as_u64().unwrap();
     let msg = loop {
         let m = ws
@@ -175,12 +175,7 @@ fn jev_serve_reuses_unchanged_sections_and_pushes_over_ws() {
         .iter()
         .find(|p| p["anchor"]["heading"] == "Install")
         .unwrap();
-    assert!(
-        install["node"]["content"]
-            .as_str()
-            .unwrap()
-            .contains("make check")
-    );
+    assert!(install["node"]["items"].to_string().contains("make check"), "{install}");
     assert!(!msg.to_string().contains(TEST_KEY));
     let log = srv.log.lock().unwrap().clone();
     assert!(!log.contains(TEST_KEY));

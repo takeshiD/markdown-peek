@@ -29,17 +29,15 @@ pub struct Config {
     /// Generative-UI / LLM settings (rules-first vs LLM-first). Consumed by the
     /// generator (Layer 3); read here at startup.
     pub llm: LlmConfig,
-    /// Reading-aid toggle defaults (`[aids]`).
-    pub aids: AidsSection,
+    /// GenUI toggle defaults (`[genui]`; the old name `[aids]` is still read).
+    #[serde(alias = "aids")]
+    pub genui: GenuiSection,
     /// Which model chooses reading aids, and shared tuning (`[model]`).
     pub model: ModelSection,
     /// Models that can choose reading aids (`[models.<name>]`), in file order.
     pub models: toml::Table,
     /// Decision cache on disk (`[cache]`).
     pub cache: CacheSection,
-    /// Removed section (reading-aid selection moved to `[model]` / `[models]`).
-    /// Accepted only so the error can say where its settings went.
-    pub select: Option<toml::Value>,
     /// Why the file could not be read (shown in the UI), if it could not.
     #[serde(skip)]
     pub load_error: Option<String>,
@@ -48,10 +46,10 @@ pub struct Config {
     pub path: Option<PathBuf>,
 }
 
-/// `[aids]` section: the reading-aid toggle.
+/// `[genui]` section: the GenUI toggle.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct AidsSection {
+pub struct GenuiSection {
     /// Initial state of the toggle: `"on"` (default) or `"off"`.
     pub default: Option<OnOff>,
     /// Start choosing aids as soon as a document opens (default `true`); when
@@ -115,6 +113,55 @@ pub struct ServerConfig {
     pub port: Option<String>,
     /// Default browser preview theme.
     pub theme: Option<BrowserTheme>,
+    /// Width of the text column: a length (`"88ch"`, `"850px"`, `"60em"`)
+    /// or a share of the document pane (`"95%"`, `"3/4"`). Default `"88ch"`.
+    pub width: Option<String>,
+}
+
+/// Default `[server] width`.
+pub const DEFAULT_TEXT_WIDTH: &str = "88ch";
+
+/// Read a `[server] width` value into a CSS length. Lengths keep their unit
+/// (`ch`, `px`, `em`, `rem`); a fraction becomes a percentage. Only
+/// digits, a dot and the unit come out, so the value is safe to put in the page.
+pub fn parse_text_width(raw: &str) -> Result<String, String> {
+    let s = raw.trim().to_ascii_lowercase();
+    let bad = || {
+        format!(
+            "[server] width = \"{}\" is not a width (use e.g. \"88ch\", \"850px\", \"95%\" or \"3/4\"); using {DEFAULT_TEXT_WIDTH}",
+            raw.chars().take(40).collect::<String>()
+        )
+    };
+    let num = |t: &str| -> Option<f64> {
+        let t = t.trim();
+        (!t.is_empty() && t.chars().all(|c| c.is_ascii_digit() || c == '.'))
+            .then(|| t.parse::<f64>().ok())
+            .flatten()
+            .filter(|v| v.is_finite() && *v > 0.0)
+    };
+    let fmt = |v: f64| {
+        let r = (v * 100.0).round() / 100.0;
+        if r.fract() == 0.0 { format!("{}", r as i64) } else { format!("{r}") }
+    };
+    if let Some((a, b)) = s.split_once('/') {
+        let (a, b) = (num(a).ok_or_else(bad)?, num(b).ok_or_else(bad)?);
+        if a > b {
+            return Err(bad());
+        }
+        return Ok(format!("{}%", fmt(a / b * 100.0)));
+    }
+    if let Some(p) = s.strip_suffix('%') {
+        let v = num(p).ok_or_else(bad)?;
+        return if v <= 100.0 { Ok(format!("{}%", fmt(v))) } else { Err(bad()) };
+    }
+    // Longest unit first ("rem" before "em").
+    for (unit, min, max) in [("rem", 10.0, 400.0), ("em", 10.0, 400.0), ("ch", 20.0, 400.0), ("px", 200.0, 6000.0)] {
+        if let Some(n) = s.strip_suffix(unit) {
+            let v = num(n).ok_or_else(bad)?;
+            return if (min..=max).contains(&v) { Ok(format!("{}{unit}", fmt(v))) } else { Err(bad()) };
+        }
+    }
+    Err(bad())
 }
 
 /// `[term]` section: terminal previewer defaults.
@@ -236,20 +283,28 @@ impl Config {
         Models::new(list, self.model.use_.as_deref())
     }
 
+    /// `[server] width` as a CSS length (default `88ch`); an unreadable value
+    /// falls back to the default (and is reported by [`Config::errors`]).
+    pub fn text_width(&self) -> String {
+        self.server
+            .width
+            .as_deref()
+            .and_then(|w| parse_text_width(w).ok())
+            .unwrap_or_else(|| DEFAULT_TEXT_WIDTH.to_string())
+    }
+
     /// Problems with the configuration as a whole, for the UI.
     pub fn errors(&self, models: &Models) -> Vec<String> {
         let mut out = Vec::new();
         if let Some(e) = &self.load_error {
             out.push(e.clone());
         }
+        if let Some(Err(e)) = self.server.width.as_deref().map(parse_text_width) {
+            out.push(e);
+        }
         if self.llm.strategy.is_some() || self.llm.confidence_threshold.is_some() {
             out.push(
                 "[llm] strategy / confidence_threshold were used by `mdpeek gen`, which was removed; delete them".into(),
-            );
-        }
-        if self.select.is_some() {
-            out.push(
-                "[select] was removed: reading aids are chosen by the models in [models.<name>]; pick one with [model] use = \"<name>\"".into(),
             );
         }
         out.extend(models.errors.iter().cloned());
@@ -275,11 +330,11 @@ impl Config {
         }
     }
 
-    /// `[aids]`: (toggle on by default, start automatically).
-    pub fn aids(&self) -> (bool, bool) {
+    /// `[genui]`: (toggle on by default, start automatically).
+    pub fn genui(&self) -> (bool, bool) {
         (
-            self.aids.default != Some(OnOff::Off),
-            self.aids.auto_generate.unwrap_or(true),
+            self.genui.default != Some(OnOff::Off),
+            self.genui.auto_generate.unwrap_or(true),
         )
     }
 
@@ -429,7 +484,7 @@ mod tests {
         let m = config.models();
         assert_eq!(m.default, "jev");
         assert_eq!(m.list.len(), 1);
-        assert_eq!(config.aids(), (true, true));
+        assert_eq!(config.genui(), (true, true));
     }
 
     #[test]
@@ -468,22 +523,77 @@ mod tests {
     }
 
     #[test]
-    fn removed_select_section_is_explained() {
-        let config: Config = toml::from_str("[select]\nprovider = \"jev\"\n").unwrap();
-        let errs = config.errors(&config.models());
-        assert!(errs[0].contains("[select] was removed"), "{errs:?}");
+    fn enable_false_turns_an_entry_off() {
+        let config: Config = toml::from_str(
+            r#"
+            [model]
+            use = "jev"
+
+            [models.jev]
+            enable = false
+            api = "systemone"
+            model = "jev-1.14.0"
+
+            [models.haiku]
+            enable = true
+            api = "anthropic"
+            model = "claude-haiku-5-5"
+            "#,
+        )
+        .unwrap();
+        let m = config.models();
+        let names: Vec<_> = m.list.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["haiku"]);
+        assert_eq!(m.default, "haiku");
+        let errs = config.errors(&m);
+        assert!(errs[0].contains("use = \"jev\" is turned off"), "{errs:?}");
     }
 
     #[test]
-    fn cache_dir_and_aids() {
+    fn text_width_values() {
+        for (raw, css) in [
+            ("88ch", "88ch"),
+            ("850px", "850px"),
+            (" 60em ", "60em"),
+            ("40rem", "40rem"),
+            ("95%", "95%"),
+            ("1/2", "50%"),
+            ("3/4", "75%"),
+            ("2/3", "66.67%"),
+            ("72.5CH", "72.5ch"),
+        ] {
+            assert_eq!(parse_text_width(raw).as_deref(), Ok(css), "{raw}");
+        }
+        for raw in ["", "wide", "88", "-10px", "0px", "120%", "3/2", "1/0", "10px", "90vw", "88ch;color:red", "1e3px"] {
+            let e = parse_text_width(raw).unwrap_err();
+            assert!(e.contains("using 88ch"), "{raw}: {e}");
+        }
+        let c: Config = toml::from_str("[server]\nwidth = \"3/4\"\n").unwrap();
+        assert_eq!(c.text_width(), "75%");
+        assert_eq!(Config::default().text_width(), "88ch");
+        let bad: Config = toml::from_str("[server]\nwidth = \"wide\"\n").unwrap();
+        assert_eq!(bad.text_width(), "88ch");
+        assert!(bad.errors(&bad.models())[0].contains("[server] width"));
+    }
+
+    #[test]
+    fn select_section_is_unknown() {
+        assert!(toml::from_str::<Config>("[select]\nprovider = \"jev\"\n").is_err());
+    }
+
+    #[test]
+    fn cache_dir_and_genui() {
         let config: Config = toml::from_str(
-            "[cache]\ndir = \"/tmp/x\"\nmax_size_mb = 5\n[aids]\ndefault = \"off\"\nauto_generate = false\n",
+            "[cache]\ndir = \"/tmp/x\"\nmax_size_mb = 5\n[genui]\ndefault = \"off\"\nauto_generate = false\n",
         )
         .unwrap();
+        // The old section name is still read.
+        let old: Config = toml::from_str("[aids]\ndefault = \"off\"\n").unwrap();
+        assert_eq!(old.genui(), (false, true));
         let c = config.cache_settings();
         assert_eq!(c.dir.as_deref(), Some(Path::new("/tmp/x")));
         assert_eq!(c.max_size_mb, 5);
-        assert_eq!(config.aids(), (false, false));
+        assert_eq!(config.genui(), (false, false));
         let off: Config = toml::from_str("[cache]\nenabled = false\n").unwrap();
         assert!(off.cache_settings().dir.is_none());
     }

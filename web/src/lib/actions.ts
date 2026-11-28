@@ -1,5 +1,5 @@
 // Server I/O and user actions. Components call these; they update the store.
-import { aidsOn, announce, getState, setPrefs, setState, updateDocPrefs, type Toast } from "./store";
+import { aidsOn, announce, getState, setPrefs, setState, updateDocPrefs, type PinSide, type Toast } from "./store";
 import { keepReadingPosition } from "./nav";
 import type { AdaptiveLayout, DocPayload, ModelsInfo, Placement, ThemePref, TreeResponse } from "./types";
 import { CONFIG_ERRORS, kindLabel, widgetKey } from "./types";
@@ -66,10 +66,10 @@ function reportConfig(m: ModelsInfo) {
 function describeLayout(l: AdaptiveLayout): string {
   const n = l.placements.length;
   const st = l.progress.state;
-  if (st === "running") return `Choosing reading aids: ${l.progress.done} of ${l.progress.total}`;
-  if (st === "stopped") return `Stopped: ${n} ${n === 1 ? "aid" : "aids"} so far`;
-  if (st === "error") return `Reading aids failed: ${l.selector.message ?? l.selector.error}`;
-  return `Reading aids updated: ${n} ${n === 1 ? "aid" : "aids"} chosen by ${l.selector.name}`;
+  if (st === "running") return `Choosing GenUI: ${l.progress.done} of ${l.progress.total}`;
+  if (st === "stopped") return `Stopped: ${n} ${n === 1 ? "view" : "views"} so far`;
+  if (st === "error") return `GenUI failed: ${l.selector.message ?? l.selector.error}`;
+  return `GenUI updated: ${n} ${n === 1 ? "view" : "views"} chosen by ${l.selector.name}`;
 }
 
 /** Accept a layout unless it belongs to an older revision than the body shown. */
@@ -92,7 +92,7 @@ export function acceptLayout(layout: AdaptiveLayout, source: "http" | "ws") {
     // Same key as the model-problem notice, so one problem is reported once.
     notifyOnce(config ? `model:${layout.selector.name}:${msg}` : `run:${layout.selector.name}:${code}:${layout.revision}`, {
       kind: "error",
-      title: config ? `Model “${layout.selector.name}” settings are invalid` : `Reading aids failed (${layout.selector.name})`,
+      title: config ? `Model “${layout.selector.name}” settings are invalid` : `GenUI failed (${layout.selector.name})`,
       body: [layout.selector.message ?? code, ...(config ? [configWhere()] : [])],
       action: config ? undefined : { label: "Try again", run: () => void runAids() },
     });
@@ -131,8 +131,8 @@ export async function fetchAdaptive() {
     acceptLayout(layout, "http");
     return layout;
   } catch (e) {
-    setState({ select: "error", selectError: `Reading aids could not be loaded (${(e as Error).message}). The document is unaffected.` });
-    announce("Reading aids could not be loaded");
+    setState({ select: "error", selectError: `GenUI could not be loaded (${(e as Error).message}). The document is unaffected.` });
+    announce("GenUI could not be loaded");
   }
 }
 
@@ -157,7 +157,7 @@ export async function runAids() {
 export async function stopAids() {
   try {
     await post("/api/adaptive/stop");
-    announce("Stopped choosing reading aids");
+    announce("Stopped GenUI");
   } catch {
     /* the next push tells the truth */
   }
@@ -167,7 +167,7 @@ export async function stopAids() {
 export function setAids(on: boolean) {
   if (aidsOn(getState()) === on && getState().prefs.aids !== null) return;
   keepReadingPosition(() => setPrefs({ aids: on }));
-  announce(on ? "Reading aids on" : "Reading aids off");
+  announce(on ? "GenUI on" : "GenUI off");
   if (on) {
     const m = getState().models;
     if (m) reportConfig(m);
@@ -331,6 +331,24 @@ export function connectSocket() {
 
 // ---- widgets --------------------------------------------------------------
 
+/**
+ * Scroll a reading aid into view and flash it, so the reader sees where it
+ * went (a pinned aid jumps to the top of the text, #61).
+ */
+export function revealWidget(key: string) {
+  window.requestAnimationFrame(() => {
+    const el = document.querySelector<HTMLElement>(`[data-widget="${CSS.escape(key)}"]`);
+    if (!el) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
+    el.classList.remove("mp-aid--moved");
+    void el.offsetWidth;
+    el.classList.add("mp-aid--moved");
+    window.setTimeout(() => el.classList.remove("mp-aid--moved"), 1600);
+    el.querySelector<HTMLElement>(".mp-aid__toggle")?.focus({ preventScroll: true });
+  });
+}
+
 export function togglePin(p: Placement) {
   const k = widgetKey(p);
   let pinned = false;
@@ -338,17 +356,73 @@ export function togglePin(p: Placement) {
     pinned = !d.pinned.includes(k);
     return { ...d, pinned: pinned ? [...d.pinned, k] : d.pinned.filter((x) => x !== k) };
   });
-  announce(`${kindLabel(p.node.kind)} ${pinned ? "pinned" : "unpinned"}`);
+  const name = kindLabel(p.node.kind);
+  // The aid moves away from under the pointer (to the top, or back to its
+  // section): say where it went and offer to go there, so it does not look
+  // like it vanished (#61).
+  const side = getState().prefs.pinSide;
+  const where = side === "left" ? "left of the text" : "over the text";
+  announce(`${name} ${pinned ? `pinned ${where}` : "unpinned, back in its section"}`);
+  notify(
+    {
+      kind: "info",
+      title: pinned ? `${name} pinned` : `${name} back in its section`,
+      body: [pinned ? (side === "float" ? "It floats over the text while you read; drag its bar to move it." : `It stays ${where} while you read.`) : p.scope === "section" ? `Under “${p.anchor.heading}”.` : ""].filter(Boolean),
+      // Pinned aids stick at the top, already in view; one put back can be far away.
+      ...(pinned ? {} : { action: { label: "Show it", run: () => revealWidget(k) } }),
+    },
+    `aid-move:${k}`,
+  );
+}
+
+/** Dock pinned views above the text or to its left. */
+export function setPinSide(side: PinSide) {
+  setPrefs({ pinSide: side });
+  announce(side === "left" ? "Pinned views docked left of the text" : "Pinned views float over the text");
 }
 
 export function hideWidget(p: Placement) {
   const k = widgetKey(p);
   // Spread `d`: ticks and step positions of other aids must survive a hide.
   updateDocPrefs((d) => ({ ...d, pinned: d.pinned.filter((x) => x !== k), hidden: d.hidden.includes(k) ? d.hidden : [...d.hidden, k] }));
-  announce(`${kindLabel(p.node.kind)} hidden. Restore it from Hidden.`);
+  const name = kindLabel(p.node.kind);
+  announce(`${name} hidden. Undo from the notification, or restore it from Hidden above the text.`);
+  // Hiding is intended, but the way back must be obvious and close (#61).
+  notify(
+    {
+      kind: "info",
+      title: `${name} hidden`,
+      body: ["Bring it back with Undo, or later from “hidden” above the text or the command palette."],
+      action: {
+        label: "Undo",
+        run: () => {
+          showWidget(k);
+          revealWidget(k);
+        },
+      },
+    },
+    `aid-hide:${k}`,
+  );
+}
+
+/**
+ * A table / checklist aid stands in for its block in the text (#63); this
+ * switches one of them back to the original Markdown rendering, or again to
+ * the aid. Display only: the file is never touched.
+ */
+export function toggleOriginal(p: Placement) {
+  const k = widgetKey(p);
+  let original = false;
+  updateDocPrefs((d) => {
+    const cur = d.original ?? [];
+    original = !cur.includes(k);
+    return { ...d, original: original ? [...cur, k] : cur.filter((x) => x !== k) };
+  });
+  announce(original ? `Showing the original ${kindLabel(p.node.kind).toLowerCase()} from the text` : `Showing the ${kindLabel(p.node.kind).toLowerCase()} as GenUI`);
 }
 
 export function showWidget(key: string) {
   updateDocPrefs((d) => ({ ...d, hidden: d.hidden.filter((x) => x !== key) }));
-  announce("Reading aid shown again");
+  dismiss(`aid-hide:${key}`);
+  announce("View shown again");
 }

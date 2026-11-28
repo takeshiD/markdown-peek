@@ -1,7 +1,7 @@
 // Overlays: command palette, keyboard shortcuts, guided reading panel, and
 // the mobile Files / Outline sheet.
 import { useEffect, useRef, useState } from "react";
-import { Bot, EyeOff, FileText, Hash, Monitor, Moon, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
+import { BookOpenText, Bot, EyeOff, FileText, Hash, Keyboard, LocateFixed, Monitor, Moon, PanelLeft, PictureInPicture2, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -14,9 +14,9 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Kbd } from "@/components/ui/kbd";
-import { aidsOn, getState, setPrefs, setState, useStore } from "../lib/store";
+import { aidsOn, getState, setPrefs, setState, useStore, type PinSide } from "../lib/store";
 import { keepReadingPosition } from "../lib/nav";
-import { hideWidget, makeDefaultModel, runAids, selectFile, setActiveModel, setTheme, showWidget, stopAids, toggleAids, togglePin } from "../lib/actions";
+import { hideWidget, makeDefaultModel, runAids, selectFile, setActiveModel, setPinSide, setTheme, showWidget, stopAids, toggleAids, togglePin } from "../lib/actions";
 import { jumpToHeading } from "../lib/nav";
 import { kindLabel, widgetKey } from "../lib/types";
 import { paletteFilter, STRICT } from "../lib/paletteFilter";
@@ -46,6 +46,8 @@ export function CommandPalette() {
   const layout = useStore((s) => s.layout);
   const models = useStore((s) => s.models);
   const aids = useStore(aidsOn);
+  const guided = useStore((s) => s.guidedOpen);
+  const autoscroll = useStore((s) => s.prefs.autoscroll);
   const { visible, hidden, pinned } = useVisiblePlacements();
   const [query, setQuery] = useState("");
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -75,16 +77,16 @@ export function CommandPalette() {
   const entries: PaletteEntry[] = [];
   for (const h of headings)
     entries.push({ id: `h:${h.id}`, group: "Headings", label: h.text, extras: ["heading", "go to"], icon: <Hash />, action: () => jumpToHeading(h.id) });
-  entries.push({ id: "a:toggle", group: "Reading aids", label: aids ? "Turn reading aids off" : "Turn reading aids on", extras: ["aids", "generate", "adaptive", "read"], icon: <Sparkles />, shortcut: "a", action: toggleAids });
+  entries.push({ id: "a:toggle", group: "GenUI", label: aids ? "Turn GenUI off" : "Turn GenUI on", extras: ["aids", "reading aids", "generate", "adaptive", "read"], icon: <Sparkles />, shortcut: "a", action: toggleAids });
   const st = layout?.progress.state;
-  if (aids && st === "running") entries.push({ id: "a:stop", group: "Reading aids", label: "Stop choosing reading aids", extras: ["cancel"], icon: <Square />, action: () => void stopAids() });
+  if (aids && st === "running") entries.push({ id: "a:stop", group: "GenUI", label: "Stop GenUI", extras: ["cancel"], icon: <Square />, action: () => void stopAids() });
   if (aids && (st === "stopped" || st === "idle" || st === "error"))
-    entries.push({ id: "a:run", group: "Reading aids", label: st === "stopped" ? "Resume choosing reading aids" : "Choose reading aids", extras: ["resume", "retry", "generate"], icon: <Play />, action: () => void runAids() });
+    entries.push({ id: "a:run", group: "GenUI", label: st === "stopped" ? "Resume GenUI" : "Run GenUI", extras: ["resume", "retry", "generate"], icon: <Play />, action: () => void runAids() });
   for (const m of models?.models ?? [])
     if (m.name !== models!.active && !m.problem)
-      entries.push({ id: `model:${m.name}`, group: "Reading aids", label: `Use model ${m.name}`, extras: [m.model, "switch model"], icon: <Bot />, action: () => void setActiveModel(m.name) });
+      entries.push({ id: `model:${m.name}`, group: "GenUI", label: `Use model ${m.name}`, extras: [m.model, "switch model"], icon: <Bot />, action: () => void setActiveModel(m.name) });
   if (models && models.active !== models.default)
-    entries.push({ id: "model:default", group: "Reading aids", label: `Make ${models.active} the default model`, extras: ["save", "config"], icon: <Star />, action: () => void makeDefaultModel() });
+    entries.push({ id: "model:default", group: "GenUI", label: `Make ${models.active} the default model`, extras: ["save", "config"], icon: <Star />, action: () => void makeDefaultModel() });
   entries.push(
     { id: "t:light", group: "View", label: "Light theme", icon: <Sun />, action: () => setTheme("light") },
     { id: "t:dark", group: "View", label: "Dark theme", icon: <Moon />, action: () => setTheme("dark") },
@@ -92,17 +94,25 @@ export function CommandPalette() {
     { id: "v:rail", group: "View", label: "Show or hide files", shortcut: "[", action: () => keepReadingPosition(() => setPrefs({ railCollapsed: !getState().prefs.railCollapsed })) },
     { id: "v:outline", group: "View", label: "Show or hide the outline", shortcut: "]", action: toggleOutline },
     { id: "v:float", group: "View", label: "Float or dock the outline", extras: ["floating", "pin outline", "picture in picture"], action: () => setOutlineFloating(!getState().prefs.outlineFloating) },
-    { id: "v:guided", group: "View", label: "Guided reading", shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
-    { id: "v:follow", group: "View", label: "Follow live changes on or off", extras: ["autoscroll"], action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },
+    { id: "v:guided", group: "View", label: guided ? "Close guided reading" : "Guided reading", extras: ["scrolly", "explain"], icon: <BookOpenText />, shortcut: "g", action: () => setState({ guidedOpen: !getState().guidedOpen }) },
+    { id: "v:follow", group: "View", label: autoscroll ? "Stop following live changes" : "Follow live changes", extras: ["autoscroll", "live", "on", "off"], icon: <LocateFixed />, action: () => setPrefs({ autoscroll: !getState().prefs.autoscroll }) },
+    { id: "v:shortcuts", group: "View", label: "Keyboard shortcuts", extras: ["keys", "help", "keybindings"], icon: <Keyboard />, shortcut: "?", action: () => setState({ shortcutsOpen: true }) },
   );
   if (layout) {
     const where = (p: (typeof visible)[number]) => (p.scope === "section" ? ` in ${p.anchor.heading}` : "");
     for (const p of visible)
-      entries.push({ id: `pin:${widgetKey(p)}`, group: "Reading aids", label: `${pinned.has(widgetKey(p)) ? "Unpin" : "Pin"} ${kindLabel(p.node.kind)}${where(p)}`, strict: true, icon: <Pin />, action: () => togglePin(p) });
+      entries.push({ id: `pin:${widgetKey(p)}`, group: "GenUI", label: `${pinned.has(widgetKey(p)) ? "Unpin" : "Pin"} ${kindLabel(p.node.kind)}${where(p)}`, strict: true, icon: <Pin />, action: () => togglePin(p) });
     for (const p of visible)
-      entries.push({ id: `hide:${widgetKey(p)}`, group: "Reading aids", label: `Hide ${kindLabel(p.node.kind)}${where(p)}`, strict: true, icon: <EyeOff />, action: () => hideWidget(p) });
+      entries.push({ id: `hide:${widgetKey(p)}`, group: "GenUI", label: `Hide ${kindLabel(p.node.kind)}${where(p)}`, strict: true, icon: <EyeOff />, action: () => hideWidget(p) });
+    const side = getState().prefs.pinSide;
+    const places: [PinSide, string, React.ReactNode][] = [
+      ["float", "Float the pinned views over the text", <PictureInPicture2 />],
+      ["left", "Dock pinned views left of the text", <PanelLeft />],
+    ];
+    for (const [s, label, icon] of places)
+      if (s !== side) entries.push({ id: `pin:side:${s}`, group: "GenUI", label, extras: ["pin", "dock", "pinned", "floating", s], icon, action: () => setPinSide(s) });
     for (const p of hidden)
-      entries.push({ id: `show:${widgetKey(p)}`, group: "Reading aids", label: `Show ${kindLabel(p.node.kind)}${where(p)}`, extras: ["hidden", "restore"], strict: true, icon: <Undo2 />, action: () => showWidget(widgetKey(p)) });
+      entries.push({ id: `show:${widgetKey(p)}`, group: "GenUI", label: `Show ${kindLabel(p.node.kind)}${where(p)}`, extras: ["hidden", "restore"], strict: true, icon: <Undo2 />, action: () => showWidget(widgetKey(p)) });
   }
   const repo = tree?.tree.groups[0];
   for (const f of repo?.files ?? [])
@@ -155,7 +165,7 @@ export function CommandPalette() {
 
 const SHORTCUTS: [string[], string][] = [
   [[`${MOD}`, "K"], "Command palette"],
-  [["a"], "Reading aids on or off"],
+  [["a"], "GenUI on or off"],
   [["["], "Show or hide files"],
   [["]"], "Show or hide the outline (dock or float it from its header)"],
   [["/"], "Filter headings"],

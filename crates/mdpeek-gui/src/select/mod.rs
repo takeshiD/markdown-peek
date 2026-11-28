@@ -17,6 +17,7 @@
 //! Decisions are cached per section ([`cache`]: memory, then disk), so a
 //! stopped run resumes where it stopped and unchanged sections never ask again.
 
+pub mod ascii;
 pub mod cache;
 pub mod chart;
 pub mod compare;
@@ -28,6 +29,9 @@ pub mod jev;
 pub mod llm;
 pub mod models;
 pub mod sections;
+pub mod stages;
+pub mod tree;
+pub mod verdicts;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -888,7 +892,7 @@ mod tests {
     use super::*;
     use crate::select::models::ModelEntry;
 
-    const MD: &str = "# Tool\n\nIntro.\n\n## Install\n\n```sh\ncargo build\ncargo install --path .\ncp a b\n```\n\n## Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\n## License\n\nMIT\n";
+    const MD: &str = "# Tool\n\nIntro.\n\n## Install\n\n- [ ] get a key\n- [x] install the binary\n\n## Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\n## License\n\nMIT\n";
 
     fn fake() -> ModelSpec {
         ModelSpec::from_entry(
@@ -916,7 +920,8 @@ mod tests {
             .iter()
             .map(|p| p.why.candidate.as_str())
             .collect();
-        assert!(kinds.contains(&"ConfigViewer:commands"), "{kinds:?}");
+        // Removed: commands (#67) and the config viewer (the toml block above).
+        assert!(!kinds.iter().any(|k| k.starts_with("ConfigViewer")), "{kinds:?}");
         assert!(kinds.contains(&"StepNavigator"));
         assert!(l.skipped.iter().any(|s| s.anchor.heading == "License"));
         for p in &l.placements {

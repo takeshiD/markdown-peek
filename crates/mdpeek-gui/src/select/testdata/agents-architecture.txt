@@ -1,0 +1,13 @@
+        ┌──────────────────────── Rust core (mdpeek-core) ───────────────────────┐
+        │                                                                        │
+document.md ─▶ parser ─▶ model ─▶ analyzer ─▶ planner ─▶ generator ─▶ ir(validate)
+        │      (pulldown  (block   (rules +   (semantic   (rules/     (schema +              │
+        │       -cmark     tree +   LLM)       model →     LLM →       sourceRange            │
+        │       OffsetIter offsets)            UI plan)    UI IR)      検証。永続 cache なし E)│
+        └──────────────────────────────────────────┬───────────────────────────┘
+                                                    │  UI IR (JSON, serde)
+                        ┌───────────────────────────┼───────────────────────────┐
+                        ▼                                                         ▼
+              web renderer (Preact)                                    tui renderer (ratatui)
+              registry[kind] → component                               registry[kind] → widget
+              (全 UiNode 対応)                                          (部分集合を段階対応)

@@ -128,8 +128,10 @@ test("outline filter, front matter, code highlighting, mermaid, math source, GFM
 
 test("guided reading opens beside the text and closes", async ({ page, server }) => {
   await openApp(page, server);
-  await page.getByTestId("view-menu").click();
-  await page.getByRole("menuitemcheckbox", { name: /Guided reading/ }).click();
+  // No View menu any more (#66): guided reading is on the command palette.
+  await page.getByTestId("open-palette").click();
+  await page.getByTestId("palette-input").fill("guided");
+  await page.getByRole("option", { name: /Guided reading/ }).first().click();
   const panel = page.getByTestId("guided-panel");
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Guided reading");

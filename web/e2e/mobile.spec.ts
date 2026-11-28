@@ -61,7 +61,7 @@ test("single pane without horizontal scroll, aids off and on", async ({ page, se
   await expect(page.locator("article h1")).toBeInViewport();
   await noHorizontalScroll(page);
   await tapTargets(page, "header");
-  for (const item of ["Turn reading aids off", "Turn reading aids on"]) {
+  for (const item of ["Turn GenUI off", "Turn GenUI on"]) {
     await page.getByRole("button", { name: "More" }).tap();
     await page.getByRole("menuitem", { name: item }).tap();
     await expect(page.getByRole("menu")).toHaveCount(0);
@@ -98,7 +98,7 @@ test("files and outline open in a sheet; the model can be switched from the menu
   // No reading-aid sheet on a phone either: the aids are in the text.
   await expect(page.getByTestId("open-widgets")).toHaveCount(0);
   await page.getByTestId("selector-status").tap();
-  const pop = page.getByRole("dialog", { name: "Reading aids" });
+  const pop = page.getByRole("dialog", { name: "GenUI" });
   await expect(pop).toBeVisible();
   await expect(pop.getByTestId("why-provider")).toContainText("fake");
   await page.keyboard.press("Escape");

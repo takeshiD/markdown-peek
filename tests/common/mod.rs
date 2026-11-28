@@ -163,7 +163,7 @@ pub fn write(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBu
     p
 }
 
-/// `[select]` config pointing Jev at `base_url`.
+/// Config pointing Jev at `base_url`.
 pub fn jev_config(dir: &std::path::Path, base_url: &str, extra: &str) -> std::path::PathBuf {
     write(
         dir,
@@ -364,6 +364,8 @@ pub fn spawn_serve(
         .arg("0")
         .env("HOME", dir)
         .env("XDG_CONFIG_HOME", dir)
+        // The disk cache must land in $HOME/.cache, not an inherited shared dir.
+        .env_remove("XDG_CACHE_HOME")
         .env("RUST_LOG", "info")
         .env_remove(super_key())
         .stdout(Stdio::piped())

@@ -35,6 +35,8 @@ export function jumpToRange(range: SourceRange, heading?: string) {
     announce(`Lines ${range.start_line} to ${range.end_line} are not in the rendered document`);
     return;
   }
+  // A block an aid stands in for (#63) is hidden: show its aid instead.
+  els = els.map((e) => replacementFor(e) ?? e).filter((e, i, a) => a.indexOf(e) === i);
   setState({ sheet: null });
   els[0].scrollIntoView({ behavior: behavior(), block: "start" });
   flash(els, "mp-source-hit", 2400);
@@ -42,6 +44,13 @@ export function jumpToRange(range: SourceRange, heading?: string) {
   els[0].setAttribute("tabindex", "-1");
   els[0].focus({ preventScroll: true });
   announce(`Showing lines ${range.start_line} to ${range.end_line}`);
+}
+
+/** The aid slot standing in for a hidden body block, if any. */
+function replacementFor(el: HTMLElement): HTMLElement | null {
+  const key = el.dataset.replacedBy;
+  if (!key || !article) return null;
+  return article.querySelector<HTMLElement>(`:scope > [data-slot="${CSS.escape(key)}"]`);
 }
 
 export function jumpToHeading(id: string) {

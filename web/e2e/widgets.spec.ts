@@ -35,11 +35,11 @@ test.describe("with the fake selector", () => {
     const outline = page.getByRole("navigation", { name: "Outline" });
     await expect(outline.getByRole("link", { name: "手順", exact: true })).toHaveAttribute("aria-current", "location");
     await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "true");
-    await page.locator("article h2", { hasText: "コマンド" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
-    await expect(outline.getByRole("link", { name: "コマンド" })).toHaveAttribute("aria-current", "location");
+    await page.locator("article h2", { hasText: "前提条件" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
+    await expect(outline.getByRole("link", { name: "前提条件" })).toHaveAttribute("aria-current", "location");
     await expect(outline.getByRole("link", { name: "手順", exact: true })).not.toHaveAttribute("aria-current", "location");
     await expect(page.locator("article").locator('[data-kind="StepNavigator"]')).toHaveAttribute("data-active", "false");
-    await expect(page.locator("article").locator('[data-kind="ConfigViewer"]')).toHaveAttribute("data-active", "true");
+    await expect(page.locator("article").locator('[data-kind="Checklist"]')).toHaveAttribute("data-active", "true");
   });
 
   test("R7: why-this-widget shows the model, confidence, helps and alternatives", async ({ page, server }) => {
@@ -47,49 +47,51 @@ test.describe("with the fake selector", () => {
     const status = page.getByTestId("selector-status");
     await expect(status).toHaveAttribute("data-provider", "fake");
     await expect(status).toHaveAttribute("data-state", "ready");
-    await page.getByRole("button", { name: "Why this reading aid: Steps" }).click();
+    await page.getByRole("button", { name: "Why this view: Steps" }).click();
     const pop = page.getByRole("dialog");
     await expect(pop.getByTestId("why-provider")).toHaveText("fake, model fake-e2e");
     await expect(pop.getByTestId("why-confidence")).toHaveText("88%");
     await expect(pop.getByTestId("why-helps")).toHaveText("77%");
     await expect(pop.getByTestId("why-alternatives")).not.toBeEmpty();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Why this view: Steps" })).toBeFocused();
   });
 
   test("R8: pin and hide survive reload per document; hidden widgets can be restored", async ({ page, server }) => {
     await openApp(page, server);
     const pane = page.locator("article");
-    await pane.getByRole("button", { name: "Pin Steps to the top" }).click();
-    await expect(pane.getByRole("button", { name: "Unpin Steps from the top" })).toHaveAttribute("aria-pressed", "true");
-    // Pinned: moved to the top of the text, under the title.
-    await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
-    await expect(pane.locator('.mp-note-slot[data-place="top"] [data-kind="StepNavigator"]')).toBeVisible();
-    expect(await pane.evaluate((a) => (a.children[1] as HTMLElement).dataset.place)).toBe("top");
-    await pane.getByRole("button", { name: "Hide Commands" }).click();
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(0);
+    await pane.getByRole("button", { name: "Pin Steps", exact: true }).click();
+    const dock = page.getByTestId("pinned-aids");
+    await expect(dock.getByRole("button", { name: "Unpin Steps", exact: true })).toHaveAttribute("aria-pressed", "true");
+    // Pinned: moved out of the text into the dock.
+    await expect(dock.locator('[data-kind="StepNavigator"]')).toBeVisible();
+    await expect(pane.locator('[data-kind="StepNavigator"]')).toHaveCount(0);
+    await pane.getByRole("button", { name: "Hide Checklist" }).click();
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(0);
     await expect(page.getByTestId("live-region")).toHaveText(/hidden/);
+    // Hidden: the task list it stood in for is back in the text (#63).
+    await expect(pane.locator("ul:has(> li > input[type=checkbox])").first()).toBeVisible();
 
     await page.reload();
     await openApp(page, server);
-    await expect(pane.locator("[data-widget]").first()).toHaveAttribute("data-kind", "StepNavigator");
-    await expect(pane.getByRole("button", { name: "Unpin Steps from the top" })).toBeVisible();
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(0);
+    await expect(dock.locator('[data-kind="StepNavigator"]')).toBeVisible();
+    await expect(dock.getByRole("button", { name: "Unpin Steps", exact: true })).toBeVisible();
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(0);
 
     // Another document has its own (empty) choices.
     await page.getByRole("button", { name: "deploy-guide-v2.md", exact: true }).click();
     await expect(page.getByTestId("breadcrumb-file")).toContainText("deploy-guide-v2.md");
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
-    await expect(pane.getByRole("button", { name: "Pin Steps to the top" })).toBeVisible();
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(1);
+    await expect(pane.getByRole("button", { name: "Pin Steps", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "deploy-guide.md", exact: true }).click();
 
     await page.getByTestId("hidden-aids").click();
     await expect(page.getByTestId("hidden-aids")).toHaveText(/1 hidden/);
-    await page.getByRole("menuitem", { name: /in コマンド/ }).click();
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
+    await page.getByRole("menuitem", { name: /in 前提条件/ }).click();
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(1);
     await page.reload();
     await openApp(page, server);
-    await expect(pane.locator('[data-kind="ConfigViewer"]')).toHaveCount(1);
+    await expect(pane.locator('[data-kind="Checklist"]')).toHaveCount(1);
   });
 });
 
@@ -129,7 +131,7 @@ test.describe("selector states", () => {
       await page.goto(server.url);
       const status = page.getByTestId("selector-status");
       await expect(status).toHaveAttribute("data-state", "error");
-      await expect(page.getByTestId("aids-error")).toContainText("Reading aids could not be loaded");
+      await expect(page.getByTestId("aids-error")).toContainText("GenUI could not be loaded");
       await expect(page.locator("article h1")).toBeVisible();
       fail = false;
       await page.getByTestId("aids-error").getByRole("button", { name: "Try again" }).click();
