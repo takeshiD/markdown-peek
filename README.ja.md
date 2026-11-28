@@ -238,6 +238,7 @@ confidence_threshold = 0.6  # …または自信のない補助を隠す
 debounce_ms = 800        # serve: 編集後、選び直すまでの待ち時間
 
 [models.jev]                       # TypeSafe に直接
+enable = true                      # false: エントリを残したまま無効にする
 api = "systemone"
 model = "jev-1.14.0"
 api_key_env = "TYPESAFE_API_KEY"   # 環境変数の「名前」。キーそのものは書かない
@@ -285,6 +286,7 @@ memory_entries = 256     # ディスクの前に置くプロセス内キャッ�
 ```
 
 `[models]` がない場合は、`jev`（TypeSafe、`TYPESAFE_API_KEY`）だけを使います。各エントリには `effort`（`low` 〜 `max`。Anthropic の `output_config.effort`、OpenAI の `reasoning.effort` になります）と `kind`（`decision` / `llm`。`api` と矛盾しないかを確認します）も書けます。
+`enable = false` を書くと、エントリを消さずに無効にできます。モデルメニューに出なくなり、呼び出されることもありません。`[model] use` が無効なエントリを指している場合は最初の有効なエントリを使い、そのことを画面に表示します。すべて無効にすると、どのモデルも呼び出しません。
 
 **キー。** 各エントリには、キーを入れた環境変数の名前（`api_key_env`）を書きます。キーはリクエストを送るときにその環境変数から読み、表示・ログ出力・キャッシュ・ブラウザへの返却は一切しません。設定ファイルにキーそのものを書くと（`api_key = …`）、そのエントリは使えなくなります。`http://` は `localhost` 以外では使えません。
 

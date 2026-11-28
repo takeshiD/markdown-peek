@@ -468,6 +468,33 @@ mod tests {
     }
 
     #[test]
+    fn enable_false_turns_an_entry_off() {
+        let config: Config = toml::from_str(
+            r#"
+            [model]
+            use = "jev"
+
+            [models.jev]
+            enable = false
+            api = "systemone"
+            model = "jev-1.14.0"
+
+            [models.haiku]
+            enable = true
+            api = "anthropic"
+            model = "claude-haiku-5-5"
+            "#,
+        )
+        .unwrap();
+        let m = config.models();
+        let names: Vec<_> = m.list.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["haiku"]);
+        assert_eq!(m.default, "haiku");
+        let errs = config.errors(&m);
+        assert!(errs[0].contains("use = \"jev\" is turned off"), "{errs:?}");
+    }
+
+    #[test]
     fn removed_select_section_is_explained() {
         let config: Config = toml::from_str("[select]\nprovider = \"jev\"\n").unwrap();
         let errs = config.errors(&config.models());

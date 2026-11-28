@@ -89,6 +89,7 @@ debounce_ms = 800
 
 # api: systemone (decision models) | anthropic | openai | openai_chat | claude_code | codex
 [models.jev]
+enable = true # false: keep the entry but do not offer or use it
 api = "systemone"
 model = "jev-1.14.0"
 # base_url defaults per api (systemone: https://api.typesafe.ai)

@@ -203,7 +203,7 @@ impl Cli {
                 let models = config.models();
                 let name = arg.model.unwrap_or_else(|| models.default.clone());
                 let Some(model) = models.get(&name).cloned() else {
-                    anyhow::bail!("no model named \"{name}\" in [models]");
+                    anyhow::bail!("{}", models.unavailable(&name));
                 };
                 Ok(Mode::Select {
                     file: arg.file,
@@ -221,7 +221,7 @@ impl Cli {
                 let mut list = Vec::new();
                 for n in names {
                     let Some(m) = models.get(&n).cloned() else {
-                        anyhow::bail!("no model named \"{n}\" in [models]");
+                        anyhow::bail!("{}", models.unavailable(&n));
                     };
                     list.push(m);
                 }

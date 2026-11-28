@@ -66,7 +66,8 @@ fn adaptive_setup(config: &Config, start_with: Option<String>) -> mdpeek_server:
         && models.get(n).is_none()
     {
         config_errors.push(format!(
-            "--model {n}: no [models.{n}] entry; using \"{}\"",
+            "--model {n}: {}; using \"{}\"",
+            models.unavailable(n),
             models.default
         ));
     }

@@ -247,6 +247,7 @@ confidence_threshold = 0.6  # …or is unsure about
 debounce_ms = 800        # serve: wait after an edit before choosing again
 
 [models.jev]                       # TypeSafe directly
+enable = true                      # false: keep the entry, but do not offer or use it
 api = "systemone"
 model = "jev-1.14.0"
 api_key_env = "TYPESAFE_API_KEY"   # the NAME of the variable, never the key
@@ -296,6 +297,9 @@ memory_entries = 256     # in-process cache in front of the disk
 Without a `[models]` table, a single `jev` entry (TypeSafe, `TYPESAFE_API_KEY`) is
 used. Each entry also accepts `effort` (`low` … `max`; Anthropic `output_config.effort`,
 OpenAI `reasoning.effort`) and `kind` (`decision` / `llm`, checked against `api`).
+`enable = false` turns an entry off without deleting it: it is not in the Model menu and
+is never called. If `[model] use` names it, the first enabled entry is used (and the
+UI says so); if every entry is off, no model is called.
 
 **Keys.** An entry names the environment variable that holds its key
 (`api_key_env`); the key is read from it when a request is sent and is never

@@ -143,6 +143,10 @@ const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelEntry {
+    /// `false` turns the entry off: it is not offered or used, but stays in
+    /// the file (default `true`).
+    #[serde(alias = "enabled")]
+    pub enable: Option<bool>,
     pub kind: Option<ModelKind>,
     pub api: Option<Api>,
     pub model: Option<String>,
@@ -175,6 +179,9 @@ pub struct ModelSpec {
     /// problems (an unset key variable) are checked by [`ModelSpec::problem`].
     #[serde(skip)]
     pub config_problem: Option<String>,
+    /// `enable = false`: kept out of [`Models::list`].
+    #[serde(skip)]
+    pub disabled: bool,
 }
 
 impl ModelSpec {
@@ -203,6 +210,7 @@ impl ModelSpec {
             effort: None,
             script: None,
             config_problem: Some(why),
+            disabled: false,
         }
     }
 
@@ -282,6 +290,7 @@ impl ModelSpec {
             effort: e.effort,
             script: e.script,
             config_problem: (!problems.is_empty()).then(|| problems.join("; ")),
+            disabled: e.enable == Some(false),
         }
     }
 
@@ -364,7 +373,10 @@ pub fn read_key(var: &str) -> Option<String> {
 /// Resolved model registry: the entries in config order and the default.
 #[derive(Debug, Clone)]
 pub struct Models {
+    /// The enabled entries (never empty).
     pub list: Vec<ModelSpec>,
+    /// Names of the entries turned off with `enable = false`.
+    pub disabled: Vec<String>,
     pub default: String,
     /// Problems with the model settings as a whole (e.g. `[model] use` names
     /// no entry). Shown to the user.
@@ -375,13 +387,31 @@ impl Models {
     /// `entries` in config order; `use_name` from `[model] use`.
     pub fn new(entries: Vec<ModelSpec>, use_name: Option<&str>) -> Self {
         let mut errors = Vec::new();
-        let list = if entries.is_empty() {
+        let configured = !entries.is_empty();
+        let (off, on): (Vec<ModelSpec>, Vec<ModelSpec>) =
+            entries.into_iter().partition(|m| m.disabled);
+        let disabled: Vec<String> = off.into_iter().map(|m| m.name).collect();
+        let list = if !configured {
             vec![ModelSpec::builtin_jev()]
+        } else if on.is_empty() {
+            // Every entry is off: nothing may be called. A placeholder that
+            // cannot be used says why instead of falling back to a model the
+            // reader did not ask for.
+            let why = "every model in [models] is turned off (enable = false); set enable = true on one of them".to_string();
+            errors.push(why.clone());
+            vec![ModelSpec::broken(&disabled[0], why)]
         } else {
-            entries
+            on
         };
         let default = match use_name {
             Some(n) if list.iter().any(|m| m.name == n) => n.to_string(),
+            Some(n) if disabled.iter().any(|d| d == n) => {
+                errors.push(format!(
+                    "[model] use = \"{n}\" is turned off (enable = false); using \"{}\"",
+                    list[0].name
+                ));
+                list[0].name.clone()
+            }
             Some(n) => {
                 errors.push(format!(
                     "[model] use = \"{n}\" names no [models.{n}] entry; using \"{}\"",
@@ -393,6 +423,7 @@ impl Models {
         };
         Models {
             list,
+            disabled,
             default,
             errors,
         }
@@ -400,6 +431,15 @@ impl Models {
 
     pub fn get(&self, name: &str) -> Option<&ModelSpec> {
         self.list.iter().find(|m| m.name == name)
+    }
+
+    /// Why `name` cannot be picked: turned off, or no such entry.
+    pub fn unavailable(&self, name: &str) -> String {
+        if self.disabled.iter().any(|d| d == name) {
+            format!("model \"{name}\" is turned off ([models.{name}] enable = false)")
+        } else {
+            format!("no model named \"{name}\" in [models]")
+        }
     }
 }
 
@@ -502,6 +542,33 @@ mod tests {
         let m = Models::new(list, Some("zzz"));
         assert_eq!(m.default, "a");
         assert_eq!(m.errors.len(), 1);
+    }
+
+    #[test]
+    fn disabled_entries_are_not_offered() {
+        let off = |n: &str| {
+            let mut e = entry(Api::Fake, "");
+            e.enable = Some(false);
+            ModelSpec::from_entry(n, e)
+        };
+        let on = ModelSpec::from_entry("b", entry(Api::Fake, ""));
+        let m = Models::new(vec![off("a"), on.clone()], None);
+        assert_eq!(m.list.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["b"]);
+        assert_eq!(m.default, "b");
+        assert_eq!(m.disabled, ["a"]);
+        assert!(m.get("a").is_none());
+        assert!(m.unavailable("a").contains("turned off"), "{}", m.unavailable("a"));
+        assert!(m.unavailable("z").contains("no model named"));
+
+        let m = Models::new(vec![off("a"), on], Some("a"));
+        assert_eq!(m.default, "b");
+        assert!(m.errors[0].contains("is turned off"), "{:?}", m.errors);
+
+        // All off: no fallback to the built-in model; the placeholder says why.
+        let m = Models::new(vec![off("a"), off("c")], Some("a"));
+        assert_eq!(m.list.len(), 1);
+        assert!(m.list[0].problem().unwrap().contains("every model"));
+        assert_eq!(m.errors.len(), 1, "{:?}", m.errors);
     }
 
     #[test]
