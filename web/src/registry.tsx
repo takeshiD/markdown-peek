@@ -29,6 +29,7 @@ const coreRegistry: Partial<Record<UiNodeKind, NodeComponent>> = {
   NodeGraph: C.NodeGraph,
   Comparison: C.Comparison,
   DirectoryTree: C.DirectoryTree,
+  Verdicts: C.Verdicts,
   // reading lenses (design §8)
   SemanticOutline: C.SemanticOutline,
   SummaryCards: C.SummaryCards,

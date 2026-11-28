@@ -92,6 +92,18 @@ const ITEMS: Item[] = [
     ],
   },
   { id: "timeline", widget: "Timeline", section: "リリース履歴" },
+  {
+    id: "verdicts",
+    widget: "Verdicts",
+    section: "検収判定",
+    gif: [
+      click((a) => a.getByRole("radio", { name: /^Re-checked/ })),
+      click((a) => a.getByRole("button", { name: /^R3: satisfied, re-checked/ })),
+      click((a) => a.getByRole("radio", { name: /^All/ })),
+      click((a) => a.getByRole("group", { name: "Show the items that cite a check" }).getByRole("button", { name: "C3", exact: true })),
+      click((a) => a.getByRole("button", { name: "Clear" })),
+    ],
+  },
   { id: "callout-risk", widget: "Callout:risk", section: "リスク" },
   { id: "doc-outline", widget: "SemanticOutline" },
   { id: "doc-risks", widget: "RiskPanel" },

@@ -95,6 +95,7 @@ const KIND_ICON: Record<string, LucideIcon> = {
   NodeGraph: Workflow,
   Comparison: Columns2,
   DirectoryTree: FolderTree,
+  Verdicts: ListChecks,
 };
 
 function iconFor(p: Placement): LucideIcon {

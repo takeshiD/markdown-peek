@@ -20,6 +20,7 @@ export { Chart } from "./Chart";
 export { NodeGraph } from "./NodeGraph";
 export { Comparison } from "./Comparison";
 export { DirectoryTree } from "./DirectoryTree";
+export { Verdicts } from "./Verdicts";
 
 /** Emitted when a node (or item) wants to scroll the Content pane to a range. */
 export type OnJump = (range: SourceRange) => void;

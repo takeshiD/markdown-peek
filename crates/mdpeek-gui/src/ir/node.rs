@@ -142,6 +142,7 @@ pub enum UiNode {
     NodeGraph(NodeGraphNode),
     Comparison(ComparisonNode),
     DirectoryTree(DirectoryTreeNode),
+    Verdicts(VerdictsNode),
 
     // --- reading lenses (design doc §8: derived reading aids, not body reprint) ---
     SemanticOutline(SemanticOutlineNode),
@@ -179,6 +180,7 @@ impl UiNode {
             UiNode::NodeGraph(_) => "NodeGraph",
             UiNode::Comparison(_) => "Comparison",
             UiNode::DirectoryTree(_) => "DirectoryTree",
+            UiNode::Verdicts(_) => "Verdicts",
             UiNode::SemanticOutline(_) => "SemanticOutline",
             UiNode::SummaryCards(_) => "SummaryCards",
             UiNode::DecisionLog(_) => "DecisionLog",
@@ -211,6 +213,7 @@ impl UiNode {
             UiNode::NodeGraph(n) => &n.meta,
             UiNode::Comparison(n) => &n.meta,
             UiNode::DirectoryTree(n) => &n.meta,
+            UiNode::Verdicts(n) => &n.meta,
             UiNode::SemanticOutline(n) => &n.meta,
             UiNode::SummaryCards(n) => &n.meta,
             UiNode::DecisionLog(n) => &n.meta,
@@ -243,6 +246,7 @@ impl UiNode {
             UiNode::NodeGraph(n) => &mut n.meta,
             UiNode::Comparison(n) => &mut n.meta,
             UiNode::DirectoryTree(n) => &mut n.meta,
+            UiNode::Verdicts(n) => &mut n.meta,
             UiNode::SemanticOutline(n) => &mut n.meta,
             UiNode::SummaryCards(n) => &mut n.meta,
             UiNode::DecisionLog(n) => &mut n.meta,
@@ -415,6 +419,49 @@ pub struct TreeEntry {
     /// The source line of the entry.
     #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
     pub source_range: Option<SourceRange>,
+}
+
+/// A list of verdicts on numbered items, written `- R1: satisfied — C1 and C3
+/// passed …` (acceptance / review records). Each item keeps its id, verdict
+/// word and text verbatim; the outcome, the ids it cites and the sentences on
+/// re-checks or untested parts are picked out of that text, never written.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VerdictsNode {
+    #[serde(flatten)]
+    pub meta: NodeMeta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub items: Vec<VerdictItem>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VerdictItem {
+    /// As written, e.g. `"R10"`.
+    pub id: String,
+    /// The verdict word(s) as written, e.g. `"satisfied"`.
+    pub verdict: String,
+    pub outcome: VerdictOutcome,
+    /// The text after the verdict, verbatim.
+    pub text: String,
+    /// Ids the text cites (`C3`, `S4`, `REG1`, `C6〜C8`), in order, as written.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cites: Vec<String>,
+    /// The sentence that says the item was failed before and checked again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rechecked: Option<String>,
+    /// The sentence that says part of it was not tried.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub untested: Option<String>,
+    #[serde(rename = "sourceRange", skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+}
+/// What the verdict word means: met, not met, partly met, or not said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VerdictOutcome {
+    Pass,
+    Fail,
+    Partial,
+    Unknown,
 }
 
 /// Options compared on scored criteria (a comparison table), as side-by-side

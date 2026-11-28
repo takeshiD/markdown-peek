@@ -20,7 +20,7 @@ use crate::ir::node::*;
 
 /// Bumped whenever the candidate catalogue / prefilter / extraction changes.
 /// Part of the selection cache key.
-pub const REGISTRY_VERSION: u32 = 7;
+pub const REGISTRY_VERSION: u32 = 8;
 
 /// Deterministic features of a section (sent to Jev instead of the full text).
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -48,6 +48,8 @@ pub struct Features {
     pub other_code_blocks: usize,
     /// Entries of the largest directory tree drawn in a code block (0 = none).
     pub tree_entries: usize,
+    /// List items written `ID: verdict — text` (0 = none).
+    pub verdict_items: usize,
     pub dated_lines: usize,
     pub alerts: usize,
     pub risk_blocks: usize,
@@ -318,6 +320,7 @@ pub fn plan_document(
         let mut events: Vec<TimelineEvent> = Vec::new();
         let mut tables: Vec<(Vec<String>, Vec<Vec<String>>, SourceRange)> = Vec::new();
         let mut list_items: Vec<(String, SourceRange)> = Vec::new();
+        let mut verdicts: Vec<VerdictItem> = Vec::new();
         let mut alert: Option<(String, SourceRange)> = None;
         // Code blocks that may be drawn diagrams: (inner lines, line of the first).
         let mut diagrams: Vec<(Vec<&str>, u32)> = Vec::new();
@@ -346,6 +349,20 @@ pub fn plan_document(
                         let BlockKind::Item { task } = item.kind else { continue };
                         let title = source_title(&lines, conv(item.range));
                         list_items.push((title.clone(), conv(item.range)));
+                        if task.is_none() {
+                            // The whole item: a verdict's text may wrap onto more lines.
+                            let more = lines_of(&lines, conv(item.range))
+                                .iter()
+                                .skip(1)
+                                .map(|l| l.trim())
+                                .filter(|l| !l.is_empty())
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            let full = if more.is_empty() { title.clone() } else { format!("{title} {more}") };
+                            if let Some(v) = super::verdicts::verdict_item(&full, conv(item.range)) {
+                                verdicts.push(v);
+                            }
+                        }
                         if let Some(done) = task {
                             f.task_items += 1;
                             if done {
@@ -697,6 +714,26 @@ pub fn plan_document(
                 }),
             });
         }
+        // Most of the section's list is `ID: verdict — text`, with one id kind.
+        f.verdict_items = verdicts.len();
+        let one_kind = verdicts.iter().all(|v| {
+            let p = |s: &str| s.chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>();
+            p(&v.id) == p(&verdicts[0].id)
+        });
+        if verdicts.len() >= 3 && verdicts.len() * 3 >= list_items.len() * 2 && one_kind {
+            let s = if verdicts.len() >= 5 { 0.8 } else { 0.65 };
+            let r = span(verdicts.iter().filter_map(|v| v.source_range)).unwrap();
+            cands.push(Candidate {
+                id: "Verdicts",
+                description: "Verdict per item (requirement / check) with the checks it cites, re-checks and untested parts",
+                score: s,
+                node: UiNode::Verdicts(VerdictsNode {
+                    meta: meta(r, s),
+                    title: (!heading.is_empty()).then(|| heading.clone()),
+                    items: verdicts.clone(),
+                }),
+            });
+        }
         // No "Commands" aid (#67) and no config viewer: a copy of the
         // section's shell / JSON / YAML / TOML block added nothing next to the
         // block itself, which carries a copy button in the body.
@@ -1000,6 +1037,26 @@ mod tests {
         assert!(p.sections[2].candidates.iter().all(|c| c.id != "DirectoryTree"));
         // The node passes validation.
         let mut nodes = vec![c[0].node.clone()];
+        crate::ir::validate_nodes(&mut nodes, p.total_lines).unwrap();
+    }
+
+    #[test]
+    fn verdict_lists_become_verdicts() {
+        let md = "# Delivery\n\n## 検収判定\n\n合格。\n\n- R1: satisfied — C1: ビルドできた。\n- R2: satisfied — C14 と C3 で確認した。\n- R3: not satisfied — 前回差し戻した。REG1 が\n  まだ fail。\n- R4: satisfied — 実ブラウザは試していない。\n\n## Notes\n\n- one\n- two\n- three\n";
+        let p = plan(md);
+        let c = p.sections[1].candidates.iter().find(|c| c.id == "Verdicts").unwrap();
+        let UiNode::Verdicts(v) = &c.node else { panic!() };
+        assert_eq!(v.items.len(), 4);
+        assert_eq!(v.items[1].cites, ["C14", "C3"]);
+        assert_eq!(v.items[2].outcome, VerdictOutcome::Fail);
+        // A wrapped item keeps its second line.
+        assert!(v.items[2].text.ends_with("まだ fail。"), "{}", v.items[2].text);
+        assert_eq!(v.items[2].cites, ["REG1"]);
+        assert!(v.items[3].untested.is_some());
+        assert_eq!(v.items[0].source_range.unwrap().start_line, 7);
+        assert_eq!(p.sections[1].features.verdict_items, 4);
+        assert!(p.sections[2].candidates.iter().all(|c| c.id != "Verdicts"));
+        let mut nodes = vec![c.node.clone()];
         crate::ir::validate_nodes(&mut nodes, p.total_lines).unwrap();
     }
 

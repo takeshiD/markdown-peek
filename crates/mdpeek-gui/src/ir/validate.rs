@@ -79,6 +79,11 @@ fn validate_node(node: &mut UiNode, total_lines: u32) -> Result<(), ValidateErro
     if let UiNode::DirectoryTree(t) = node {
         check_tree(t)?;
     }
+    if let UiNode::Verdicts(v) = node
+        && (v.items.is_empty() || v.items.len() > 500 || v.items.iter().any(|i| i.id.trim().is_empty()))
+    {
+        return Err(ValidateError::Chart("verdict list is empty, too long or has an item without an id"));
+    }
     if let UiNode::Tabs(tabs) = node {
         for tab in tabs.tabs.iter_mut() {
             validate_nodes(&mut tab.children, total_lines)?;
@@ -166,6 +171,7 @@ fn nested_ranges(node: &UiNode) -> Vec<SourceRange> {
             .chain(n.edges.iter().filter_map(|e| e.source_range))
             .collect(),
         UiNode::DirectoryTree(n) => n.entries.iter().filter_map(|e| e.source_range).collect(),
+        UiNode::Verdicts(n) => n.items.iter().filter_map(|e| e.source_range).collect(),
         UiNode::ObligationMatrix(n) => {
             n.obligations.iter().filter_map(|o| o.source_range).collect()
         }

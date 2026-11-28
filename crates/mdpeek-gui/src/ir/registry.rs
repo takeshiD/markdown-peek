@@ -23,6 +23,7 @@ pub const CORE_KINDS: &[&str] = &[
     "NodeGraph",
     "Comparison",
     "DirectoryTree",
+    "Verdicts",
     // reading lenses (design doc §8)
     "SemanticOutline",
     "SummaryCards",

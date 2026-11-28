@@ -201,10 +201,23 @@ export interface ComparisonCriterionT { name: string; max: number; scores: (numb
 /** One line of a directory tree (#64): `depth` 0 = top level; name and comment verbatim. */
 export interface TreeEntryT { name: string; depth: number; is_dir: boolean; comment?: string; marked?: boolean; sourceRange?: SourceRange }
 
+/** One `ID: verdict — text` list item; cites and notes are taken from its text. */
+export interface VerdictItemT {
+  id: string;
+  verdict: string;
+  outcome: "pass" | "fail" | "partial" | "unknown";
+  text: string;
+  cites?: string[];
+  rechecked?: string;
+  untested?: string;
+  sourceRange?: SourceRange;
+}
+
 // Discriminated union — `kind` selects the component in the registry.
 export type UiNode = NodeMeta &
   (
     | { kind: "DirectoryTree"; title?: string; entries: TreeEntryT[] }
+    | { kind: "Verdicts"; title?: string; items: VerdictItemT[] }
     | { kind: "Tabs"; tabs: { title: string; children: UiNode[] }[] }
     | { kind: "Timeline"; events: TimelineEvent[] }
     | { kind: "Checklist"; items: ChecklistItem[] }

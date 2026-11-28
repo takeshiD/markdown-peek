@@ -31,6 +31,7 @@ pub mod models;
 pub mod sections;
 pub mod stages;
 pub mod tree;
+pub mod verdicts;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -891,7 +892,7 @@ mod tests {
     use super::*;
     use crate::select::models::ModelEntry;
 
-    const MD: &str = "# Tool\n\nIntro.\n\n## Install\n\n```toml\n[install]\npath = \".\"\nlocked = true\n```\n\n## Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\n## License\n\nMIT\n";
+    const MD: &str = "# Tool\n\nIntro.\n\n## Install\n\n- [ ] get a key\n- [x] install the binary\n\n## Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\n## License\n\nMIT\n";
 
     fn fake() -> ModelSpec {
         ModelSpec::from_entry(

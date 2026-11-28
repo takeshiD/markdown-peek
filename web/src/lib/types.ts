@@ -94,6 +94,7 @@ const KIND_LABEL: Record<string, string> = {
   NodeGraph: "Flow",
   Comparison: "Comparison",
   DirectoryTree: "Directory tree",
+  Verdicts: "Verdicts",
   ConfigViewer: "Config",
   Timeline: "Timeline",
   Callout: "Callout",
