@@ -18,9 +18,9 @@ test("Ctrl+K filters and runs file, heading, aids, model, theme commands", async
   await run(page, "ロールバック", "ロールバック");
   await expect(page.locator("article h2", { hasText: "ロールバック" })).toBeInViewport();
 
-  await run(page, "aids off", "Turn reading aids off");
+  await run(page, "genui off", "Turn GenUI off");
   await expect(page.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "false");
-  await run(page, "aids on", "Turn reading aids on");
+  await run(page, "genui on", "Turn GenUI on");
   await expect(page.getByTestId("aids-toggle")).toHaveAttribute("aria-pressed", "true");
 
   await run(page, "dark theme", "Dark theme");

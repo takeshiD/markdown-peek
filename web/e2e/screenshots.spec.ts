@@ -46,7 +46,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.locator("article h2", { hasText: "手順" }).evaluate((h) => h.scrollIntoView({ block: "start" }));
       await shot(page, `${theme}-mobile-adaptive`);
       await page.getByRole("button", { name: "More" }).click();
-      await page.getByRole("menuitem", { name: "Turn reading aids off" }).click();
+      await page.getByRole("menuitem", { name: "Turn GenUI off" }).click();
       await page.locator("article h1").evaluate((h) => h.scrollIntoView({ block: "start" }));
       await shot(page, `${theme}-mobile-read`);
     });

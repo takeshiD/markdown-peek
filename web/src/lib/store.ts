@@ -28,7 +28,7 @@ export interface DocPrefs {
   original?: string[];
 }
 export interface Prefs {
-  /** Reading aids on or off; `null` follows `[aids] default` in the config. */
+  /** Reading aids on or off; `null` follows `[genui] default` in the config. */
   aids: boolean | null;
   theme: ThemePref;
   railSize: number;
@@ -200,7 +200,7 @@ export function announce(text: string) {
   setTimeout(() => setState({ announce: text }), 30);
 }
 
-/** Reading aids on? The reader's choice, else `[aids] default`. */
+/** Reading aids on? The reader's choice, else `[genui] default`. */
 export function aidsOn(s: State): boolean {
   return s.prefs.aids ?? s.models?.aids.defaultOn ?? true;
 }

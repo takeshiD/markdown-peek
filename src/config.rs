@@ -29,17 +29,15 @@ pub struct Config {
     /// Generative-UI / LLM settings (rules-first vs LLM-first). Consumed by the
     /// generator (Layer 3); read here at startup.
     pub llm: LlmConfig,
-    /// Reading-aid toggle defaults (`[aids]`).
-    pub aids: AidsSection,
+    /// GenUI toggle defaults (`[genui]`; the old name `[aids]` is still read).
+    #[serde(alias = "aids")]
+    pub genui: GenuiSection,
     /// Which model chooses reading aids, and shared tuning (`[model]`).
     pub model: ModelSection,
     /// Models that can choose reading aids (`[models.<name>]`), in file order.
     pub models: toml::Table,
     /// Decision cache on disk (`[cache]`).
     pub cache: CacheSection,
-    /// Removed section (reading-aid selection moved to `[model]` / `[models]`).
-    /// Accepted only so the error can say where its settings went.
-    pub select: Option<toml::Value>,
     /// Why the file could not be read (shown in the UI), if it could not.
     #[serde(skip)]
     pub load_error: Option<String>,
@@ -48,10 +46,10 @@ pub struct Config {
     pub path: Option<PathBuf>,
 }
 
-/// `[aids]` section: the reading-aid toggle.
+/// `[genui]` section: the GenUI toggle.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct AidsSection {
+pub struct GenuiSection {
     /// Initial state of the toggle: `"on"` (default) or `"off"`.
     pub default: Option<OnOff>,
     /// Start choosing aids as soon as a document opens (default `true`); when
@@ -247,11 +245,6 @@ impl Config {
                 "[llm] strategy / confidence_threshold were used by `mdpeek gen`, which was removed; delete them".into(),
             );
         }
-        if self.select.is_some() {
-            out.push(
-                "[select] was removed: reading aids are chosen by the models in [models.<name>]; pick one with [model] use = \"<name>\"".into(),
-            );
-        }
         out.extend(models.errors.iter().cloned());
         out
     }
@@ -275,11 +268,11 @@ impl Config {
         }
     }
 
-    /// `[aids]`: (toggle on by default, start automatically).
-    pub fn aids(&self) -> (bool, bool) {
+    /// `[genui]`: (toggle on by default, start automatically).
+    pub fn genui(&self) -> (bool, bool) {
         (
-            self.aids.default != Some(OnOff::Off),
-            self.aids.auto_generate.unwrap_or(true),
+            self.genui.default != Some(OnOff::Off),
+            self.genui.auto_generate.unwrap_or(true),
         )
     }
 
@@ -429,7 +422,7 @@ mod tests {
         let m = config.models();
         assert_eq!(m.default, "jev");
         assert_eq!(m.list.len(), 1);
-        assert_eq!(config.aids(), (true, true));
+        assert_eq!(config.genui(), (true, true));
     }
 
     #[test]
@@ -495,22 +488,23 @@ mod tests {
     }
 
     #[test]
-    fn removed_select_section_is_explained() {
-        let config: Config = toml::from_str("[select]\nprovider = \"jev\"\n").unwrap();
-        let errs = config.errors(&config.models());
-        assert!(errs[0].contains("[select] was removed"), "{errs:?}");
+    fn select_section_is_unknown() {
+        assert!(toml::from_str::<Config>("[select]\nprovider = \"jev\"\n").is_err());
     }
 
     #[test]
-    fn cache_dir_and_aids() {
+    fn cache_dir_and_genui() {
         let config: Config = toml::from_str(
-            "[cache]\ndir = \"/tmp/x\"\nmax_size_mb = 5\n[aids]\ndefault = \"off\"\nauto_generate = false\n",
+            "[cache]\ndir = \"/tmp/x\"\nmax_size_mb = 5\n[genui]\ndefault = \"off\"\nauto_generate = false\n",
         )
         .unwrap();
+        // The old section name is still read.
+        let old: Config = toml::from_str("[aids]\ndefault = \"off\"\n").unwrap();
+        assert_eq!(old.genui(), (false, true));
         let c = config.cache_settings();
         assert_eq!(c.dir.as_deref(), Some(Path::new("/tmp/x")));
         assert_eq!(c.max_size_mb, 5);
-        assert_eq!(config.aids(), (false, false));
+        assert_eq!(config.genui(), (false, false));
         let off: Config = toml::from_str("[cache]\nenabled = false\n").unwrap();
         assert!(off.cache_settings().dir.is_none());
     }

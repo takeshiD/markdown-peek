@@ -43,9 +43,9 @@ pub struct AdaptiveSetup {
     pub config_errors: Vec<String>,
     /// Where "make default" writes `[model] use`.
     pub config_path: Option<PathBuf>,
-    /// `[aids] default = "on"`.
+    /// `[genui] default = "on"`.
     pub aids_default_on: bool,
-    /// `[aids] auto_generate`.
+    /// `[genui] auto_generate`.
     pub auto_generate: bool,
     pub cache: SelectionCache,
 }

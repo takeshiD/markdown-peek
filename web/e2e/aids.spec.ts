@@ -11,7 +11,7 @@ test.describe("stop and resume", () => {
     const toggle = page.getByTestId("aids-toggle");
     await expect(toggle).toHaveAttribute("data-busy", "true");
     await expect(toggle.locator("svg.animate-spin, svg[class*=animate-spin]")).toHaveCount(1);
-    await expect(page.getByTestId("aids-progress")).toContainText(/Choosing reading aids with fake… \d+ of \d+/);
+    await expect(page.getByTestId("aids-progress")).toContainText(/Choosing GenUI with fake… \d+ of \d+/);
     // Wait for at least one aid, then stop.
     await expect(page.locator("article [data-widget]").first()).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("aids-stop").click();
@@ -67,18 +67,21 @@ test.describe("models", () => {
 test.describe("invalid settings", () => {
   test.use({
     serverOptions: {
-      extraConfig: '[models.weird]\napi = "teleport"\n\n[models.leaky]\napi = "anthropic"\nmodel = "claude-haiku-5-5"\napi_key = "sk-should-never-show"\n\n[select]\nprovider = "jev"\n',
+      extraConfig: '[models.weird]\napi = "teleport"\n\n[models.leaky]\napi = "anthropic"\nmodel = "claude-haiku-5-5"\napi_key = "sk-should-never-show"\n\n[models.off]\nenable = false\napi = "fake"\nmodel = "off"\n',
+      provider: "off",
     },
   });
   test("are reported once, clearly, without leaking a key; the bad models cannot be picked", async ({ page, server }) => {
     await openApp(page, server);
     const toast = page.getByTestId("toast").filter({ hasText: "Settings are invalid" });
     await expect(toast).toBeVisible();
-    await expect(toast).toContainText("[select] was removed");
+    await expect(toast).toContainText("[model] use = \"off\" is turned off");
     await page.getByTestId("model-menu").click();
     await expect(page.getByTestId("model-problem-weird")).toBeVisible();
     await expect(page.getByTestId("model-problem-leaky")).toContainText("api_key is not allowed");
     await expect(page.getByRole("menuitemradio", { name: /^leaky / })).toHaveAttribute("data-disabled", "");
+    // A model turned off with enable = false is not offered at all.
+    await expect(page.getByRole("menuitemradio", { name: /^off / })).toHaveCount(0);
     expect(await page.content()).not.toContain("sk-should-never-show");
     await page.keyboard.press("Escape");
     await toast.getByRole("button", { name: "Dismiss notification" }).click();

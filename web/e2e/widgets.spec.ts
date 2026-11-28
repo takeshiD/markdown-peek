@@ -47,14 +47,14 @@ test.describe("with the fake selector", () => {
     const status = page.getByTestId("selector-status");
     await expect(status).toHaveAttribute("data-provider", "fake");
     await expect(status).toHaveAttribute("data-state", "ready");
-    await page.getByRole("button", { name: "Why this reading aid: Steps" }).click();
+    await page.getByRole("button", { name: "Why this view: Steps" }).click();
     const pop = page.getByRole("dialog");
     await expect(pop.getByTestId("why-provider")).toHaveText("fake, model fake-e2e");
     await expect(pop.getByTestId("why-confidence")).toHaveText("88%");
     await expect(pop.getByTestId("why-helps")).toHaveText("77%");
     await expect(pop.getByTestId("why-alternatives")).not.toBeEmpty();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("button", { name: "Why this reading aid: Steps" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Why this view: Steps" })).toBeFocused();
   });
 
   test("R8: pin and hide survive reload per document; hidden widgets can be restored", async ({ page, server }) => {
@@ -131,7 +131,7 @@ test.describe("selector states", () => {
       await page.goto(server.url);
       const status = page.getByTestId("selector-status");
       await expect(status).toHaveAttribute("data-state", "error");
-      await expect(page.getByTestId("aids-error")).toContainText("Reading aids could not be loaded");
+      await expect(page.getByTestId("aids-error")).toContainText("GenUI could not be loaded");
       await expect(page.locator("article h1")).toBeVisible();
       fail = false;
       await page.getByTestId("aids-error").getByRole("button", { name: "Try again" }).click();

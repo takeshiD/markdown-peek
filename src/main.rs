@@ -88,7 +88,7 @@ fn adaptive_setup(config: &Config, start_with: Option<String>) -> mdpeek_server:
     for e in &config_errors {
         eprintln!("mdpeek: warning: {e}");
     }
-    let (aids_default_on, auto_generate) = config.aids();
+    let (aids_default_on, auto_generate) = config.genui();
     mdpeek_server::AdaptiveSetup {
         cfg: config.select_config(),
         models,

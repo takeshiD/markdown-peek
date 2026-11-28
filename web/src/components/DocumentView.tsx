@@ -318,7 +318,7 @@ function placeSlots(
       strip.className = `${SLOT_CLASS} ${PINNED_CLASS}`;
       strip.dataset.place = "top";
       strip.setAttribute("role", "region");
-      strip.setAttribute("aria-label", "Pinned reading aids");
+      strip.setAttribute("aria-label", "Pinned GenUI views");
       strip.dataset.testid = "pinned-aids";
     }
     if (strip.nextElementSibling !== top || strip.parentNode !== article) article.insertBefore(strip, top);

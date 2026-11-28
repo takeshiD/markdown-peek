@@ -99,7 +99,7 @@ export function WhyPopover({ p, layout }: { p: Placement; layout: AdaptiveLayout
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Why this reading aid: ${kindLabel(p.node.kind)}`}>
+        <Button variant="ghost" size="icon-sm" className="mp-note-action size-7 text-muted-foreground max-md:size-11" aria-label={`Why this view: ${kindLabel(p.node.kind)}`}>
           <Info />
         </Button>
       </PopoverTrigger>
@@ -207,7 +207,7 @@ export function WidgetNote({
             aria-pressed={showingOriginal}
             // A toggle keeps one name; aria-pressed carries the state (APG).
             aria-label={`Show the original ${title.toLowerCase()}`}
-            title={showingOriginal ? "Show as a reading aid" : "Show the original Markdown"}
+            title={showingOriginal ? "Show as GenUI" : "Show the original Markdown"}
             onClick={() => toggleOriginal(p)}
             data-testid="show-original"
           >
@@ -253,7 +253,7 @@ export function HiddenWidgetsMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuLabel>Show a hidden reading aid</DropdownMenuLabel>
+        <DropdownMenuLabel>Show a hidden view</DropdownMenuLabel>
         {hidden.map((p) => (
           <DropdownMenuItem key={widgetKey(p)} onSelect={() => showWidget(widgetKey(p))}>
             {kindLabel(p.node.kind)}
@@ -286,7 +286,7 @@ export function AidsStrip() {
       <div role="alert" className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-danger pl-3 text-[13px] text-danger" data-testid="aids-error">
         <p className="min-w-0 flex-1">
           {err}
-          {layout ? " The reading aids shown may be out of date." : ""}
+          {layout ? " The GenUI shown may be out of date." : ""}
         </p>
         <Button variant="outline" size="sm" className="max-md:h-11" onClick={() => void bootAids()}>
           <RefreshCw /> Try again
@@ -302,7 +302,7 @@ export function AidsStrip() {
         <span className="flex items-center gap-2" data-testid="aids-progress">
           <Loader2 className="size-3.5 text-primary motion-safe:animate-spin" aria-hidden="true" />
           <span className="tabular-nums">
-            Choosing reading aids with {layout!.selector.name}… {layout!.progress.done} of {layout!.progress.total}
+            Choosing GenUI with {layout!.selector.name}… {layout!.progress.done} of {layout!.progress.total}
           </span>
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 max-md:h-11" onClick={() => void stopAids()}>
             <Square className="size-3 fill-current" aria-hidden="true" /> Stop

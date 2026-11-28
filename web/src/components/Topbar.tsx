@@ -164,16 +164,16 @@ export function Topbar({ mobile }: { mobile: boolean }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuItem className="min-h-11" onSelect={toggleAids}>
-              <Sparkles /> {aids ? "Turn reading aids off" : "Turn reading aids on"}
+              <Sparkles /> {aids ? "Turn GenUI off" : "Turn GenUI on"}
             </DropdownMenuItem>
             {view === "running" && (
               <DropdownMenuItem className="min-h-11" onSelect={() => void stopAids()}>
-                <Square /> Stop choosing aids
+                <Square /> Stop GenUI
               </DropdownMenuItem>
             )}
             {(view === "stopped" || view === "idle" || (view === "error" && !CONFIG_ERRORS.has(layoutError))) && (
               <DropdownMenuItem className="min-h-11" onSelect={() => void runAids()}>
-                <Play /> {view === "stopped" ? "Resume choosing aids" : view === "error" ? "Retry" : "Choose aids"}
+                <Play /> {view === "stopped" ? "Resume GenUI" : view === "error" ? "Retry" : "Run GenUI"}
               </DropdownMenuItem>
             )}
             {models && (

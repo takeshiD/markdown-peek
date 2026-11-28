@@ -66,10 +66,10 @@ function reportConfig(m: ModelsInfo) {
 function describeLayout(l: AdaptiveLayout): string {
   const n = l.placements.length;
   const st = l.progress.state;
-  if (st === "running") return `Choosing reading aids: ${l.progress.done} of ${l.progress.total}`;
-  if (st === "stopped") return `Stopped: ${n} ${n === 1 ? "aid" : "aids"} so far`;
-  if (st === "error") return `Reading aids failed: ${l.selector.message ?? l.selector.error}`;
-  return `Reading aids updated: ${n} ${n === 1 ? "aid" : "aids"} chosen by ${l.selector.name}`;
+  if (st === "running") return `Choosing GenUI: ${l.progress.done} of ${l.progress.total}`;
+  if (st === "stopped") return `Stopped: ${n} ${n === 1 ? "view" : "views"} so far`;
+  if (st === "error") return `GenUI failed: ${l.selector.message ?? l.selector.error}`;
+  return `GenUI updated: ${n} ${n === 1 ? "view" : "views"} chosen by ${l.selector.name}`;
 }
 
 /** Accept a layout unless it belongs to an older revision than the body shown. */
@@ -92,7 +92,7 @@ export function acceptLayout(layout: AdaptiveLayout, source: "http" | "ws") {
     // Same key as the model-problem notice, so one problem is reported once.
     notifyOnce(config ? `model:${layout.selector.name}:${msg}` : `run:${layout.selector.name}:${code}:${layout.revision}`, {
       kind: "error",
-      title: config ? `Model “${layout.selector.name}” settings are invalid` : `Reading aids failed (${layout.selector.name})`,
+      title: config ? `Model “${layout.selector.name}” settings are invalid` : `GenUI failed (${layout.selector.name})`,
       body: [layout.selector.message ?? code, ...(config ? [configWhere()] : [])],
       action: config ? undefined : { label: "Try again", run: () => void runAids() },
     });
@@ -131,8 +131,8 @@ export async function fetchAdaptive() {
     acceptLayout(layout, "http");
     return layout;
   } catch (e) {
-    setState({ select: "error", selectError: `Reading aids could not be loaded (${(e as Error).message}). The document is unaffected.` });
-    announce("Reading aids could not be loaded");
+    setState({ select: "error", selectError: `GenUI could not be loaded (${(e as Error).message}). The document is unaffected.` });
+    announce("GenUI could not be loaded");
   }
 }
 
@@ -157,7 +157,7 @@ export async function runAids() {
 export async function stopAids() {
   try {
     await post("/api/adaptive/stop");
-    announce("Stopped choosing reading aids");
+    announce("Stopped GenUI");
   } catch {
     /* the next push tells the truth */
   }
@@ -167,7 +167,7 @@ export async function stopAids() {
 export function setAids(on: boolean) {
   if (aidsOn(getState()) === on && getState().prefs.aids !== null) return;
   keepReadingPosition(() => setPrefs({ aids: on }));
-  announce(on ? "Reading aids on" : "Reading aids off");
+  announce(on ? "GenUI on" : "GenUI off");
   if (on) {
     const m = getState().models;
     if (m) reportConfig(m);
@@ -410,11 +410,11 @@ export function toggleOriginal(p: Placement) {
     original = !cur.includes(k);
     return { ...d, original: original ? [...cur, k] : cur.filter((x) => x !== k) };
   });
-  announce(original ? `Showing the original ${kindLabel(p.node.kind).toLowerCase()} from the text` : `Showing the ${kindLabel(p.node.kind).toLowerCase()} as a reading aid`);
+  announce(original ? `Showing the original ${kindLabel(p.node.kind).toLowerCase()} from the text` : `Showing the ${kindLabel(p.node.kind).toLowerCase()} as GenUI`);
 }
 
 export function showWidget(key: string) {
   updateDocPrefs((d) => ({ ...d, hidden: d.hidden.filter((x) => x !== key) }));
   dismiss(`aid-hide:${key}`);
-  announce("Reading aid shown again");
+  announce("View shown again");
 }

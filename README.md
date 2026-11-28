@@ -16,7 +16,7 @@ Markdown Peek (`mdpeek`) is a lightweight, repository-aware CLI tool that watche
 ### Available now
 - ⚡ Fast — a single binary with all assets embedded
 - 🔄 Live, in-place updates — only the blocks you changed re-render (no full reload), your scroll position is kept, and changed blocks are briefly highlighted
-- 🌐 Browser preview with source-linked reading aids (**charts, node graphs and comparison cards set into the text**) behind one on/off toggle, chosen by the model you pick — **Jev** (recommended), another decision model (GPT-6 Luna Decision, Gemini Decision, Microsoft Decision) or a general LLM (Claude, GPT, GLM, DeepSeek…) — with a spinner, stop / resume and an on-disk decision cache, a command palette (Ctrl/⌘K), a file explorer for the current branch, outline + fuzzy heading search, a front matter panel, light/dark/system themes, and full keyboard support
+- 🌐 Browser preview with source-linked GenUI (**charts, node graphs and comparison cards set into the text**) behind one on/off toggle, chosen by the model you pick — **Jev** (recommended), another decision model (GPT-6 Luna Decision, Gemini Decision, Microsoft Decision) or a general LLM (Claude, GPT, GLM, DeepSeek…) — with a spinner, stop / resume and an on-disk decision cache, a command palette (Ctrl/⌘K), a file explorer for the current branch, outline + fuzzy heading search, a front matter panel, light/dark/system themes, and full keyboard support
 - 🖥️ Interactive terminal viewer (TUI) — scrolling, wrapping, vim-style search, and live updates without flicker
 - 📝 GitHub Flavored Markdown (GFM); GitLab Flavored Markdown (GLFM) planned
 - ⚙️ Easy to configure via TOML (XDG)
@@ -26,7 +26,7 @@ mdpeek is growing from a strong markdown viewer into a tool that understands you
 documents and renders a UI tailored to each. Upcoming layers:
 
 - 🧠 **Semantic view** — a document model with document-type detection and a side panel of outline / TODOs / risks / open questions.
-- 🎛️ **Generated UI** — letting an LLM write reading aids, not only choose them (being considered in [#58](https://github.com/takeshiD/markdown-peek/issues/58); the earlier `mdpeek gen` / `/api/gui` were removed until then).
+- 🎛️ **Generated UI** — letting an LLM write GenUI views, not only choose them (being considered in [#58](https://github.com/takeshiD/markdown-peek/issues/58); the earlier `mdpeek gen` / `/api/gui` were removed until then).
 - 📚 **Non-developer document types** — domain widgets for novels, contracts, and manufacturing/procedure docs (character roster, tolerance meter, step navigator, obligation matrix, glossary), with spoiler control.
 - 🔗 **Repository-aware checks** — README ↔ code links, docs/code consistency, ADR ↔ git history, and TODO ↔ issue cross-references.
 - 🧩 **Editor & tooling integration** — an IR-aware TUI renderer, a Neovim plugin, and GitHub preview integration.
@@ -46,21 +46,21 @@ The preview updates **in place** as you edit — only the blocks that changed re
 
 ### The browser UI
 
-![Reading aids arriving one by one with a spinner, ticking a checklist and stepping through steps inside the text, following a node graph's RETRY exit, focusing comparison cards on one criterion, switching the model for the session and making it the default, and turning reading aids off and on](docs/design/media/adaptive-tour.gif)
+![GenUI views arriving one by one with a spinner, ticking a checklist and stepping through steps inside the text, following a node graph's RETRY exit, focusing comparison cards on one criterion, switching the model for the session and making it the default, and turning GenUI off and on](docs/design/media/adaptive-tour.gif)
 
-The window has a top bar (repository / file breadcrumb, the **reading-aid controls**, command palette, theme), **Files** on the left, the document, and the **Outline** on the right. With reading aids on, the document carries small widgets (steps, checklists, tables, charts, node graphs, comparison cards, directory trees, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines: a chart under its table, a step navigator under its list, a stage flow under a section that walks through stages. A **sortable table or an interactive checklist takes the place of the table / task list it was built from** (so it is not shown twice); its *Original* button switches that block back to the Markdown rendering, and turning aids off restores every block. Code blocks in the text have a **copy button**. Whole-document aids (outline by role, glossary, …) sit folded after the opening section. There is no reading-aid side pane.
+The window has a top bar (repository / file breadcrumb, the **GenUI controls**, command palette, theme), **Files** on the left, the document, and the **Outline** on the right. With GenUI on, the document carries small widgets (steps, checklists, tables, charts, node graphs, comparison cards, directory trees, risks, action items, …) built from your document and **set into the text right after the lines they came from**, each linked to those source lines: a chart under its table, a step navigator under its list, a stage flow under a section that walks through stages. A **sortable table or an interactive checklist takes the place of the table / task list it was built from** (so it is not shown twice); its *Original* button switches that block back to the Markdown rendering, and turning GenUI off restores every block. Code blocks in the text have a **copy button**. Whole-document views (outline by role, glossary, …) sit folded after the opening section. There is no GenUI side pane.
 
-The reading-aid controls, left to right:
+The GenUI controls, left to right:
 
 | Control | What it does |
 |---|---|
-| **Aids** toggle (`a`) | Reading aids on or off. Off shows the text alone. While a model is choosing, the toggle shows a **spinner**. |
+| **GenUI** toggle (`a`) | GenUI on or off. Off shows the text alone. While a model is choosing, the toggle shows a **spinner**. |
 | **Model** menu | The models from your config (`[models.<name>]`). Picking one applies **to this session only**; a model whose settings cannot work is shown with the reason and cannot be picked. |
 | **Make default** | Appears only while a model other than the default is in use; saves it as `[model] use` in your config file (comments and the rest of the file are kept). |
 | Status | Choosing *n/N*, Ready, Stopped or Failed; its popover says which model decided, what was sent, the document type and the cache directory. |
-| **Stop** / **Resume** | Stop a running choice (aids chosen so far stay); Resume asks only what is still missing (decisions are cached per section). |
+| **Stop** / **Resume** | Stop a running choice (views chosen so far stay); Resume asks only what is still missing (decisions are cached per section). |
 
-Settings that cannot work (an unset key variable, a key written in the config, an unknown `api`, a removed `[select]` section, …) are reported in a **notification** that names the problem and the config file.
+Settings that cannot work (an unset key variable, a key written in the config, an unknown `api`, …) are reported in a **notification** that names the problem and the config file.
 
 - **Charts**: a table whose columns are measures (`120 ms`, `$4.20`, `35%`, `1,200`) becomes a bar chart, or a line chart when its rows are dates, months, quarters or versions. Every value is a parsed table cell — nothing is estimated — and the tooltip and the screen-reader table show the cell text exactly as written. A column with mixed units, row numbers / IDs, or text is never plotted; a table with several measures shows one at a time with a switch (never two axes). The line chart can be read with ← / → when focused.
 - **Node graphs**: a flow written as arrows in a list (`Planning (Orchestrator) → Frontend, Backend`, `Verification --PASS--> Release`, `A -->|RETRY| B`) or as a table with *from* / *to* columns is drawn top-down; an edge written after the main flow that closes a loop (a retry) is dashed. Pick a node (chips below the graph, or click it) to see its description from the document (`- **Name**: …` or `Name (subtitle)`), where it comes from and where it goes; a node with labelled exits gets a switch (e.g. *PASS / RETRY*) that highlights where that exit leads.
@@ -68,25 +68,25 @@ Settings that cannot work (an unset key variable, a key written in the config, a
 - **Directory trees**: a code block drawing a layout with `├──` / `└──` / `│` (or `|--`, `` `-- ``) becomes a tree whose folders open and close (keyboard: arrows, Home / End, Enter to jump to the line), with the `# comments` and ★ marks of the original.
 - **Comparison cards**: a table comparing 2–4 options on scored criteria (numbers out of 5 / 10 / 100, ★★★☆☆, or ◎ ○ △ ×) becomes one card per option with the scores as bars; other rows (durations, prices, …) are shown verbatim. The figure is the plain average of the option's scores (labelled as such); *Focus* on one criterion shows that cell and marks the best option. A **Recommended** badge appears only when the document says which option it recommends (e.g. `… Agent Swarm を推奨する` or `(推奨)` in the header), and the sentence is quoted under the cards.
 
-- Reading aids are **operable**, not copies of the text: tick checklist / action items (with a progress meter), step through a procedure (Step n of N, previous / next), sort and filter tables. Code is copied with the copy button on each code block (commands are never run). Ticks and the current step are kept per document in this browser only; **the Markdown file is never modified**, and *Reset to file* returns to what the file says.
-- Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and on its aid. Fold any aid from its title.
+- GenUI views are **operable**, not copies of the text: tick checklist / action items (with a progress meter), step through a procedure (Step n of N, previous / next), sort and filter tables. Code is copied with the copy button on each code block (commands are never run). Ticks and the current step are kept per document in this browser only; **the Markdown file is never modified**, and *Reset to file* returns to what the file says.
+- Click a widget's line range (e.g. `L21–26`) to scroll to those lines and highlight them. While you scroll, the current section is marked in the Outline and on its view. Fold any view from its title.
 - The ⓘ button on a widget explains **why it was chosen**: the model, confidence, how much it helps and the other candidates.
-- Aids a model has just chosen **rise into the text with a short overshoot** and a fading ring, so you can see what was added; aids reused from the cache appear without motion, and *reduce motion* keeps only the ring.
-- **Pin** an aid to keep it in view: it moves to a strip under the title that **sticks to the top of the document while you read** (capped in height; it scrolls inside). **Hide** an aid and a notification offers **Undo**; later, bring hidden aids back from *n hidden* above the text or from the command palette. Both are remembered per document.
+- Views a model has just chosen **rise into the text with a short overshoot** and a fading ring, so you can see what was added; views reused from the cache appear without motion, and *reduce motion* keeps only the ring.
+- **Pin** a view to keep it in view: it moves to a strip under the title that **sticks to the top of the document while you read** (capped in height; it scrolls inside). **Hide** a view and a notification offers **Undo**; later, bring hidden views back from *n hidden* above the text or from the command palette. Both are remembered per document.
 - While the model is choosing after an edit, the previous widgets stay visible; results for an older version of the file are never shown.
 - **Outline** (right): fuzzy heading filter and the current section marked as you scroll. Its header can **float** it over the document — drag the floating panel by its header (or focus its grip and use the arrow keys) — or **dock** it back as a sidebar; `]` hides or shows it.
-- Both sidebars can be resized by dragging the divider or by focusing it and pressing ← / →; `[` folds the Files rail. The aids toggle, theme, sizes, folds and the floating outline's place are remembered across reloads.
+- Both sidebars can be resized by dragging the divider or by focusing it and pressing ← / →; `[` folds the Files rail. The GenUI toggle, theme, sizes, folds and the floating outline's place are remembered across reloads.
 - **Files** lists the Markdown of the branch you are on; the breadcrumb shows the repository and branch.
 - **Guided reading** (`g`), *Follow live changes* and the shortcut list (`?`) are in the command palette.
-- Turning aids on or off or folding a sidebar keeps your place in the document.
-- On a phone (narrow screens) the document fills the screen with the aids in it; Files/Outline open as a sheet.
+- Turning GenUI on or off or folding a sidebar keeps your place in the document.
+- On a phone (narrow screens) the document fills the screen with the views in it; Files/Outline open as a sheet.
 
 **Keyboard shortcuts** (`?` shows them in the app; single keys work when no text field has focus):
 
 | Key | Action |
 |---|---|
-| `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, aids on / off, stop / resume, use another model, make it the default, theme, pin / hide / show aids, guided reading, follow live changes, keyboard shortcuts |
-| `a` | Reading aids on or off |
+| `Ctrl`+`K` (`⌘K` on macOS) | Command palette: open a file, jump to a heading, GenUI on / off, stop / resume, use another model, make it the default, theme, pin / hide / show views, guided reading, follow live changes, keyboard shortcuts |
+| `a` | GenUI on or off |
 | `[` | Fold or unfold the Files rail |
 | `]` | Show or hide the Outline (docked or floating) |
 | `/` | Filter headings in the Outline |
@@ -96,7 +96,7 @@ Settings that cannot work (an unset key variable, a key written in the config, a
 | `←` / `→` on a focused divider | Resize the pane |
 | `Esc` | Close a dialog, sheet or popover |
 
-Reading aids are chosen by a **model** (Jev by default; see [Reading aids and models](#reading-aids-and-models)). With aids on, `mdpeek` sends the chosen model headings, a short excerpt per section and counts — never the whole file; turn aids off (or set `[aids] default = "off"`) for documents that must not leave your machine. If the model cannot answer, no aids are shown and the UI says why.
+GenUI views are chosen by a **model** (Jev by default; see [GenUI and models](#genui-and-models)). With GenUI on, `mdpeek` sends the chosen model headings, a short excerpt per section and counts — never the whole file; turn GenUI off (or set `[genui] default = "off"`) for documents that must not leave your machine. If the model cannot answer, no views are shown and the UI says why.
 
 ### Building the web UI
 
@@ -203,9 +203,9 @@ theme = "glow"
 pager = "less -R"
 ```
 
-## Reading aids and models
+## GenUI and models
 
-`mdpeek serve` shows reading aids chosen by a model; `mdpeek select <file>` prints
+`mdpeek serve` shows GenUI views chosen by a model; `mdpeek select <file>` prints
 the same choice as an **AdaptiveLayout** JSON (for each section, which widget to
 show — step navigator, checklist, table view, chart, node graph, stage flow,
 comparison cards, directory tree, timeline, risk callout, … — or why nothing is shown).
@@ -227,12 +227,12 @@ among the candidates that already fit each section and says how much they help.
 Decision models answer the questions directly (a probability per yes/no question,
 a choice with its confidence). LLMs get the same questions as a JSON prompt and
 must answer with the same JSON; prose without JSON counts as an invalid answer.
-Letting an LLM *write* aids is not supported (see issue #58).
+Letting an LLM *write* views is not supported (see issue #58).
 
 ### Configuration
 
 ```toml
-[aids]
+[genui]
 default = "on"           # the toggle's initial state: "on" | "off"
 auto_generate = true     # start choosing when a document opens; false = wait for the reader
 
@@ -242,7 +242,7 @@ timeout_ms = 30000       # per request
 batch_sections = 8       # sections per request (also the unit of stop / resume)
 excerpt_chars = 600      # excerpt per section sent to the model
 max_state_chars = 24000  # total sent per request
-helps_threshold = 0.5    # hide aids the model considers unhelpful…
+helps_threshold = 0.5    # hide views the model considers unhelpful…
 confidence_threshold = 0.6  # …or is unsure about
 debounce_ms = 800        # serve: wait after an edit before choosing again
 
@@ -318,7 +318,7 @@ SHA-256 digests) — no document text, heading or key. `[cache] enabled = false`
 keeps decisions in memory only.
 
 **Failures.** A model that cannot be used (bad entry, unset key, 401/402/404, CLI
-missing) shows no aids, and the UI notifies you with the reason and the config
+missing) shows no views, and the UI notifies you with the reason and the config
 file. Timeouts, 429/529 (retried once, honouring `retry-after`), 5xx, malformed
 answers and no network end the run with an error you can retry.
 

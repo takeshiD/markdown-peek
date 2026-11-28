@@ -163,7 +163,7 @@ pub fn write(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBu
     p
 }
 
-/// `[select]` config pointing Jev at `base_url`.
+/// Config pointing Jev at `base_url`.
 pub fn jev_config(dir: &std::path::Path, base_url: &str, extra: &str) -> std::path::PathBuf {
     write(
         dir,
