@@ -50,7 +50,7 @@
   --font-ui: system-ui, -apple-system, "Segoe UI", "Noto Sans", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", sans-serif;
   --font-body: -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, "Noto Sans CJK JP", sans-serif;
   --font-code: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --measure: 72ch;
+  --measure: 88ch; /* [server] width overrides it on <html> */
   --topbar-h: 44px;
 }
 

@@ -243,3 +243,55 @@ test.describe("outline after switching files", () => {
     await expect(outline.getByRole("link", { name: "Same" })).toHaveCount(0);
   });
 });
+
+test.describe("text width ([server] width)", () => {
+  const textWidth = (page: import("@playwright/test").Page) => page.locator("article").evaluate((a) => a.parentElement!.getBoundingClientRect().width);
+  const paneWidth = (page: import("@playwright/test").Page) =>
+    page.locator("article").evaluate((a) => {
+      const col = a.parentElement!.parentElement!;
+      const cs = getComputedStyle(col);
+      return col.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    });
+  test.use({ viewport: { width: 1600, height: 900 } });
+
+  test("default is 88ch", async ({ page, server }) => {
+    await openApp(page, server);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--measure").trim())).toBe("88ch");
+    const w = await textWidth(page);
+    const ch = await page.locator("article").evaluate((a) => {
+      const s = document.createElement("span");
+      s.textContent = "0".repeat(100);
+      s.style.font = getComputedStyle(a.parentElement!).font;
+      document.body.appendChild(s);
+      const v = s.getBoundingClientRect().width / 100;
+      s.remove();
+      return v;
+    });
+    expect(Math.abs(w - 88 * ch)).toBeLessThan(2);
+  });
+
+  test.describe("a length", () => {
+    test.use({ serverOptions: { extraConfig: '[server]\nwidth = "700px"\n' } });
+    test("sets the column to that width", async ({ page, server }) => {
+      await openApp(page, server);
+      expect(Math.round(await textWidth(page))).toBe(700);
+    });
+  });
+
+  test.describe("a fraction", () => {
+    test.use({ serverOptions: { extraConfig: '[server]\nwidth = "1/2"\n' } });
+    test("is a share of the document pane", async ({ page, server }) => {
+      await openApp(page, server);
+      expect(Math.abs((await textWidth(page)) - (await paneWidth(page)) / 2)).toBeLessThan(1);
+    });
+  });
+
+  test.describe("an unreadable value", () => {
+    test.use({ serverOptions: { extraConfig: '[server]\nwidth = "wide"\n' } });
+    test("is reported and the default is used", async ({ page, server }) => {
+      await openApp(page, server);
+      await expect(page.getByTestId("toast").filter({ hasText: "Settings are invalid" })).toContainText('[server] width = "wide" is not a width');
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--measure").trim())).toBe("88ch");
+    });
+  });
+});

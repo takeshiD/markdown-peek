@@ -21,6 +21,11 @@ port = "3030"
 # Accepted values: "light" | "dark"
 theme = "light"
 
+# Width of the text column.
+# A length: "88ch" (default), "850px", "60em", "40rem"
+# or a share of the document pane: "95%", "3/4", "1/2"
+width = "88ch"
+
 [term]
 # Terminal rendering theme.
 # Accepted values: glow | mono | catputtin | dracura | solarized | nord | ayu

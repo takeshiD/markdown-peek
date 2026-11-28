@@ -34,7 +34,7 @@ fn main() -> Result<()> {
             model,
         } => {
             let aids = adaptive_setup(&config, model);
-            handle_serve(file, host, port, theme, gui_llm, aids)
+            handle_serve(file, host, port, theme, config.text_width(), gui_llm, aids)
         }
         Mode::Term {
             file,
@@ -164,6 +164,7 @@ fn handle_serve(
     host: String,
     port: String,
     theme: BrowserTheme,
+    width: String,
     gui_llm: Option<mdpeek_gui::LlmBackendConfig>,
     aids: mdpeek_server::AdaptiveSetup,
 ) {
@@ -177,7 +178,7 @@ fn handle_serve(
     // `serve` discovers the repo/worktree markdown tree (explorer mode, #14) and
     // picks a valid active file, so we hand off even when `root` doesn't exist
     // (e.g. the default README.md is absent) rather than bailing out here.
-    serve(root, host, port, theme, gui_llm, aids);
+    serve(root, host, port, theme, width, gui_llm, aids);
 }
 
 fn handle_term(root: PathBuf, watch: bool, theme: ThemeChoice, pager: Option<String>) {

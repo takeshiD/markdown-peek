@@ -196,6 +196,7 @@ default_mode = "serve"
 host = "127.0.0.1"
 port = "3030"
 theme = "light"
+width = "88ch"   # 本文の幅: 長さ（"88ch"、"850px"、"60em"）または表示領域に対する割合（"95%"、"3/4"）
 
 [term]
 theme = "glow"

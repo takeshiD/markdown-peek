@@ -197,6 +197,7 @@ default_mode = "serve"
 host = "127.0.0.1"
 port = "3030"
 theme = "light"
+width = "88ch"   # text column: a length ("88ch", "850px", "60em") or a share of the pane ("95%", "3/4")
 
 [term]
 theme = "glow"
