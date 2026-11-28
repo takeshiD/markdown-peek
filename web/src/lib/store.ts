@@ -41,13 +41,15 @@ export interface Prefs {
   outlineFloatPos: { right: number; top: number };
   autoscroll: boolean;
   /** Where pinned GenUI views go, outside the scrolling text: a floating
-   * panel over it (default), or docked above it or to its left. */
+   * panel over it (default), or docked to its left. */
   pinSide: PinSide;
   /** Floating pinned panel offset from the document column's top-left corner. */
   pinFloatPos: { left: number; top: number };
+  /** Files was folded to make room for the left dock (unfold it when the dock goes). */
+  railFoldedForPins: boolean;
   docs: Record<string, DocPrefs>;
 }
-export type PinSide = "float" | "top" | "left";
+export type PinSide = "float" | "left";
 
 export const DEFAULT_PREFS: Prefs = {
   aids: null,
@@ -61,6 +63,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoscroll: false,
   pinSide: "float",
   pinFloatPos: { left: 16, top: 16 },
+  railFoldedForPins: false,
   docs: {},
 };
 
@@ -82,7 +85,9 @@ function loadPrefs(): Prefs {
     if (out.aids !== null && typeof out.aids !== "boolean") out.aids = null;
     if (!["light", "dark", "system"].includes(out.theme)) out.theme = "system";
     if (typeof out.docs !== "object" || !out.docs) out.docs = {};
-    if (!["float", "top", "left"].includes(out.pinSide)) out.pinSide = "float";
+    // "top" (docked above the text) was removed: it took too much of the screen.
+    if (out.pinSide !== "float" && out.pinSide !== "left") out.pinSide = "float";
+    if (typeof out.railFoldedForPins !== "boolean") out.railFoldedForPins = false;
     const pp = out.pinFloatPos as { left?: unknown; top?: unknown } | undefined;
     if (!pp || typeof pp.left !== "number" || typeof pp.top !== "number") out.pinFloatPos = { ...DEFAULT_PREFS.pinFloatPos };
     const fp = out.outlineFloatPos as { right?: unknown; top?: unknown } | undefined;

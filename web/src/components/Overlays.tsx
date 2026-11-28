@@ -1,7 +1,7 @@
 // Overlays: command palette, keyboard shortcuts, guided reading panel, and
 // the mobile Files / Outline sheet.
 import { useEffect, useRef, useState } from "react";
-import { BookOpenText, Bot, EyeOff, FileText, Hash, Keyboard, LocateFixed, Monitor, Moon, PanelLeft, PanelTop, PictureInPicture2, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
+import { BookOpenText, Bot, EyeOff, FileText, Hash, Keyboard, LocateFixed, Monitor, Moon, PanelLeft, PictureInPicture2, Pin, Play, Sparkles, Square, Star, Sun, Undo2 } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -107,7 +107,6 @@ export function CommandPalette() {
     const side = getState().prefs.pinSide;
     const places: [PinSide, string, React.ReactNode][] = [
       ["float", "Float the pinned views over the text", <PictureInPicture2 />],
-      ["top", "Dock pinned views above the text", <PanelTop />],
       ["left", "Dock pinned views left of the text", <PanelLeft />],
     ];
     for (const [s, label, icon] of places)

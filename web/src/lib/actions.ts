@@ -361,7 +361,7 @@ export function togglePin(p: Placement) {
   // section): say where it went and offer to go there, so it does not look
   // like it vanished (#61).
   const side = getState().prefs.pinSide;
-  const where = side === "left" ? "left of the text" : side === "top" ? "above the text" : "over the text";
+  const where = side === "left" ? "left of the text" : "over the text";
   announce(`${name} ${pinned ? `pinned ${where}` : "unpinned, back in its section"}`);
   notify(
     {
@@ -378,7 +378,7 @@ export function togglePin(p: Placement) {
 /** Dock pinned views above the text or to its left. */
 export function setPinSide(side: PinSide) {
   setPrefs({ pinSide: side });
-  announce(side === "left" ? "Pinned views docked left of the text" : side === "top" ? "Pinned views docked above the text" : "Pinned views float over the text");
+  announce(side === "left" ? "Pinned views docked left of the text" : "Pinned views float over the text");
 }
 
 export function hideWidget(p: Placement) {

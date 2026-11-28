@@ -47,15 +47,13 @@ test.describe("#61 pin and hide keep the aid findable", () => {
     expect(Math.round(moved.x - floatBox.x)).toBe(200);
     expect(Math.round(moved.y - floatBox.y)).toBe(60);
 
-    // Docked above the text: the text starts below it.
-    await dock.getByRole("button", { name: "Dock pinned views above the text" }).click();
-    await expect(dock).toHaveAttribute("data-side", "top");
-    const top = (await dock.boundingBox())!;
-    expect((await main.boundingBox())!.y).toBeGreaterThanOrEqual(top.y + top.height - 1);
-
-    // Docked left: beside the text, full height.
+    // Docked left: beside the text, full height, in place of Files (folded).
+    const rail = page.getByTestId("rail");
+    expect((await rail.boundingBox())?.width ?? 0).toBeGreaterThan(100);
     await dock.getByRole("button", { name: "Dock pinned views left of the text" }).click();
     await expect(dock).toHaveAttribute("data-side", "left");
+    await expect.poll(async () => (await rail.boundingBox())?.width ?? 0).toBeLessThan(20);
+    await expect(page.getByRole("button", { name: "Show files" })).toBeVisible();
     const left = (await dock.boundingBox())!;
     expect(left.x + left.width).toBeLessThanOrEqual((await main.boundingBox())!.x + 1);
     expect(left.height).toBeGreaterThan(500);
@@ -65,6 +63,8 @@ test.describe("#61 pin and hide keep the aid findable", () => {
     await expect(dock).toHaveAttribute("data-side", "left");
     await dock.getByRole("button", { name: "Float the pinned views over the text" }).click();
     await expect(dock).toHaveAttribute("data-side", "float");
+    // Files comes back once the left dock is gone (even after the reload).
+    await expect.poll(async () => (await rail.boundingBox())?.width ?? 0).toBeGreaterThan(100);
     expect(Math.round((await dock.boundingBox())!.x - floatBox.x)).toBe(200);
 
     // Unpin: back in its section, and "Show it" goes there.
@@ -219,6 +219,6 @@ test.describe("view header hints and the GenUI toggle state", () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(toggle).not.toHaveClass(/mp-genui-on/);
-    expect(await toggle.evaluate((e) => getComputedStyle(e).color)).not.toBe(onColor);
+    await expect.poll(() => toggle.evaluate((e) => getComputedStyle(e).color)).not.toBe(onColor);
   });
 });

@@ -3,7 +3,7 @@
 // text next to the lines they come from.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { GripVertical, PanelLeft, PanelTop, PictureInPicture2, Pin } from "lucide-react";
+import { GripVertical, PanelLeft, PictureInPicture2, Pin } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -20,7 +20,7 @@ import {
   patchArticle,
   prefersReducedMotion,
 } from "../lib/body";
-import { registerDocument } from "../lib/nav";
+import { keepReadingPosition, registerDocument } from "../lib/nav";
 import { AidsStrip, isActive, useVisiblePlacements, WidgetNote } from "./Widgets";
 import type { Placement } from "../lib/types";
 import { widgetKey } from "../lib/types";
@@ -129,6 +129,7 @@ export function DocumentView() {
   const { visible, pinned } = useVisiblePlacements();
   const pinnedCount = aids ? visible.filter((p) => pinned.has(widgetKey(p))).length : 0;
   const [dock, setDock] = useState<HTMLDivElement | null>(null);
+  useFilesMakeRoom(pinnedCount > 0 && pinSide === "left");
 
   return (
     <div className="mp-docwrap" data-pin-side={pinSide}>
@@ -158,14 +159,31 @@ export function DocumentView() {
   );
 }
 
+/**
+ * The left dock takes the place of Files: while it is shown (desktop), the
+ * Files rail is folded, and unfolded again when the dock goes away, unless the
+ * reader had folded it already.
+ */
+function useFilesMakeRoom(leftDock: boolean) {
+  useEffect(() => {
+    if (!window.matchMedia?.("(min-width: 768px)").matches) return;
+    const { railCollapsed, railFoldedForPins } = getState().prefs;
+    if (leftDock) {
+      if (!railCollapsed) keepReadingPosition(() => setPrefs({ railCollapsed: true, railFoldedForPins: true }));
+    } else if (railFoldedForPins) {
+      keepReadingPosition(() => setPrefs({ railCollapsed: false, railFoldedForPins: false }));
+    }
+  }, [leftDock]);
+}
+
 /** Floating panel width (it never exceeds the column). */
 const FLOAT_W = 400;
 const FLOAT_STEP = 24;
 
 /**
  * Pinned views, outside the scrolling text: a floating panel over it (drag it
- * by its bar, or move it with the arrow keys on the grip), or a dock above it
- * or to its left. The header holds the count and the place switch.
+ * by its bar, or move it with the arrow keys on the grip), or a dock to its
+ * left. The header holds the count and the place switch.
  */
 function PinDock({ side, count, listRef }: { side: PinSide; count: number; listRef: (el: HTMLDivElement | null) => void }) {
   const saved = useStore((s) => s.prefs.pinFloatPos);
@@ -256,7 +274,6 @@ function PinDock({ side, count, listRef }: { side: PinSide; count: number; listR
         <span className="flex-1" />
         <span className="flex items-center gap-0.5 max-md:hidden">
           {sideButton("float", "Float the pinned views over the text", <PictureInPicture2 />)}
-          {sideButton("top", "Dock pinned views above the text", <PanelTop />)}
           {sideButton("left", "Dock pinned views left of the text", <PanelLeft />)}
         </span>
       </div>

@@ -337,11 +337,6 @@
     --dock-shadow: rgb(0 0 0 / 0.14);
   }
   .dark .mp-dock { --dock-shadow: rgb(0 0 0 / 0.55); }
-  .mp-dock[data-side="top"] {
-    max-height: min(42vh, 480px);
-    border-bottom: 1px solid var(--border);
-    box-shadow: 0 8px 18px -12px var(--dock-shadow);
-  }
   .mp-dock[data-side="left"] {
     width: clamp(280px, 36%, 440px);
     border-right: 1px solid var(--border);
@@ -368,8 +363,6 @@
   .mp-dock__list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 12px; }
   .mp-dock__list > .mp-note-slot[data-place] { margin: 0 0 10px; }
   .mp-dock__list > .mp-note-slot[data-place]:last-child { margin-bottom: 0; }
-  /* Above the text: the views line up with the text column. */
-  .mp-dock[data-side="top"] .mp-dock__list > .mp-note-slot { max-width: var(--measure); margin-inline: auto; }
   @media (max-width: 767px) {
     /* Phones have no room beside the text: the dock is always on top. */
     .mp-docwrap[data-pin-side="left"] { flex-direction: column; }
